@@ -13,10 +13,11 @@ use tower::ServiceExt;
 
 use drbd_ha::{
     api,
-    config::AppConfig,
+    config::{AppConfig, DatabaseConfig},
     state::AppState,
     core::Database,
 };
+use drbd_ha::api::create_router;
 
 /// Create a test application state with in-memory database
 fn create_test_state() -> Arc<AppState> {

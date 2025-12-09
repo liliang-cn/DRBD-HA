@@ -184,6 +184,17 @@ impl DiskSafetyCheck {
     }
 }
 
+/// Validate filesystem type
+pub fn validate_fs_type(fs_type: &str) -> AppResult<()> {
+    match fs_type {
+        "xfs" | "ext4" | "btrfs" => Ok(()),
+        _ => Err(AppError::Validation(format!(
+            "Unsupported filesystem type: '{}'. Supported types are xfs, ext4, btrfs",
+            fs_type
+        ))),
+    }
+}
+
 /// Check if a device is currently mounted
 pub fn check_device_mounted(device: &str, mount_output: &str) -> bool {
     // Check /proc/mounts format: device mountpoint fstype options

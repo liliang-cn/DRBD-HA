@@ -300,6 +300,9 @@ pub async fn create_profile(
         validator::validate_mount_point(&req.mount_point)?;
     }
 
+    // Filesystem type validation
+    validator::validate_fs_type(&req.fs_type)?;
+
     // Validate services only for Generic
     if req.ha_type == HaType::Generic {
         for service in &req.services {
@@ -3345,12 +3348,26 @@ pub async fn remove_vip(
 /// Parse drbdadm status output into structured format
 /// Example output:
 /// ```
+/// ```
+/// # use crate::api::ha::{parse_drbdadm_status, DrbdResourceStatus}; // Import necessary items
+/// let output = r#"
 /// mongodb-data role:Primary
 ///   disk:UpToDate open:yes
 ///   gui02 role:Secondary
 ///     peer-disk:UpToDate
 ///   gui03 role:Secondary
 ///     peer-disk:UpToDate
+/// "#;
+/// let resource_name = "mongodb-data";
+/// let status = parse_drbdadm_status(output, resource_name).unwrap();
+/// assert_eq!(status.resource, "mongodb-data");
+/// assert_eq!(status.role, "Primary");
+/// assert_eq!(status.disk, "UpToDate");
+/// assert_eq!(status.open, true);
+/// assert_eq!(status.peers.len(), 2);
+/// assert_eq!(status.peers[0].name, "gui02");
+/// assert_eq!(status.peers[0].role, "Secondary");
+/// assert_eq!(status.peers[0].peer_disk, "UpToDate");
 /// ```
 fn parse_drbdadm_status(output: &str, resource_name: &str) -> Option<DrbdResourceStatus> {
     let lines: Vec<&str> = output.lines().collect();

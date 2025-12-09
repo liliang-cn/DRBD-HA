@@ -1,42 +1,59 @@
-.PHONY: all build build-ui build-rust clean release dev check test
+.PHONY: all build build-ui build-rust clean release dev check test build-linux
 
 # Default target: build everything
 all: build
 
-# Build UI first, then Rust binary
+# Build UI first, then Rust binaries for the workspace
 build: build-ui build-rust
 
 # Build UI
 build-ui:
 	@echo "Building UI..."
-	cd ui && npm install && npm run build
+	cd drbd-ha/ui && npm install && npm run build
 
-# Build Rust binary (assumes UI is already built)
+# Build all Rust binaries in the workspace
 build-rust:
-	@echo "Building Rust binary..."
-	cargo build --release
+	@echo "Building all Rust binaries in the workspace..."
+	cargo build --workspace
 
 # Clean all build artifacts
 clean:
 	cargo clean
-	rm -rf ui/dist ui/node_modules
+	rm -rf drbd-ha/ui/dist drbd-ha/ui/node_modules ra-params/output
 
-# Build release binary
-release: build
-	@echo "Release binary: target/release/drbd-ha"
+# Build release binaries for the workspace
+release: build-ui
+	@echo "Building all Rust binaries in the workspace (release mode)..."
+	cargo build --workspace --release
+	@echo "Main release binary: target/release/drbd-ha"
+	@echo "Helper tool binary: target/release/ra-params"
+
+# Build for Linux (x86_64) using 'cross'
+# Requires: cargo install cross
+LINUX_TARGET ?= x86_64-unknown-linux-musl
+build-linux: build-ui
+	@echo "Checking for 'cross'..."
+	@command -v cross >/dev/null 2>&1 || { echo >&2 "Error: 'cross' is not installed. Please run: cargo install cross"; exit 1; }
+	@echo "Building all Rust binaries for Linux ($(LINUX_TARGET))..."
+	cross build --target $(LINUX_TARGET) --workspace --release
+	@echo "Linux binaries available in: target/$(LINUX_TARGET)/release/"
 
 # Development mode: watch and rebuild
 dev:
-	@echo "Starting development server..."
-	cd ui && npm run dev &
-	cargo watch -x run
+	@echo "Starting UI development server..."
+	cd drbd-ha/ui && npm run dev &
+	@echo "Starting Rust development watcher..."
+	cargo watch -x run # Assumes it will run the default binary (drbd-ha)
 
-# Run checks
+# Run checks for the workspace
 check:
-	cargo clippy
-	cargo fmt --check
-	cd ui && npm run lint 2>/dev/null || true
+	@echo "Running Rust checks..."
+	cargo clippy --workspace --all-targets -- -D warnings
+	cargo fmt --check --workspace
+	@echo "Running UI linting..."
+	cd drbd-ha/ui && npm run lint 2>/dev/null || true
 
-# Run tests
+# Run tests for the workspace
 test:
-	cargo test
+	@echo "Running all tests in the workspace..."
+	cargo test --workspace
