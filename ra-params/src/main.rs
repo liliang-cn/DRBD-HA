@@ -31,10 +31,14 @@ enum Commands {
         /// Save the raw XML metadata files
         #[arg(short, long, default_value_t = false)]
         save_xml: bool,
+
+        /// Combine all TS into one file and all JSON into one file
+        #[arg(short, long, default_value_t = false)]
+        combine: bool,
     },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 struct ResourceAgent {
     #[serde(rename = "@name")]
@@ -51,7 +55,7 @@ struct ResourceAgent {
     actions: Actions,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct LocalizedText {
     #[serde(rename = "@lang", default)]
     lang: String,
@@ -59,13 +63,13 @@ struct LocalizedText {
     text: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct Parameters {
     #[serde(rename = "parameter", default)]
     parameters: Vec<Parameter>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Parameter {
     #[serde(rename = "@name")]
     name: String,
@@ -81,7 +85,7 @@ struct Parameter {
     content: Content,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct Content {
     #[serde(rename = "@type", default)]
     type_: String,
@@ -89,13 +93,13 @@ struct Content {
     default: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct Actions {
     #[serde(rename = "action", default)]
     actions: Vec<Action>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Action {
     #[serde(rename = "@name")]
     name: String,
@@ -111,7 +115,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Convert { root, output, save_xml } => {
+        Commands::Convert {
+            root,
+            output,
+            save_xml,
+            combine,
+        } => {
             let ocf_root = root
                 .or_else(|| env::var("OCF_ROOT").ok().map(PathBuf::from))
                 .unwrap_or_else(|| PathBuf::from("/usr/lib/ocf"));
@@ -125,14 +134,21 @@ fn main() -> Result<()> {
             }
 
             println!("Scanning OCF agents in: {}", resource_d.display());
-            scan_and_process(&resource_d, &output_dir, save_xml)?;
+            scan_and_process(&resource_d, &output_dir, save_xml, combine)?;
         }
     }
 
     Ok(())
 }
 
-fn scan_and_process(resource_d: &Path, output_dir: &Path, save_xml: bool) -> Result<()> {
+fn scan_and_process(
+    resource_d: &Path,
+    output_dir: &Path,
+    save_xml: bool,
+    combine: bool,
+) -> Result<()> {
+    let mut all_agents = Vec::new();
+
     // Iterate over providers (e.g., heartbeat, linbit, pacemaker)
     for entry in fs::read_dir(resource_d)? {
         let entry = entry?;
@@ -154,27 +170,41 @@ fn scan_and_process(resource_d: &Path, output_dir: &Path, save_xml: bool) -> Res
                     let permissions = metadata.permissions();
                     if permissions.mode() & 0o111 != 0 {
                         // It's executable, try to get meta-data
-                        if let Err(e) = process_agent(&agent_path, &provider_output_dir, save_xml) {
-                            eprintln!("Failed to process agent {}: {}", agent_path.display(), e);
+                        match process_agent(&agent_path, &provider_output_dir, save_xml) {
+                            Ok(agent) => {
+                                if combine {
+                                    all_agents.push(agent);
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to process agent {}: {}", agent_path.display(), e);
+                            }
                         }
                     }
                 }
             }
         }
     }
+
+    if combine && !all_agents.is_empty() {
+        generate_combined_files(&all_agents, output_dir)?;
+    }
+
     Ok(())
 }
 
-fn process_agent(agent_path: &Path, output_dir: &Path, save_xml: bool) -> Result<()> {
+fn process_agent(
+    agent_path: &Path,
+    output_dir: &Path,
+    save_xml: bool,
+) -> Result<ResourceAgent> {
     let agent_name = agent_path.file_name().unwrap().to_string_lossy();
     println!("Processing Agent: {}", agent_name);
 
     // Run the agent with meta-data argument
-    // Use timeout command to prevent hanging
-    // On macOS/Linux, we can execute the file directly
     let output = Command::new(agent_path)
         .arg("meta-data")
-        .env("OCF_ROOT", "/usr/lib/ocf") // Ensure env is set for the script itself if needed
+        .env("OCF_ROOT", "/usr/lib/ocf")
         .output()
         .context("Failed to execute agent with meta-data")?;
 
@@ -211,7 +241,7 @@ fn process_agent(agent_path: &Path, output_dir: &Path, save_xml: bool) -> Result
     ts_file.write_all(ts_content.as_bytes())?;
     println!("  Generated TS: {}", ts_output_path.display());
 
-    Ok(())
+    Ok(ra)
 }
 
 fn generate_ts(ra: &ResourceAgent, agent_name: &str) -> String {
@@ -244,41 +274,137 @@ fn generate_ts(ra: &ResourceAgent, agent_name: &str) -> String {
     ts.push_str("  depth: string;\n");
     ts.push_str("}\n\n");
 
-    ts.push_str(&format!("export const {}_DATA: {} = {{\n", safe_agent_name, safe_agent_name));
-    ts.push_str(&format!("  name: \"{}\",\n", ra.name));
-    ts.push_str(&format!("  version: \"{}\",\n", ra.version));
-    ts.push_str(&format!("  shortdesc: {:?},\n", ra.shortdesc.text.trim()));
-    ts.push_str(&format!("  longdesc: {:?},\n", ra.longdesc.text.trim()));
+    ts.push_str(&format!(
+        "export const {}_DATA: {} = {{ \n",
+        safe_agent_name,
+        safe_agent_name,
+    ));
+    ts.push_str(&format!("  name: \"{}\" ,\n", ra.name));
+    ts.push_str(&format!("  version: \"{}\" ,\n", ra.version));
+    ts.push_str(&format!("  shortdesc: {:?} ,\n", ra.shortdesc.text.trim()));
+    ts.push_str(&format!("  longdesc: {:?} ,\n", ra.longdesc.text.trim()));
 
     ts.push_str("  parameters: [\n");
     for param in &ra.parameters.parameters {
         ts.push_str("    {\n");
-        ts.push_str(&format!("      name: \"{}\",\n", param.name));
-        ts.push_str(&format!("      unique: {},\n", param.unique == "1"));
-        ts.push_str(&format!("      required: {},\n", param.required == "1"));
-        ts.push_str(&format!("      shortdesc: {:?},\n", param.shortdesc.text.trim()));
-        ts.push_str(&format!("      longdesc: {:?},\n", param.longdesc.text.trim()));
-        ts.push_str(&format!("      type: \"{}\",\n", param.content.type_));
-        ts.push_str(&format!("      default: \"{}\",\n", param.content.default));
+        ts.push_str(&format!("      name: \"{}\" ,\n", param.name));
+        ts.push_str(&format!("      unique: {} ,\n", param.unique == "1"));
+        ts.push_str(&format!("      required: {} ,\n", param.required == "1"));
+        ts.push_str(&format!(
+            "      shortdesc: {:?} ,\n",
+            param.shortdesc.text.trim(),
+        ));
+        ts.push_str(&format!(
+            "      longdesc: {:?} ,\n",
+            param.longdesc.text.trim(),
+        ));
+        ts.push_str(&format!("      type: \"{}\" ,\n", param.content.type_));
+        ts.push_str(&format!("      default: \"{}\" ,\n", param.content.default));
         ts.push_str("    },\n");
     }
-    ts.push_str("  ],
-");
+    ts.push_str("  ],\n");
 
     ts.push_str("  actions: [\n");
     for action in &ra.actions.actions {
         ts.push_str("    {\n");
-        ts.push_str(&format!("      name: \"{}\",\n", action.name));
-        ts.push_str(&format!("      timeout: \"{}\",\n", action.timeout));
-        ts.push_str(&format!("      interval: \"{}\",\n", action.interval));
-        ts.push_str(&format!("      depth: \"{}\",\n", action.depth));
+        ts.push_str(&format!("      name: \"{}\" ,\n", action.name));
+        ts.push_str(&format!("      timeout: \"{}\" ,\n", action.timeout));
+        ts.push_str(&format!("      interval: \"{}\" ,\n", action.interval));
+        ts.push_str(&format!("      depth: \"{}\" ,\n", action.depth));
         ts.push_str("    },\n");
     }
-    ts.push_str("  ]
-");
+    ts.push_str("  ]\n");
 
-    ts.push_str("};
-");
+    ts.push_str("};\n");
 
     ts
+}
+
+fn generate_combined_files(agents: &[ResourceAgent], output_dir: &Path) -> Result<()> {
+    // Generate combined JSON
+    let json_path = output_dir.join("all_agents.json");
+    let json_file = fs::File::create(&json_path)?;
+    serde_json::to_writer_pretty(json_file, agents)?;
+    println!("Generated Combined JSON: {}", json_path.display());
+
+    // Generate combined TS
+    let ts_path = output_dir.join("all_agents.ts");
+    let mut ts = String::new();
+
+    // Define interfaces once
+    ts.push_str("export interface Parameter {\n");
+    ts.push_str("  name: string;\n");
+    ts.push_str("  unique: boolean;\n");
+    ts.push_str("  required: boolean;\n");
+    ts.push_str("  shortdesc: string;\n");
+    ts.push_str("  longdesc: string;\n");
+    ts.push_str("  type: string;\n");
+    ts.push_str("  default: string;\n");
+    ts.push_str("}\n\n");
+
+    ts.push_str("export interface Action {\n");
+    ts.push_str("  name: string;\n");
+    ts.push_str("  timeout: string;\n");
+    ts.push_str("  interval: string;\n");
+    ts.push_str("  depth: string;\n");
+    ts.push_str("}\n\n");
+
+    ts.push_str("export interface ResourceAgent {\n");
+    ts.push_str("  name: string;\n");
+    ts.push_str("  version: string;\n");
+    ts.push_str("  shortdesc: string;\n");
+    ts.push_str("  longdesc: string;\n");
+    ts.push_str("  parameters: Parameter[];\n");
+    ts.push_str("  actions: Action[];\n");
+    ts.push_str("}\n\n");
+
+    ts.push_str("export const ALL_AGENTS: ResourceAgent[] = [\n");
+
+    for ra in agents {
+        ts.push_str("  {\n");
+        ts.push_str(&format!("    name: \"{}\" ,\n", ra.name));
+        ts.push_str(&format!("    version: \"{}\" ,\n", ra.version));
+        ts.push_str(&format!("    shortdesc: {:?} ,\n", ra.shortdesc.text.trim()));
+        ts.push_str(&format!("    longdesc: {:?} ,\n", ra.longdesc.text.trim()));
+
+        ts.push_str("    parameters: [\n");
+        for param in &ra.parameters.parameters {
+            ts.push_str("      {\n");
+            ts.push_str(&format!("        name: \"{}\" ,\n", param.name));
+            ts.push_str(&format!("        unique: {} ,\n", param.unique == "1"));
+            ts.push_str(&format!("        required: {} ,\n", param.required == "1"));
+            ts.push_str(&format!(
+                "        shortdesc: {:?} ,\n",
+                param.shortdesc.text.trim()
+            ));
+            ts.push_str(&format!(
+                "        longdesc: {:?} ,\n",
+                param.longdesc.text.trim()
+            ));
+            ts.push_str(&format!("        type: \"{}\" ,\n", param.content.type_));
+            ts.push_str(&format!("        default: \"{}\" ,\n", param.content.default));
+            ts.push_str("      },\n");
+        }
+        ts.push_str("    ],\n");
+
+        ts.push_str("    actions: [\n");
+        for action in &ra.actions.actions {
+            ts.push_str("      {\n");
+            ts.push_str(&format!("        name: \"{}\" ,\n", action.name));
+            ts.push_str(&format!("        timeout: \"{}\" ,\n", action.timeout));
+            ts.push_str(&format!("        interval: \"{}\" ,\n", action.interval));
+            ts.push_str(&format!("        depth: \"{}\" ,\n", action.depth));
+            ts.push_str("      },\n");
+        }
+        ts.push_str("    ]\n");
+        ts.push_str("  },\n");
+    }
+
+    ts.push_str("];\n");
+
+    let mut ts_file = fs::File::create(&ts_path)?;
+    ts_file.write_all(ts.as_bytes())?;
+    println!("Generated Combined TS: {}", ts_path.display());
+
+    Ok(())
 }
