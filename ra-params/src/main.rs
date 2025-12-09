@@ -1,13 +1,18 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use quick_xml::de::from_str;
-use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+mod generator;
+mod models;
+
+use generator::{generate_combined_files, generate_ts};
+use models::ResourceAgent;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -36,79 +41,6 @@ enum Commands {
         #[arg(short, long, default_value_t = false)]
         combine: bool,
     },
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "kebab-case")]
-struct ResourceAgent {
-    #[serde(rename = "@name")]
-    name: String,
-    #[serde(rename = "@version")]
-    version: String,
-    #[serde(default)]
-    longdesc: LocalizedText,
-    #[serde(default)]
-    shortdesc: LocalizedText,
-    #[serde(default)]
-    parameters: Parameters,
-    #[serde(default)]
-    actions: Actions,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct LocalizedText {
-    #[serde(rename = "@lang", default)]
-    lang: String,
-    #[serde(rename = "$value", default)]
-    text: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct Parameters {
-    #[serde(rename = "parameter", default)]
-    parameters: Vec<Parameter>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Parameter {
-    #[serde(rename = "@name")]
-    name: String,
-    #[serde(rename = "@unique", default)]
-    unique: String,
-    #[serde(rename = "@required", default)]
-    required: String,
-    #[serde(default)]
-    longdesc: LocalizedText,
-    #[serde(default)]
-    shortdesc: LocalizedText,
-    #[serde(default)]
-    content: Content,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct Content {
-    #[serde(rename = "@type", default)]
-    type_: String,
-    #[serde(rename = "@default", default)]
-    default: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct Actions {
-    #[serde(rename = "action", default)]
-    actions: Vec<Action>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Action {
-    #[serde(rename = "@name")]
-    name: String,
-    #[serde(rename = "@timeout", default)]
-    timeout: String,
-    #[serde(rename = "@interval", default)]
-    interval: String,
-    #[serde(rename = "@depth", default)]
-    depth: String,
 }
 
 fn main() -> Result<()> {
@@ -148,6 +80,9 @@ fn scan_and_process(
     combine: bool,
 ) -> Result<()> {
     let mut all_agents = Vec::new();
+    let mut success_count = 0;
+    let mut fail_count = 0;
+    let mut failures: Vec<(String, String)> = Vec::new();
 
     // Iterate over providers (e.g., heartbeat, linbit, pacemaker)
     for entry in fs::read_dir(resource_d)? {
@@ -172,11 +107,16 @@ fn scan_and_process(
                         // It's executable, try to get meta-data
                         match process_agent(&agent_path, &provider_output_dir, save_xml) {
                             Ok(agent) => {
+                                success_count += 1;
                                 if combine {
                                     all_agents.push(agent);
                                 }
                             }
                             Err(e) => {
+                                fail_count += 1;
+                                let agent_name =
+                                    agent_path.file_name().unwrap().to_string_lossy().to_string();
+                                failures.push((agent_name.clone(), e.to_string()));
                                 eprintln!("Failed to process agent {}: {}", agent_path.display(), e);
                             }
                         }
@@ -188,6 +128,18 @@ fn scan_and_process(
 
     if combine && !all_agents.is_empty() {
         generate_combined_files(&all_agents, output_dir)?;
+    }
+
+    println!("\n--- Processing Summary ---");
+    println!("Total Agents Processed: {}", success_count + fail_count);
+    println!("Successful: {}", success_count);
+    println!("Failed: {}", fail_count);
+
+    if !failures.is_empty() {
+        println!("\n--- Failures ---");
+        for (name, reason) in failures {
+            println!("Agent: {}\n  Reason: {}\n", name, reason);
+        }
     }
 
     Ok(())
@@ -242,169 +194,4 @@ fn process_agent(
     println!("  Generated TS: {}", ts_output_path.display());
 
     Ok(ra)
-}
-
-fn generate_ts(ra: &ResourceAgent, agent_name: &str) -> String {
-    let safe_agent_name = agent_name.replace("-", "_").replace(".", "_");
-    let mut ts = String::new();
-
-    ts.push_str(&format!("export interface {} {{\n", safe_agent_name));
-    ts.push_str("  name: string;\n");
-    ts.push_str("  version: string;\n");
-    ts.push_str("  shortdesc: string;\n");
-    ts.push_str("  longdesc: string;\n");
-    ts.push_str("  parameters: Parameter[];\n");
-    ts.push_str("  actions: Action[];\n");
-    ts.push_str("}\n\n");
-
-    ts.push_str("export interface Parameter {\n");
-    ts.push_str("  name: string;\n");
-    ts.push_str("  unique: boolean;\n");
-    ts.push_str("  required: boolean;\n");
-    ts.push_str("  shortdesc: string;\n");
-    ts.push_str("  longdesc: string;\n");
-    ts.push_str("  type: string;\n");
-    ts.push_str("  default: string;\n");
-    ts.push_str("}\n\n");
-
-    ts.push_str("export interface Action {\n");
-    ts.push_str("  name: string;\n");
-    ts.push_str("  timeout: string;\n");
-    ts.push_str("  interval: string;\n");
-    ts.push_str("  depth: string;\n");
-    ts.push_str("}\n\n");
-
-    ts.push_str(&format!(
-        "export const {}_DATA: {} = {{ \n",
-        safe_agent_name,
-        safe_agent_name,
-    ));
-    ts.push_str(&format!("  name: \"{}\" ,\n", ra.name));
-    ts.push_str(&format!("  version: \"{}\" ,\n", ra.version));
-    ts.push_str(&format!("  shortdesc: {:?} ,\n", ra.shortdesc.text.trim()));
-    ts.push_str(&format!("  longdesc: {:?} ,\n", ra.longdesc.text.trim()));
-
-    ts.push_str("  parameters: [\n");
-    for param in &ra.parameters.parameters {
-        ts.push_str("    {\n");
-        ts.push_str(&format!("      name: \"{}\" ,\n", param.name));
-        ts.push_str(&format!("      unique: {} ,\n", param.unique == "1"));
-        ts.push_str(&format!("      required: {} ,\n", param.required == "1"));
-        ts.push_str(&format!(
-            "      shortdesc: {:?} ,\n",
-            param.shortdesc.text.trim(),
-        ));
-        ts.push_str(&format!(
-            "      longdesc: {:?} ,\n",
-            param.longdesc.text.trim(),
-        ));
-        ts.push_str(&format!("      type: \"{}\" ,\n", param.content.type_));
-        ts.push_str(&format!("      default: \"{}\" ,\n", param.content.default));
-        ts.push_str("    },\n");
-    }
-    ts.push_str("  ],\n");
-
-    ts.push_str("  actions: [\n");
-    for action in &ra.actions.actions {
-        ts.push_str("    {\n");
-        ts.push_str(&format!("      name: \"{}\" ,\n", action.name));
-        ts.push_str(&format!("      timeout: \"{}\" ,\n", action.timeout));
-        ts.push_str(&format!("      interval: \"{}\" ,\n", action.interval));
-        ts.push_str(&format!("      depth: \"{}\" ,\n", action.depth));
-        ts.push_str("    },\n");
-    }
-    ts.push_str("  ]\n");
-
-    ts.push_str("};\n");
-
-    ts
-}
-
-fn generate_combined_files(agents: &[ResourceAgent], output_dir: &Path) -> Result<()> {
-    // Generate combined JSON
-    let json_path = output_dir.join("all_agents.json");
-    let json_file = fs::File::create(&json_path)?;
-    serde_json::to_writer_pretty(json_file, agents)?;
-    println!("Generated Combined JSON: {}", json_path.display());
-
-    // Generate combined TS
-    let ts_path = output_dir.join("all_agents.ts");
-    let mut ts = String::new();
-
-    // Define interfaces once
-    ts.push_str("export interface Parameter {\n");
-    ts.push_str("  name: string;\n");
-    ts.push_str("  unique: boolean;\n");
-    ts.push_str("  required: boolean;\n");
-    ts.push_str("  shortdesc: string;\n");
-    ts.push_str("  longdesc: string;\n");
-    ts.push_str("  type: string;\n");
-    ts.push_str("  default: string;\n");
-    ts.push_str("}\n\n");
-
-    ts.push_str("export interface Action {\n");
-    ts.push_str("  name: string;\n");
-    ts.push_str("  timeout: string;\n");
-    ts.push_str("  interval: string;\n");
-    ts.push_str("  depth: string;\n");
-    ts.push_str("}\n\n");
-
-    ts.push_str("export interface ResourceAgent {\n");
-    ts.push_str("  name: string;\n");
-    ts.push_str("  version: string;\n");
-    ts.push_str("  shortdesc: string;\n");
-    ts.push_str("  longdesc: string;\n");
-    ts.push_str("  parameters: Parameter[];\n");
-    ts.push_str("  actions: Action[];\n");
-    ts.push_str("}\n\n");
-
-    ts.push_str("export const ALL_AGENTS: ResourceAgent[] = [\n");
-
-    for ra in agents {
-        ts.push_str("  {\n");
-        ts.push_str(&format!("    name: \"{}\" ,\n", ra.name));
-        ts.push_str(&format!("    version: \"{}\" ,\n", ra.version));
-        ts.push_str(&format!("    shortdesc: {:?} ,\n", ra.shortdesc.text.trim()));
-        ts.push_str(&format!("    longdesc: {:?} ,\n", ra.longdesc.text.trim()));
-
-        ts.push_str("    parameters: [\n");
-        for param in &ra.parameters.parameters {
-            ts.push_str("      {\n");
-            ts.push_str(&format!("        name: \"{}\" ,\n", param.name));
-            ts.push_str(&format!("        unique: {} ,\n", param.unique == "1"));
-            ts.push_str(&format!("        required: {} ,\n", param.required == "1"));
-            ts.push_str(&format!(
-                "        shortdesc: {:?} ,\n",
-                param.shortdesc.text.trim()
-            ));
-            ts.push_str(&format!(
-                "        longdesc: {:?} ,\n",
-                param.longdesc.text.trim()
-            ));
-            ts.push_str(&format!("        type: \"{}\" ,\n", param.content.type_));
-            ts.push_str(&format!("        default: \"{}\" ,\n", param.content.default));
-            ts.push_str("      },\n");
-        }
-        ts.push_str("    ],\n");
-
-        ts.push_str("    actions: [\n");
-        for action in &ra.actions.actions {
-            ts.push_str("      {\n");
-            ts.push_str(&format!("        name: \"{}\" ,\n", action.name));
-            ts.push_str(&format!("        timeout: \"{}\" ,\n", action.timeout));
-            ts.push_str(&format!("        interval: \"{}\" ,\n", action.interval));
-            ts.push_str(&format!("        depth: \"{}\" ,\n", action.depth));
-            ts.push_str("      },\n");
-        }
-        ts.push_str("    ]\n");
-        ts.push_str("  },\n");
-    }
-
-    ts.push_str("];\n");
-
-    let mut ts_file = fs::File::create(&ts_path)?;
-    ts_file.write_all(ts.as_bytes())?;
-    println!("Generated Combined TS: {}", ts_path.display());
-
-    Ok(())
 }
