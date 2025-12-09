@@ -18,6 +18,7 @@ pub mod shell_cmd;
 pub mod storage;
 pub mod lvm_config;
 pub mod lvm_utils;
+pub mod metrics;
 pub mod nfs;
 pub mod iscsi;
 pub mod nvmeof;

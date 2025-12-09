@@ -3,6 +3,7 @@
 pub mod cluster;
 pub mod ha;
 pub mod middleware;
+pub mod metrics;
 pub mod resource;
 pub mod router;
 pub mod sse;

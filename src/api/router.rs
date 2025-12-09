@@ -12,7 +12,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use super::{
-    cluster, dashboard, doc::ApiDoc, ha, middleware::auth_middleware, resource, sse, storage, ui,
+    cluster, dashboard, doc::ApiDoc, ha, middleware::auth_middleware, metrics, resource, sse, storage, ui,
 };
 use crate::state::AppState;
 
@@ -30,6 +30,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     let api_routes = Router::new()
         // Health check
         .route("/health", get(cluster::health_check))
+        .route("/health/metrics", get(metrics::health_with_metrics))
+        // Metrics
+        .route("/metrics/summary", get(metrics::get_metrics_summary))
         // Dashboard
         .route("/dashboard/summary", get(dashboard::get_summary))
         // Node management
@@ -86,6 +89,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/events/all", get(sse::all_events_stream));
 
     Router::new()
+        // Prometheus metrics endpoint (outside auth for easy scraping)
+        .route("/metrics", get(metrics::get_metrics))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi))
         .nest("/api/v1", api_routes)
         .layer(middleware::from_fn_with_state(

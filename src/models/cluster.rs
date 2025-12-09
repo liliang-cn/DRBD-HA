@@ -131,9 +131,9 @@ mod tests {
     fn test_block_device_available() {
         let dev = BlockDevice {
             name: "sdb".to_string(),
-            path: "/dev/sdb".to_string(),
+            path: Some("/dev/sdb".to_string()),
             size: 107374182400,
-            size_human: "100G".to_string(),
+            size_human: Some("100G".to_string()),
             device_type: "disk".to_string(),
             mountpoint: None,
             fstype: None,
