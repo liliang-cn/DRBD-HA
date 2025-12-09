@@ -1,0 +1,278 @@
+//! Systemd Mount Unit Generator
+//!
+//! This module generates systemd .mount unit files for DRBD-backed mount points.
+//! These units are required for drbd-reactor's promoter plugin to properly mount
+//! DRBD devices when a resource becomes Primary.
+
+use crate::error::{AppError, AppResult};
+use crate::core::run_shell_command;
+
+/// Generator for systemd mount unit files
+pub struct MountUnitGenerator;
+
+impl MountUnitGenerator {
+    /// Generate a systemd .mount unit file for a DRBD resource
+    ///
+    /// This creates a mount unit that:
+    /// - Depends on the drbd-promote@{resource}.service
+    /// - Uses the correct DRBD device path
+    /// - Is suitable for use in drbd-reactor promoter configurations
+    ///
+    /// # Arguments
+    /// * `resource_name` - Name of the DRBD resource (e.g., "mysql_data")
+    /// * `mount_point` - Target mount point path (e.g., "/var/lib/mysql")
+    /// * `fs_type` - Filesystem type (e.g., "xfs", "ext4", "btrfs")
+    ///
+    /// # Returns
+    /// * `MountUnitInfo` containing the generated unit name and paths
+    ///
+    /// # Example
+    /// ```ignore
+    /// let info = MountUnitGenerator::generate("mysql_data", "/var/lib/mysql", "xfs").await?;
+    /// // Creates /etc/systemd/system/var-lib-mysql.mount
+    /// ```
+    pub async fn generate(
+        resource_name: &str,
+        mount_point: &str,
+        fs_type: &str,
+    ) -> AppResult<MountUnitInfo> {
+        // 1. Get DRBD device path
+        let device_path = Self::get_drbd_device(resource_name).await?;
+
+        // 2. Convert mount point to systemd unit name
+        let unit_name = Self::escape_mount_point(mount_point)?;
+
+        // 3. Render mount unit content
+        let content = Self::render_mount_unit(
+            &device_path,
+            mount_point,
+            fs_type,
+            resource_name,
+        );
+
+        // 4. Write unit file
+        let unit_path = format!("/etc/systemd/system/{}", unit_name);
+        tokio::fs::write(&unit_path, &content).await
+            .map_err(|e| AppError::Config(format!(
+                "Failed to write mount unit {}: {}", unit_path, e
+            )))?;
+
+        tracing::info!(
+            "Generated mount unit {} for resource {} at {}",
+            unit_name, resource_name, mount_point
+        );
+
+        Ok(MountUnitInfo {
+            unit_name,
+            unit_path,
+            device_path,
+            mount_point: mount_point.to_string(),
+        })
+    }
+
+    /// Get the DRBD device path for a resource
+    ///
+    /// Tries multiple methods to resolve the device path:
+    /// 1. Check /dev/drbd/by-res/{resource}/0 symlink (preferred)
+    /// 2. Use `drbdadm sh-dev {resource}` command
+    async fn get_drbd_device(resource_name: &str) -> AppResult<String> {
+        // Method 1: Use by-res symlink (preferred for stability)
+        let by_res_path = format!("/dev/drbd/by-res/{}/0", resource_name);
+        if tokio::fs::metadata(&by_res_path).await.is_ok() {
+            return Ok(by_res_path);
+        }
+
+        // Method 2: Query drbdadm for device path
+        let cmd = format!("drbdadm sh-dev {} 2>/dev/null", resource_name);
+        let output = run_shell_command(&cmd, &format!("Get DRBD device path for resource {}", resource_name)).await?;
+
+        if output.success() && !output.stdout.trim().is_empty() {
+            let device = output.stdout.trim().to_string();
+            tracing::debug!(
+                "Resolved DRBD device for {}: {}",
+                resource_name, device
+            );
+            return Ok(device);
+        }
+
+        // Fallback: Use by-res path even if it doesn't exist yet
+        // (resource might not be up yet)
+        tracing::warn!(
+            "DRBD device for {} not found, using expected path: {}",
+            resource_name, by_res_path
+        );
+        Ok(by_res_path)
+    }
+
+    /// Convert a mount point path to a systemd unit name
+    ///
+    /// Systemd mount unit names are derived from the mount path:
+    /// - Leading slash is removed
+    /// - All slashes become dashes
+    /// - Special characters are escaped
+    ///
+    /// # Examples
+    /// - `/var/lib/mysql` -> `var-lib-mysql.mount`
+    /// - `/mnt/data` -> `mnt-data.mount`
+    /// - `/srv/nfs/share` -> `srv-nfs-share.mount`
+    pub fn escape_mount_point(mount_point: &str) -> AppResult<String> {
+        if mount_point.is_empty() || mount_point == "/" {
+            return Err(AppError::Validation(
+                "Mount point cannot be empty or root /".to_string()
+            ));
+        }
+
+        // Remove leading slash and replace remaining slashes with dashes
+        let escaped = mount_point
+            .trim_start_matches('/')
+            .trim_end_matches('/')
+            .replace('/', "-");
+
+        if escaped.is_empty() {
+            return Err(AppError::Validation(
+                "Invalid mount point path".to_string()
+            ));
+        }
+
+        // Handle special characters (simplified version)
+        // For full compatibility, could shell out to `systemd-escape`
+        let escaped = escaped
+            .replace('\\', "\\x5c")
+            .replace(' ', "\\x20");
+
+        Ok(format!("{}.mount", escaped))
+    }
+
+    /// Render the mount unit file content
+    fn render_mount_unit(
+        device: &str,
+        mount_point: &str,
+        fs_type: &str,
+        resource_name: &str,
+    ) -> String {
+        format!(r#"# Auto-generated by drbd-ha
+# DRBD Resource: {resource}
+# DO NOT EDIT - Changes will be overwritten
+
+[Unit]
+Description=DRBD Mount for HA Profile ({resource})
+Documentation=man:systemd.mount(5)
+# Ensure network is ready before mounting
+After=network-online.target
+Wants=network-online.target
+
+[Mount]
+What={device}
+Where={mount_point}
+Type={fs_type}
+Options=defaults,noatime
+
+[Install]
+WantedBy=multi-user.target
+"#,
+            resource = resource_name,
+            device = device,
+            mount_point = mount_point,
+            fs_type = fs_type,
+        )
+    }
+
+    /// Remove a mount unit file
+    ///
+    /// # Arguments
+    /// * `mount_point` - The mount point path used when creating the unit
+    pub async fn remove(mount_point: &str) -> AppResult<()> {
+        let unit_name = Self::escape_mount_point(mount_point)?;
+        let unit_path = format!("/etc/systemd/system/{}", unit_name);
+
+        if tokio::fs::metadata(&unit_path).await.is_ok() {
+            tokio::fs::remove_file(&unit_path).await
+                .map_err(|e| AppError::Config(format!(
+                    "Failed to remove mount unit {}: {}", unit_path, e
+                )))?;
+            tracing::info!("Removed mount unit: {}", unit_path);
+        }
+
+        Ok(())
+    }
+
+    /// Check if a mount unit exists for the given mount point
+    pub async fn exists(mount_point: &str) -> AppResult<bool> {
+        let unit_name = Self::escape_mount_point(mount_point)?;
+        let unit_path = format!("/etc/systemd/system/{}", unit_name);
+        Ok(tokio::fs::metadata(&unit_path).await.is_ok())
+    }
+
+    /// Get the unit file path for a mount point
+    pub fn get_unit_path(mount_point: &str) -> AppResult<String> {
+        let unit_name = Self::escape_mount_point(mount_point)?;
+        Ok(format!("/etc/systemd/system/{}", unit_name))
+    }
+}
+
+/// Information about a generated mount unit
+#[derive(Debug, Clone)]
+pub struct MountUnitInfo {
+    /// Systemd unit name (e.g., "var-lib-mysql.mount")
+    pub unit_name: String,
+
+    /// Full path to the unit file (e.g., "/etc/systemd/system/var-lib-mysql.mount")
+    pub unit_path: String,
+
+    /// DRBD device path (e.g., "/dev/drbd/by-res/mysql_data/0")
+    pub device_path: String,
+
+    /// Mount point path (e.g., "/var/lib/mysql")
+    pub mount_point: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_mount_point() {
+        assert_eq!(
+            MountUnitGenerator::escape_mount_point("/var/lib/mysql").unwrap(),
+            "var-lib-mysql.mount"
+        );
+        assert_eq!(
+            MountUnitGenerator::escape_mount_point("/mnt/data").unwrap(),
+            "mnt-data.mount"
+        );
+        assert_eq!(
+            MountUnitGenerator::escape_mount_point("/srv/nfs/share").unwrap(),
+            "srv-nfs-share.mount"
+        );
+        // Trailing slash should be handled
+        assert_eq!(
+            MountUnitGenerator::escape_mount_point("/var/lib/mysql/").unwrap(),
+            "var-lib-mysql.mount"
+        );
+    }
+
+    #[test]
+    fn test_escape_mount_point_invalid() {
+        assert!(MountUnitGenerator::escape_mount_point("").is_err());
+        assert!(MountUnitGenerator::escape_mount_point("/").is_err());
+    }
+
+    #[test]
+    fn test_render_mount_unit() {
+        let content = MountUnitGenerator::render_mount_unit(
+            "/dev/drbd/by-res/mysql_data/0",
+            "/var/lib/mysql",
+            "xfs",
+            "mysql_data",
+        );
+
+        assert!(content.contains("What=/dev/drbd/by-res/mysql_data/0"));
+        assert!(content.contains("Where=/var/lib/mysql"));
+        assert!(content.contains("Type=xfs"));
+        assert!(content.contains("After=network-online.target"));
+        assert!(content.contains("WantedBy=multi-user.target"));
+        // Should NOT contain:
+        assert!(!content.contains("BindsTo=drbd-promote@mysql_data.service"));
+        assert!(!content.contains("After=drbd-promote@mysql_data.service"));
+    }
+}

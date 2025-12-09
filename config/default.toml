@@ -1,0 +1,42 @@
+# DRBD HA Manager Configuration
+
+[server]
+# Host to bind to
+host = "0.0.0.0"
+# Port to listen on
+port = 3373
+
+[ssh]
+# Connection timeout in seconds
+connection_timeout_secs = 30
+# Command execution timeout in seconds
+command_timeout_secs = 60
+# Maximum connections per host
+max_connections_per_host = 5
+# Default SSH port
+default_port = 22
+# Default SSH username (change to "ubuntu" or other non-root user if needed)
+# IMPORTANT: This user must have passwordless SSH access and sudo privileges
+default_user = "ubuntu"
+
+[drbd]
+# Path to DRBD resource configuration directory
+config_path = "/etc/drbd.d"
+# Path to drbd-reactor configuration directory
+reactor_config_path = "/etc/drbd-reactor.d"
+# Path to systemd unit files directory
+systemd_unit_path = "/etc/systemd/system"
+
+[database]
+# Path to SQLite database file
+path = "/var/lib/drbd-ha/data.db"
+
+[auth]
+# Whether authentication is enabled
+enabled = false
+# API token (required if enabled = true)
+# token = "your-secret-token-here"
+
+[log]
+# Log level: trace, debug, info, warn, error
+level = "info"

@@ -1,0 +1,314 @@
+//! Input validation module
+//!
+//! Provides validation functions to prevent command injection and other security issues.
+
+use crate::error::{AppError, AppResult};
+use regex::Regex;
+use std::sync::LazyLock;
+
+// Pre-compiled regex patterns
+static RESOURCE_NAME_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$").unwrap());
+
+static BLOCK_DEVICE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^/dev/(sd[a-z]+\d*|nvme\d+n\d+(p\d+)?|vd[a-z]+\d*|drbd\d+|loop\d+)$").unwrap());
+
+static IP_ADDRESS_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(\d{1,3}\.){3}\d{1,3}$").unwrap());
+
+static HOSTNAME_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[a-zA-Z][a-zA-Z0-9-]{0,62}$").unwrap());
+
+static MOUNT_POINT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^/[a-zA-Z0-9/_-]+$").unwrap());
+
+static SERVICE_NAME_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[a-zA-Z][a-zA-Z0-9_@-]*\.service$").unwrap());
+
+/// Validate DRBD resource name
+pub fn validate_resource_name(name: &str) -> AppResult<()> {
+    if name.is_empty() {
+        return Err(AppError::Validation("Resource name cannot be empty".to_string()));
+    }
+    if !RESOURCE_NAME_RE.is_match(name) {
+        return Err(AppError::Validation(format!(
+            "Invalid resource name '{}'. Must start with a letter, contain only alphanumeric, underscore, or hyphen, max 64 chars",
+            name
+        )));
+    }
+    Ok(())
+}
+
+/// Validate block device path
+pub fn validate_block_device(path: &str) -> AppResult<()> {
+    if !BLOCK_DEVICE_RE.is_match(path) {
+        return Err(AppError::Validation(format!(
+            "Invalid block device path '{}'. Must be /dev/sdX, /dev/nvmeXnY, /dev/vdX, /dev/drbdN, or /dev/loopN",
+            path
+        )));
+    }
+    Ok(())
+}
+
+/// Validate IP address
+pub fn validate_ip_address(ip: &str) -> AppResult<()> {
+    if !IP_ADDRESS_RE.is_match(ip) {
+        return Err(AppError::Validation(format!(
+            "Invalid IP address '{}'",
+            ip
+        )));
+    }
+    // Additional check for valid octets
+    for octet in ip.split('.') {
+        let num: u32 = octet.parse().map_err(|_| {
+            AppError::Validation(format!("Invalid IP address '{}'", ip))
+        })?;
+        if num > 255 {
+            return Err(AppError::Validation(format!(
+                "Invalid IP address '{}': octet {} > 255",
+                ip, num
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Validate hostname
+pub fn validate_hostname(hostname: &str) -> AppResult<()> {
+    if hostname.is_empty() {
+        return Err(AppError::Validation("Hostname cannot be empty".to_string()));
+    }
+    if !HOSTNAME_RE.is_match(hostname) {
+        return Err(AppError::Validation(format!(
+            "Invalid hostname '{}'. Must start with a letter, contain only alphanumeric or hyphen",
+            hostname
+        )));
+    }
+    Ok(())
+}
+
+/// Validate mount point path
+pub fn validate_mount_point(path: &str) -> AppResult<()> {
+    if !path.starts_with('/') {
+        return Err(AppError::Validation(format!(
+            "Mount point '{}' must be an absolute path",
+            path
+        )));
+    }
+    if !MOUNT_POINT_RE.is_match(path) {
+        return Err(AppError::Validation(format!(
+            "Invalid mount point '{}'. Must be an absolute path with alphanumeric, underscore, or hyphen",
+            path
+        )));
+    }
+    // Prevent path traversal
+    if path.contains("..") {
+        return Err(AppError::Validation(format!(
+            "Mount point '{}' cannot contain '..'",
+            path
+        )));
+    }
+    Ok(())
+}
+
+/// Validate systemd service name
+pub fn validate_service_name(name: &str) -> AppResult<()> {
+    if !SERVICE_NAME_RE.is_match(name) {
+        return Err(AppError::Validation(format!(
+            "Invalid service name '{}'. Must end with .service and contain only alphanumeric, underscore, hyphen, or @",
+            name
+        )));
+    }
+    Ok(())
+}
+
+/// Validate DRBD port number
+pub fn validate_port(port: u16) -> AppResult<()> {
+    if port < 7000 || port > 8000 {
+        return Err(AppError::Validation(format!(
+            "DRBD port {} should be between 7000 and 8000",
+            port
+        )));
+    }
+    Ok(())
+}
+
+/// Validate DRBD minor number
+pub fn validate_minor(minor: u32) -> AppResult<()> {
+    if minor > 1048575 {
+        return Err(AppError::Validation(format!(
+            "DRBD minor {} exceeds maximum (1048575)",
+            minor
+        )));
+    }
+    Ok(())
+}
+
+/// Validate VIP CIDR netmask
+pub fn validate_netmask(netmask: u8) -> AppResult<()> {
+    if netmask == 0 || netmask > 32 {
+        return Err(AppError::Validation(format!(
+            "Invalid netmask /{}. Must be between 1 and 32",
+            netmask
+        )));
+    }
+    Ok(())
+}
+
+/// Result of disk safety checks
+#[derive(Debug)]
+pub struct DiskSafetyCheck {
+    pub device: String,
+    pub is_safe: bool,
+    pub warnings: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+impl DiskSafetyCheck {
+    pub fn new(device: &str) -> Self {
+        Self {
+            device: device.to_string(),
+            is_safe: true,
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    pub fn add_warning(&mut self, msg: String) {
+        self.warnings.push(msg);
+    }
+
+    pub fn add_error(&mut self, msg: String) {
+        self.is_safe = false;
+        self.errors.push(msg);
+    }
+}
+
+/// Check if a device is currently mounted
+pub fn check_device_mounted(device: &str, mount_output: &str) -> bool {
+    // Check /proc/mounts format: device mountpoint fstype options
+    for line in mount_output.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 && parts[0] == device {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if a device has a filesystem signature
+pub fn check_device_has_filesystem(blkid_output: &str) -> bool {
+    // blkid returns empty or error for devices without filesystem
+    !blkid_output.trim().is_empty()
+}
+
+/// Check if a device is used by DRBD (is a backing device)
+pub fn check_device_used_by_drbd(device: &str, drbd_status: &str) -> bool {
+    // Simple check: if device path appears in any DRBD config/status
+    drbd_status.contains(device)
+}
+
+/// Check if a device is a DRBD device (not a backing device)
+pub fn is_drbd_device(device: &str) -> bool {
+    device.starts_with("/dev/drbd")
+}
+
+/// Check if a device is in use by the system (LVM, MD, etc.)
+pub fn check_device_in_use(holders_output: &str) -> bool {
+    // /sys/block/sdX/holders/ will have entries if device is in use
+    !holders_output.trim().is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_resource_name() {
+        assert!(validate_resource_name("r0").is_ok());
+        assert!(validate_resource_name("my_resource").is_ok());
+        assert!(validate_resource_name("my-resource-1").is_ok());
+        assert!(validate_resource_name("").is_err());
+        assert!(validate_resource_name("0invalid").is_err());
+        assert!(validate_resource_name("has space").is_err());
+        assert!(validate_resource_name("has;semicolon").is_err());
+    }
+
+    #[test]
+    fn test_validate_block_device() {
+        assert!(validate_block_device("/dev/sda").is_ok());
+        assert!(validate_block_device("/dev/sdb1").is_ok());
+        assert!(validate_block_device("/dev/nvme0n1").is_ok());
+        assert!(validate_block_device("/dev/nvme0n1p1").is_ok());
+        assert!(validate_block_device("/dev/vda").is_ok());
+        assert!(validate_block_device("/dev/drbd0").is_ok());
+        assert!(validate_block_device("/dev/loop0").is_ok());
+        assert!(validate_block_device("/etc/passwd").is_err());
+        assert!(validate_block_device("sda").is_err());
+    }
+
+    #[test]
+    fn test_validate_ip_address() {
+        assert!(validate_ip_address("192.168.1.1").is_ok());
+        assert!(validate_ip_address("10.0.0.1").is_ok());
+        assert!(validate_ip_address("256.1.1.1").is_err());
+        assert!(validate_ip_address("1.1.1").is_err());
+        assert!(validate_ip_address("not-an-ip").is_err());
+    }
+
+    #[test]
+    fn test_validate_mount_point() {
+        assert!(validate_mount_point("/mnt/data").is_ok());
+        assert!(validate_mount_point("/var/lib/mysql").is_ok());
+        assert!(validate_mount_point("relative/path").is_err());
+        assert!(validate_mount_point("/path/../escape").is_err());
+    }
+
+    #[test]
+    fn test_validate_service_name() {
+        assert!(validate_service_name("nginx.service").is_ok());
+        assert!(validate_service_name("my-app.service").is_ok());
+        assert!(validate_service_name("drbd-promote@r0.service").is_ok());
+        assert!(validate_service_name("nginx").is_err());
+        assert!(validate_service_name("bad;name.service").is_err());
+    }
+
+    #[test]
+    fn test_check_device_mounted() {
+        let mount_output = "/dev/sda1 / ext4 rw,relatime 0 0\n/dev/sdb1 /mnt/data xfs rw 0 0";
+        assert!(check_device_mounted("/dev/sda1", mount_output));
+        assert!(check_device_mounted("/dev/sdb1", mount_output));
+        assert!(!check_device_mounted("/dev/sdc1", mount_output));
+        assert!(!check_device_mounted("/dev/drbd0", mount_output));
+    }
+
+    #[test]
+    fn test_check_device_has_filesystem() {
+        assert!(check_device_has_filesystem("/dev/sda1: UUID=\"abc\" TYPE=\"ext4\""));
+        assert!(!check_device_has_filesystem(""));
+        assert!(!check_device_has_filesystem("   "));
+    }
+
+    #[test]
+    fn test_is_drbd_device() {
+        assert!(is_drbd_device("/dev/drbd0"));
+        assert!(is_drbd_device("/dev/drbd123"));
+        assert!(!is_drbd_device("/dev/sda"));
+        assert!(!is_drbd_device("/dev/nvme0n1"));
+    }
+
+    #[test]
+    fn test_disk_safety_check() {
+        let mut check = DiskSafetyCheck::new("/dev/sda");
+        assert!(check.is_safe);
+        assert!(check.errors.is_empty());
+
+        check.add_warning("Device has existing data".to_string());
+        assert!(check.is_safe);
+        assert_eq!(check.warnings.len(), 1);
+
+        check.add_error("Device is mounted".to_string());
+        assert!(!check.is_safe);
+        assert_eq!(check.errors.len(), 1);
+    }
+}

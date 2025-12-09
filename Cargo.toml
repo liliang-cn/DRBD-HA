@@ -1,0 +1,70 @@
+[package]
+name = "drbd-ha"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "DRBD High Availability Management System"
+license = "Apache-2.0"
+
+[dependencies]
+# Web framework
+axum = { version = "0.8", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+futures = "0.3"
+async-stream = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+toml_edit = "0.23"
+
+# SSH
+async-trait = "0.1"
+base64 = "0.22"
+
+# Systemd D-Bus
+zbus = "5"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Templating
+tera = "1"
+
+# Validation
+regex = "1"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+gethostname = "1"
+local-ip-address = "0.6"
+home = "0.5"
+
+# SQLite
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+# Embedded static files
+rust-embed = { version = "8", features = ["mime-guess"] }
+mime_guess = "2"
+tracing-appender = "0.2.4"
+utoipa = { version = "5.4.0", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tower = { version = "0.5", features = ["util"] }
+serial_test = "3"
+
+[[test]]
+name = "integration"
+path = "tests/integration/mod.rs"
