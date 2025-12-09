@@ -41,6 +41,16 @@ enum Commands {
         #[arg(short, long, default_value_t = false)]
         combine: bool,
     },
+    /// Verify that a TypeScript file matches the source XML
+    Verify {
+        /// Path to the source XML file
+        #[arg(long)]
+        xml: PathBuf,
+
+        /// Path to the generated TypeScript file
+        #[arg(long)]
+        ts: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -68,9 +78,46 @@ fn main() -> Result<()> {
             println!("Scanning OCF agents in: {}", resource_d.display());
             scan_and_process(&resource_d, &output_dir, save_xml, combine)?;
         }
+        Commands::Verify { xml, ts } => {
+            verify_files(&xml, &ts)?;
+        }
     }
 
     Ok(())
+}
+
+fn verify_files(xml_path: &Path, ts_path: &Path) -> Result<()> {
+    println!("Verifying:");
+    println!("  XML: {}", xml_path.display());
+    println!("  TS:  {}", ts_path.display());
+
+    // 1. Read and Parse XML
+    let xml_content = fs::read_to_string(xml_path).context("Failed to read XML file")?;
+    let ra: ResourceAgent = from_str(&xml_content).context("Failed to parse XML")?;
+
+    // 2. Generate Expected TS
+    let agent_name = &ra.name; 
+    let expected_ts = generate_ts(&ra, agent_name);
+
+    // 3. Read Actual TS
+    let actual_ts = fs::read_to_string(ts_path).context("Failed to read TS file")?;
+
+    // 4. Compare
+    if expected_ts.trim() == actual_ts.trim() {
+        println!("✅ Verification SUCCESS: The TypeScript file matches the XML source.");
+        Ok(())
+    } else {
+        eprintln!("❌ Verification FAILED: The files do not match.");
+        
+        let expected_path = PathBuf::from("expected.ts");
+        fs::write(&expected_path, &expected_ts).context("Failed to write expected.ts")?;
+        
+        eprintln!("Written expected output to: {}", expected_path.display());
+        eprintln!("You can check the difference with:");
+        eprintln!("  diff {} {}", expected_path.display(), ts_path.display());
+
+        anyhow::bail!("Verification failed");
+    }
 }
 
 fn scan_and_process(
@@ -157,8 +204,7 @@ fn process_agent(
     let output = Command::new(agent_path)
         .arg("meta-data")
         .env("OCF_ROOT", "/usr/lib/ocf")
-        .output()
-        .context("Failed to execute agent with meta-data")?;
+        .output()?;
 
     if !output.status.success() {
         anyhow::bail!(

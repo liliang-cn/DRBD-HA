@@ -1,0 +1,279 @@
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="rabbitmq-server-ha">
+<version>1.0</version>
+
+<longdesc lang="en">
+Resource agent for RabbitMQ promotes a node, then cluster nodes can join it
+</longdesc>
+<shortdesc lang="en">Resource agent for RabbitMQ HA cluster</shortdesc>
+<parameters>
+
+<parameter name="binary" unique="0" required="0">
+<longdesc lang="en">
+RabbitMQ binary
+</longdesc>
+<shortdesc lang="en">RabbitMQ binary</shortdesc>
+<content type="string" default="/usr/sbin/rabbitmq-server" />
+</parameter>
+
+<parameter name="ctl" unique="0" required="0">
+<longdesc lang="en">
+rabbitctl binary
+</longdesc>
+<shortdesc lang="en">rabbitctl binary binary</shortdesc>
+<content type="string" default="/usr/sbin/rabbitmqctl" />
+</parameter>
+
+<parameter name="pid_file" unique="0" required="0">
+<longdesc lang="en">
+RabbitMQ PID file
+</longdesc>
+<shortdesc lang="en">RabbitMQ PID file</shortdesc>
+<content type="string" default="/var/run/rabbitmq/pid" />
+</parameter>
+
+<parameter name="log_dir" unique="0" required="0">
+<longdesc lang="en">
+RabbitMQ log directory
+</longdesc>
+<shortdesc lang="en">RabbitMQ log directory</shortdesc>
+<content type="string" default="/var/log/rabbitmq" />
+</parameter>
+
+<parameter name="username" unique="0" required="0">
+<longdesc lang="en">
+RabbitMQ user name
+</longdesc>
+<shortdesc lang="en">RabbitMQ user name</shortdesc>
+<content type="string" default="rabbitmq" />
+</parameter>
+
+<parameter name="groupname" unique="0" required="0">
+<longdesc lang="en">
+RabbitMQ group name
+</longdesc>
+<shortdesc lang="en">RabbitMQ group name</shortdesc>
+<content type="string" default="rabbitmq" />
+</parameter>
+
+<parameter name="admin_user" unique="0" required="0">
+<longdesc lang="en">
+RabbitMQ default admin user for API
+</longdesc>
+<shortdesc lang="en">RabbitMQ admin user</shortdesc>
+<content type="string" default="guest" />
+</parameter>
+
+<parameter name="admin_password" unique="0" required="0">
+<longdesc lang="en">
+RabbitMQ default admin user password for API
+</longdesc>
+<shortdesc lang="en">RabbitMQ admin password</shortdesc>
+<content type="string" default="guest" />
+</parameter>
+
+<parameter name="definitions_dump_file" unique="0" required="0">
+<longdesc lang="en">
+RabbitMQ default definitions dump file
+</longdesc>
+<shortdesc lang="en">RabbitMQ definitions dump file</shortdesc>
+<content type="string" default="/etc/rabbitmq/definitions" />
+</parameter>
+
+<parameter name="command_timeout" unique="0" required="0">
+<longdesc lang="en">
+Timeout command arguments for issued commands termination (value is auto evaluated)
+</longdesc>
+<shortdesc lang="en">Arguments for timeout wrapping command</shortdesc>
+<content type="string" default="" />
+</parameter>
+
+<parameter name="start_time" unique="0" required="0">
+<longdesc lang="en">
+Timeout for start rabbitmq server
+</longdesc>
+<shortdesc lang="en">Timeout for start rabbitmq server</shortdesc>
+<content type="string" default="7" />
+</parameter>
+
+<parameter name="stop_time" unique="0" required="0">
+<longdesc lang="en">
+Timeout for stopping rabbitmq server
+</longdesc>
+<shortdesc lang="en">Timeout for stopping rabbitmq server</shortdesc>
+<content type="string" default="7" />
+</parameter>
+
+<parameter name="debug" unique="0" required="0">
+<longdesc lang="en">
+The debug flag for agent (/usr/sbin/rabbitmq-server) instance.
+In the /tmp/ directory will be created rmq-* files for log
+some operations and ENV values inside OCF-script.
+</longdesc>
+<shortdesc lang="en">AMQP server (/usr/sbin/rabbitmq-server) debug flag</shortdesc>
+<content type="boolean" default="false" />
+</parameter>
+
+<parameter name="mnesia_base" unique="0" required="0">
+<longdesc lang="en">
+Base directory for storing Mnesia files
+</longdesc>
+<shortdesc lang="en">Base directory for storing Mnesia files</shortdesc>
+<content type="boolean" default="/var/lib/rabbitmq/mnesia" />
+</parameter>
+
+<parameter name="mnesia_schema_base" unique="0" required="0">
+<longdesc lang="en">
+Parent directory for Mnesia schema directory
+</longdesc>
+<shortdesc lang="en">Parent directory for Mnesia schema directory</shortdesc>
+<content type="string" default="/var/lib/rabbitmq" />
+</parameter>
+
+<parameter name="host_ip" unique="0" required="0">
+<longdesc lang="en">
+/usr/sbin/rabbitmq-server should listen on this IP address
+</longdesc>
+<shortdesc lang="en">/usr/sbin/rabbitmq-server should listen on this IP address</shortdesc>
+<content type="boolean" default="127.0.0.1" />
+</parameter>
+
+<parameter name="node_port" unique="0" required="0">
+<longdesc lang="en">
+/usr/sbin/rabbitmq-server should listen on this port
+</longdesc>
+<shortdesc lang="en">/usr/sbin/rabbitmq-server should listen on this port</shortdesc>
+<content type="boolean" default="5672" />
+</parameter>
+
+<parameter name="default_vhost" unique="0" required="0">
+<longdesc lang="en">
+Default virtual host used for monitoring if a node is fully synchronized with
+the rest of the cluster. In normal operation, the resource agent will wait for
+queues from this virtual host on this node to be synchronized elsewhere before
+stopping RabbitMQ. This also means queues in other virtual hosts may not be
+fully synchronized on stop operations.
+</longdesc>
+<shortdesc lang="en">Default virtual host used for waiting for synchronization</shortdesc>
+<content type="string" default="/" />
+</parameter>
+
+<parameter name="erlang_cookie" unique="0" required="0">
+<longdesc lang="en">
+Erlang cookie for clustering. If specified, will be updated at the mnesia reset
+</longdesc>
+<shortdesc lang="en">Erlang cookie</shortdesc>
+<content type="boolean" default="false" />
+</parameter>
+
+<parameter name="erlang_cookie_file" unique="0" required="0">
+<longdesc lang="en">
+Erlang cookie file path where the cookie will be put, if requested
+</longdesc>
+<shortdesc lang="en">Erlang cookie file</shortdesc>
+<content type="boolean" default="/var/lib/rabbitmq/.erlang.cookie" />
+</parameter>
+
+<parameter name="use_fqdn" unique="0" required="0">
+<longdesc lang="en">
+Either to use FQDN or a shortname for the rabbitmq node
+</longdesc>
+<shortdesc lang="en">Use FQDN</shortdesc>
+<content type="boolean" default="false" />
+</parameter>
+
+<parameter name="fqdn_prefix" unique="0" required="0">
+<longdesc lang="en">
+Optional FQDN prefix for RabbitMQ nodes in cluster.
+FQDN prefix can be specified to host multiple RabbitMQ instances on a node or
+in case of RabbitMQ running in dedicated network/interface.
+</longdesc>
+<shortdesc lang="en">FQDN prefix</shortdesc>
+<content type="string" default="" />
+</parameter>
+
+<parameter name="max_rabbitmqctl_timeouts" unique="0" required="0">
+<longdesc lang="en">
+If during monitor call rabbitmqctl times out, the timeout is ignored
+unless it is Nth timeout in a row. Here N is the value of the current parameter.
+If too many timeouts happen in a raw, the monitor call will return with error.
+</longdesc>
+<shortdesc lang="en">Fail only if that many rabbitmqctl timeouts in a row occurred</shortdesc>
+<content type="string" default="3" />
+</parameter>
+
+<parameter name="policy_file" unique="0" required="0">
+<longdesc lang="en">
+A path to the shell script to setup RabbitMQ policies
+</longdesc>
+<shortdesc lang="en">A policy file path</shortdesc>
+<content type="string" default="/usr/local/sbin/set_rabbitmq_policy" />
+</parameter>
+
+<parameter name="rmq_feature_health_check" unique="0" required="0">
+<longdesc lang="en">
+Since rabbit 3.6.4 list_queues/list_channels-based monitoring should
+be replaced with "node_health_check" command, as it creates no network
+load at all.
+</longdesc>
+<shortdesc lang="en">Use node_health_check for monitoring</shortdesc>
+<content type="boolean" default="true" />
+</parameter>
+
+<parameter name="rmq_feature_local_list_queues" unique="0" required="0">
+<longdesc lang="en">
+For rabbit version that implements --local flag for list_queues, this
+can greatly reduce network overhead in cases when node is
+stopped/demoted.
+</longdesc>
+<shortdesc lang="en">Use --local option for list_queues</shortdesc>
+<content type="boolean" default="true" />
+</parameter>
+
+<parameter name="limit_nofile" unique="0" required="0">
+<longdesc lang="en">
+Soft and hard limit for NOFILE
+</longdesc>
+<shortdesc lang="en">NOFILE limit</shortdesc>
+<content type="string" default="65535" />
+</parameter>
+
+<parameter name="avoid_using_iptables" unique="0" required="0">
+<longdesc lang="en">
+When set to true the iptables calls to block client access become
+noops. This is useful when we run inside containers.
+</longdesc>
+<shortdesc lang="en">Disable iptables use entirely</shortdesc>
+<content type="boolean" default="false" />
+</parameter>
+
+<parameter name="allowed_cluster_nodes" unique="0" required="0">
+<longdesc lang="en">
+When set to anything other than the empty string it must container the list of
+cluster node names, separated by spaces, where the rabbitmq resource is allowed to run.
+Tis is needed when rabbitmq is running on a subset of nodes part of a larger
+cluster. The default ("") is to assume that all nodes part of the cluster will
+run the rabbitmq resource.
+</longdesc>
+<shortdesc lang="en">List of cluster nodes where rabbitmq is allowed to run</shortdesc>
+<content type="string" default="" />
+</parameter>
+
+
+
+</parameters>
+
+<actions>
+<action name="start" timeout="20s" />
+<action name="stop" timeout="20s" />
+<action name="status" timeout="20s" />
+<action name="monitor" depth="0" timeout="30s" interval="5s" />
+<action name="monitor" depth="0" timeout="30s" interval="3s" role="Promoted"/>
+<action name="promote" timeout="30s" />
+<action name="demote"  timeout="30s" />
+<action name="notify"   timeout="20s" />
+<action name="validate-all" timeout="5s" />
+<action name="meta-data" timeout="5s" />
+</actions>
+</resource-agent>

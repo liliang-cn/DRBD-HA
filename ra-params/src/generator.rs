@@ -40,7 +40,7 @@ pub fn generate_ts(ra: &ResourceAgent, agent_name: &str) -> String {
         safe_agent_name,
     ));
     ts.push_str(&format!("  name: \"{}\" ,\n", ra.name));
-    ts.push_str(&format!("  version: \"{}\" ,\n", ra.version));
+    ts.push_str(&format!("  version: \"{}\" ,\n", ra.version()));
     ts.push_str(&format!("  shortdesc: {:?} ,\n", ra.shortdesc.text.trim()));
     ts.push_str(&format!("  longdesc: {:?} ,\n", ra.longdesc.text.trim()));
 
@@ -123,7 +123,7 @@ pub fn generate_combined_files(agents: &[ResourceAgent], output_dir: &Path) -> R
     for ra in agents {
         ts.push_str("  {\n");
         ts.push_str(&format!("    name: \"{}\" ,\n", ra.name));
-        ts.push_str(&format!("    version: \"{}\" ,\n", ra.version));
+        ts.push_str(&format!("    version: \"{}\" ,\n", ra.version()));
         ts.push_str(&format!("    shortdesc: {:?} ,\n", ra.shortdesc.text.trim()));
         ts.push_str(&format!("    longdesc: {:?} ,\n", ra.longdesc.text.trim()));
 

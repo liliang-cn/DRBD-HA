@@ -5,8 +5,13 @@ use serde::{Deserialize, Serialize};
 pub struct ResourceAgent {
     #[serde(rename = "@name")]
     pub name: String,
+    
     #[serde(rename = "@version")]
-    pub version: String,
+    pub version_attr: Option<String>,
+
+    #[serde(rename = "version")]
+    pub version_elem: Option<String>,
+
     #[serde(default)]
     pub longdesc: LocalizedText,
     #[serde(default)]
@@ -15,6 +20,15 @@ pub struct ResourceAgent {
     pub parameters: Parameters,
     #[serde(default)]
     pub actions: Actions,
+}
+
+impl ResourceAgent {
+    pub fn version(&self) -> String {
+        self.version_attr
+            .clone()
+            .or_else(|| self.version_elem.clone())
+            .unwrap_or_else(|| "0.0".to_string())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -71,4 +85,43 @@ pub struct Action {
     pub interval: String,
     #[serde(rename = "@depth", default)]
     pub depth: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quick_xml::de::from_str;
+    use std::fs;
+
+    #[test]
+    fn test_parse_rabbitmq() {
+        let xml_path = "../ra-params/samples/rabbitmq-server-ha.xml";
+        let xml_content = fs::read_to_string(xml_path).expect("Failed to read XML file");
+        let result: Result<ResourceAgent, _> = from_str(&xml_content);
+        
+        match result {
+            Ok(ra) => {
+                println!("Successfully parsed: {:?}", ra.name);
+                println!("Version: {}", ra.version());
+                assert_eq!(ra.version(), "1.0");
+            },
+            Err(e) => panic!("Failed to parse: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_parse_ocivip() {
+        let xml_path = "../ra-params/samples/ocivip.xml";
+        let xml_content = fs::read_to_string(xml_path).expect("Failed to read XML file");
+        let result: Result<ResourceAgent, _> = from_str(&xml_content);
+        
+        match result {
+            Ok(ra) => {
+                println!("Successfully parsed: {:?}", ra.name);
+                println!("Version: {}", ra.version());
+                assert_eq!(ra.version(), "1.0");
+            },
+            Err(e) => panic!("Failed to parse: {}", e),
+        }
+    }
 }

@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="ocivip">
+<version>1.0</version>
+
+<longdesc lang="en">
+Resource Agent for OCI Compute instance Secondary Private IP Addresses.
+
+It manages OCI Secondary Private IP Addresses for Compute instances with oci cli.
+
+See https://docs.oracle.com/en-us/iaas/Content/API/Concepts/cliconcepts.htm for more information about oci cli.
+
+Prerequisites:
+
+- OCI CLI installed (https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/climanualinst.htm)
+- jq installed
+- dynamic group with a policy attacched
+- the policy must have this statement: allow dynamic-group GROUP_NAME to use virtual-network-family in compartment id COMPARTMENT_ID
+- a reserved secondary private IP address for Compute Instances high availability
+
+</longdesc>
+<shortdesc lang="en">OCI Secondary Private IP Address for Compute instances Resource Agent</shortdesc>
+
+<parameters>
+
+<parameter name="ocicli" unique="0">
+<longdesc lang="en">
+OCI Command line interface (CLI) tools
+</longdesc>
+<shortdesc lang="en">OCI cli tools</shortdesc>
+<content type="string" default="/usr/local/bin/oci" />
+</parameter>
+
+<parameter name="secondary_private_ip" unique="1" required="1">
+<longdesc lang="en">
+reserved secondary private ip for compute instance
+</longdesc>
+<shortdesc lang="en">reserved secondary private ip for compute instance</shortdesc>
+<content type="string" default="" />
+</parameter>
+
+<parameter name="cidr_netmask" unique="0">
+<longdesc lang="en">
+netmask for the secondary_private_ip
+</longdesc>
+<shortdesc lang="en">netmask for the secondary_private_ip</shortdesc>
+<content type="integer" default="24" />
+</parameter>
+
+<parameter name="interface_alias" unique="0">
+<longdesc lang="en">
+numeric alias for the interface
+</longdesc>
+<shortdesc lang="en">numeric alias for the interface</shortdesc>
+<content type="integer" default="0" />
+</parameter>
+
+<parameter name="api_delay" unique="0">
+<longdesc lang="en">
+a short delay between API calls, to avoid sending API too quick
+</longdesc>
+<shortdesc lang="en">a short delay between API calls</shortdesc>
+<content type="integer" default="3" />
+</parameter>
+
+</parameters>
+
+<actions>
+<action name="start"        timeout="30s" />
+<action name="stop"         timeout="30s" />
+<action name="monitor"      timeout="30s" interval="20s" depth="0" />
+<action name="migrate_to"   timeout="30s" />
+<action name="migrate_from" timeout="30s" />
+<action name="meta-data"    timeout="5s" />
+<action name="validate"     timeout="10s" />
+<action name="validate-all" timeout="10s" />
+</actions>
+</resource-agent>
