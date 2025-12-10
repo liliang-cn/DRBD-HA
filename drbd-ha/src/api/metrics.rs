@@ -151,7 +151,7 @@ pub async fn health_with_metrics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AppConfig, DatabaseConfig};
+    use crate::config::{AppConfig, AuthConfig, DatabaseConfig};
     use crate::core::Database;
     use axum::{
         body::Body,
@@ -160,11 +160,16 @@ mod tests {
     use tower::ServiceExt;
 
     fn create_test_state() -> Arc<AppState> {
-        let mut config = AppConfig::default();
-        config.database = DatabaseConfig {
-            path: ":memory:".to_string(),
+        let config = AppConfig {
+            database: DatabaseConfig {
+                path: ":memory:".to_string(),
+            },
+            auth: AuthConfig {
+                enabled: false,
+                ..Default::default()
+            },
+            ..AppConfig::default()
         };
-        config.auth.enabled = false;
 
         let db = Database::open(":memory:").expect("Failed to create in-memory database");
         Arc::new(AppState::new(config, db))

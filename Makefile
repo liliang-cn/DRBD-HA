@@ -1,4 +1,4 @@
-.PHONY: all build build-ui build-rust clean release dev check test build-linux format
+.PHONY: all build build-ui build-rust clean release dev check test format
 
 # Default target: build everything
 all: build
@@ -19,7 +19,7 @@ build-rust:
 # Clean all build artifacts
 clean:
 	cargo clean
-	rm -rf drbd-ha/ui/dist drbd-ha/ui/node_modules ra-params/output
+	rm -rf drbd-ha/ui/dist drbd-ha/ui/node_modules ra-params/output /target
 
 # Build release binaries for the workspace
 release: build-ui
@@ -28,28 +28,11 @@ release: build-ui
 	@echo "Main release binary: target/release/drbd-ha"
 	@echo "Helper tool binary: target/release/ra-params"
 
-# Build for Linux (x86_64) using 'cross'
-# Requires: cargo install cross
-LINUX_TARGET ?= x86_64-unknown-linux-musl
-build-linux: build-ui
-	@echo "Checking for 'cross'..."
-	@command -v cross >/dev/null 2>&1 || { echo >&2 "Error: 'cross' is not installed. Please run: cargo install cross"; exit 1; }
-	@echo "Building all Rust binaries for Linux ($(LINUX_TARGET))..."
-	cross build --target $(LINUX_TARGET) --workspace --release
-	@echo "Linux binaries available in: target/$(LINUX_TARGET)/release/"
-
-# Development mode: watch and rebuild
-dev:
-	@echo "Starting UI development server..."
-	cd drbd-ha/ui && npm run dev &
-	@echo "Starting Rust development watcher..."
-	cargo watch -x run # Assumes it will run the default binary (drbd-ha)
-
 # Run checks for the workspace
 check:
 	@echo "Running Rust checks..."
 	cargo clippy --workspace --all-targets -- -D warnings
-	cargo fmt --check --workspace
+	cargo fmt --all --check
 	@echo "Running UI linting..."
 	cd drbd-ha/ui && npm run lint 2>/dev/null || true
 

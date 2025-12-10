@@ -23,7 +23,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     // The ApiDoc struct is very large and can cause stack overflow on default threads
     let openapi = std::thread::Builder::new()
         .stack_size(16 * 1024 * 1024) // 16MB stack (increased from 8MB due to overflow)
-        .spawn(|| ApiDoc::openapi())
+        .spawn(ApiDoc::openapi)
         .expect("Failed to spawn thread for OpenAPI generation")
         .join()
         .expect("OpenAPI generation thread panicked");

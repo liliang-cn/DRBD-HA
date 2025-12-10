@@ -13,20 +13,25 @@ use tower::ServiceExt;
 
 use drbd_ha::api::create_router;
 use drbd_ha::{
-    config::{AppConfig, DatabaseConfig},
+    config::{AppConfig, AuthConfig, DatabaseConfig},
     core::Database,
     state::AppState,
 };
 
 /// Create a test application state with in-memory database
 fn create_test_state() -> Arc<AppState> {
-    let mut config = AppConfig::default();
-    // Use in-memory SQLite for tests
-    config.database = DatabaseConfig {
-        path: ":memory:".to_string(),
+    let config = AppConfig {
+        // Use in-memory SQLite for tests
+        database: DatabaseConfig {
+            path: ":memory:".to_string(),
+        },
+        // Disable auth for tests
+        auth: AuthConfig {
+            enabled: false,
+            ..Default::default()
+        },
+        ..AppConfig::default()
     };
-    // Disable auth for tests
-    config.auth.enabled = false;
 
     let db = Database::open(":memory:").expect("Failed to create in-memory database");
     Arc::new(AppState::new(config, db))

@@ -4,19 +4,14 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// HA Profile Type
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum HaType {
+    #[default]
     Generic,
     Nfs,
     Iscsi,
     NvmeOf,
-}
-
-impl Default for HaType {
-    fn default() -> Self {
-        Self::Generic
-    }
 }
 
 /// NFS Configuration

@@ -322,7 +322,7 @@ impl MetricsCollector {
     pub fn inc_drbd_sync_bytes(&self, resource: &str, bytes: u64) {
         self.drbd_sync_bytes_total
             .with_label_values(&[resource])
-            .inc_by(bytes as u64);
+            .inc_by(bytes);
     }
 
     /// Record split-brain event
@@ -419,7 +419,7 @@ impl MetricsCollector {
     /// Record migration operation
     pub fn record_migration(&self, bytes: u64, duration: f64) {
         self.migration_operations_total.inc();
-        self.migration_bytes_transferred.inc_by(bytes as u64);
+        self.migration_bytes_transferred.inc_by(bytes);
         self.migration_duration.observe(duration);
     }
 }
@@ -465,7 +465,7 @@ macro_rules! record_api_request {
             Ok(_) => 200,
             Err(e) => {
                 // Try to extract HTTP status from error, default to 500
-                if let Some(_app_err) = e.downcast_ref::<crate::error::AppError>() {
+                if let Some(_app_err) = e.downcast_ref::<$crate::error::AppError>() {
                     // Extract status from AppError if available
                     500 // Default for now, could be enhanced
                 } else {

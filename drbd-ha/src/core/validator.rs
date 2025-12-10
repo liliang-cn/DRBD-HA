@@ -1,6 +1,7 @@
 //! Input validation module
 //!
 //! Provides validation functions to prevent command injection and other security issues.
+#![allow(clippy::incompatible_msrv)]
 
 use crate::error::{AppError, AppResult};
 use regex::Regex;
@@ -124,7 +125,7 @@ pub fn validate_service_name(name: &str) -> AppResult<()> {
 
 /// Validate DRBD port number
 pub fn validate_port(port: u16) -> AppResult<()> {
-    if port < 7000 || port > 8000 {
+    if !(7000..=8000).contains(&port) {
         return Err(AppError::Validation(format!(
             "DRBD port {} should be between 7000 and 8000",
             port

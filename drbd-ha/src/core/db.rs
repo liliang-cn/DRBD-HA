@@ -216,29 +216,38 @@ impl Database {
     /// Apply database migrations to handle schema updates
     fn apply_migrations(&self, conn: &Connection) -> AppResult<()> {
         // Migration 1: Add ha_type column if it doesn't exist
-        if let Err(_) = conn.execute_batch(
-            r#"
+        if conn
+            .execute_batch(
+                r#"
             ALTER TABLE ha_profiles ADD COLUMN ha_type TEXT DEFAULT 'generic';
             "#,
-        ) {
+            )
+            .is_err()
+        {
             // Column likely already exists, ignore error
         }
 
         // Migration 2: Add nfs_config column if it doesn't exist
-        if let Err(_) = conn.execute_batch(
-            r#"
+        if conn
+            .execute_batch(
+                r#"
             ALTER TABLE ha_profiles ADD COLUMN nfs_config TEXT;
             "#,
-        ) {
+            )
+            .is_err()
+        {
             // Column likely already exists, ignore error
         }
 
         // Migration 3: Add iscsi_config column if it doesn't exist
-        if let Err(_) = conn.execute_batch(
-            r#"
+        if conn
+            .execute_batch(
+                r#"
             ALTER TABLE ha_profiles ADD COLUMN iscsi_config TEXT;
             "#,
-        ) {
+            )
+            .is_err()
+        {
             // Column likely already exists, ignore error
         }
 

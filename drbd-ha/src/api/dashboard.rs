@@ -330,7 +330,7 @@ fn parse_ha_service_details(
             }
 
             // Extract service name from path
-            if let Some(filename) = line.split('/').last() {
+            if let Some(filename) = line.rsplit('/').next() {
                 if let Some(name) = filename.strip_suffix(".toml:") {
                     current_service = Some(name.to_string());
                 }

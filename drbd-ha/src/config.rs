@@ -9,7 +9,7 @@ use crate::error::{AppError, AppResult};
 pub use ssh_cmd::config::SshConfig;
 
 /// Main application configuration
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct AppConfig {
     /// Server configuration
     #[serde(default)]
@@ -153,7 +153,7 @@ fn default_db_path() -> String {
 }
 
 /// Authentication configuration
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct AuthConfig {
     /// API token for authentication (if empty, auth is disabled)
     #[serde(default)]
@@ -162,15 +162,6 @@ pub struct AuthConfig {
     /// Whether authentication is enabled
     #[serde(default)]
     pub enabled: bool,
-}
-
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            token: None,
-            enabled: false,
-        }
-    }
 }
 
 impl AuthConfig {
@@ -185,19 +176,6 @@ impl AuthConfig {
             return true;
         }
         self.token.as_ref().map(|t| t == token).unwrap_or(false)
-    }
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            ssh: SshConfig::default(),
-            drbd: DrbdConfig::default(),
-            log: LogConfig::default(),
-            database: DatabaseConfig::default(),
-            auth: AuthConfig::default(),
-        }
     }
 }
 
@@ -216,6 +194,7 @@ impl AppConfig {
     }
 
     /// Load configuration from a TOML string
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(content: &str) -> AppResult<Self> {
         toml::from_str(content)
             .map_err(|e| AppError::Config(format!("Failed to parse config: {}", e)))

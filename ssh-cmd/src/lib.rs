@@ -57,28 +57,19 @@ impl SshManager {
     }
 
     /// Execute a command on a remote host
-
     pub async fn execute(
         &self,
-
         host: &str,
-
         port: u16,
-
         user: &str,
-
         _credential: &SshCredential,
-
         command: &str,
     ) -> SshResult<CommandOutput> {
         #[cfg(test)]
         {
             // Avoid unused variable warnings
-
             let _ = host;
-
             let _ = port;
-
             let _ = user;
 
             crate::mock::tests::record_command(command.to_string());
@@ -263,13 +254,15 @@ impl SshManager {
         // 2. Move to target with sudo
 
         let temp_path = format!("/tmp/drbd-ha-{}.tmp", uuid::Uuid::new_v4());
+        let safe_temp_path = escape_single_quotes(&temp_path);
+        let safe_path = escape_single_quotes(path);
 
         // Step 1: Write content to temp file (doesn't need special privileges)
         let encoded = base64_encode(content);
+        let safe_encoded = escape_single_quotes(&encoded);
         let write_cmd = format!(
             "printf '%s' '{}' | base64 -d > '{}'",
-            encoded.replace('"', "\""),
-            temp_path.replace('"', "\"")
+            safe_encoded, safe_temp_path
         );
 
         tracing::debug!(
@@ -292,11 +285,7 @@ impl SshManager {
         }
 
         // Step 2: Move temp file to target location with sudo
-        let move_cmd = format!(
-            "mv '{}' '{}'",
-            temp_path.replace('"', "\""),
-            path.replace('"', "\"")
-        );
+        let move_cmd = format!("mv '{}' '{}'", safe_temp_path, safe_path);
 
         tracing::debug!(
             "write_file step 2: host={}, from={}, to={}",
@@ -316,7 +305,7 @@ impl SshManager {
                     port,
                     user,
                     credential,
-                    &format!("rm -f '{}'", temp_path.replace('"', "\"")),
+                    &format!("rm -f '{}'", safe_temp_path),
                 )
                 .await;
 
@@ -339,7 +328,7 @@ impl SshManager {
         credential: &SshCredential,
         path: &str,
     ) -> SshResult<String> {
-        let command = format!("cat '{}'", path.replace('"', "\""));
+        let command = format!("cat '{}'", escape_single_quotes(path));
         let output = self.execute(host, port, user, credential, &command).await?;
 
         if !output.success() {
@@ -361,7 +350,7 @@ impl SshManager {
         credential: &SshCredential,
         path: &str,
     ) -> SshResult<bool> {
-        let command = format!("test -e '{}' && echo 'exists'", path.replace('"', "\""));
+        let command = format!("test -e '{}' && echo 'exists'", escape_single_quotes(path));
         let output = self.execute(host, port, user, credential, &command).await?;
 
         Ok(output.stdout.trim() == "exists")
@@ -376,7 +365,7 @@ impl SshManager {
         credential: &SshCredential,
         path: &str,
     ) -> SshResult<()> {
-        let command = format!("rm -f '{}'", path.replace('"', "\""));
+        let command = format!("rm -f '{}'", escape_single_quotes(path));
         let output = self.execute(host, port, user, credential, &command).await?;
 
         if !output.success() {
@@ -399,8 +388,11 @@ fn base64_encode(input: &str) -> String {
     encoder.into_inner()
 }
 
-#[cfg(test)]
+fn escape_single_quotes(input: &str) -> String {
+    input.replace('\'', "'\\''")
+}
 
+#[cfg(test)]
 mod tests {
 
     use super::*;

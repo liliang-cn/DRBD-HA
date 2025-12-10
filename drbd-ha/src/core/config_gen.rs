@@ -119,12 +119,14 @@ impl ConfigGenerator {
         req: &CreateResourceRequest,
         nodes: &[(String, String, String)], // (hostname, ip, disk)
     ) -> ResourceConfig {
-        let mut config = ResourceConfig::default();
-        config.name = req.name.clone();
-        config.port = req.port;
-        config.minor = req.minor;
-        config.device = format!("/dev/drbd{}", req.minor);
-        config.auto_promote = req.auto_promote;
+        let mut config = ResourceConfig {
+            name: req.name.clone(),
+            port: req.port,
+            minor: req.minor,
+            device: format!("/dev/drbd{}", req.minor),
+            auto_promote: req.auto_promote,
+            ..Default::default()
+        };
 
         for (i, (hostname, ip, disk)) in nodes.iter().enumerate() {
             config.nodes.push(NodeConfig {

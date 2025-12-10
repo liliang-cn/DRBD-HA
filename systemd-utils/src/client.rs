@@ -3,6 +3,23 @@ use crate::service::{ServiceFileInfo, ServiceInfo, ServiceStatus};
 use crate::validator;
 use zbus::{proxy, Connection};
 
+type UnitListEntry = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    zbus::zvariant::OwnedObjectPath,
+    u32,
+    String,
+    zbus::zvariant::OwnedObjectPath,
+);
+
+type UnitList = Vec<UnitListEntry>;
+type EnableUnitFilesResult = (bool, Vec<(String, String, String)>);
+type DisableUnitFilesResult = Vec<(String, String, String)>;
+
 /// D-Bus proxy for systemd Manager interface
 #[proxy(
     interface = "org.freedesktop.systemd1.Manager",
@@ -30,22 +47,7 @@ trait SystemdManager {
     fn load_unit(&self, name: &str) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
 
     /// List all units
-    fn list_units(
-        &self,
-    ) -> zbus::Result<
-        Vec<(
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            zbus::zvariant::OwnedObjectPath,
-            u32,
-            String,
-            zbus::zvariant::OwnedObjectPath,
-        )>,
-    >;
+    fn list_units(&self) -> zbus::Result<UnitList>;
 
     /// List unit files
     fn list_unit_files(&self) -> zbus::Result<Vec<(String, String)>>;
@@ -56,14 +58,14 @@ trait SystemdManager {
         files: &[&str],
         runtime: bool,
         force: bool,
-    ) -> zbus::Result<(bool, Vec<(String, String, String)>)>;
+    ) -> zbus::Result<EnableUnitFilesResult>;
 
     /// Disable unit files
     fn disable_unit_files(
         &self,
         files: &[&str],
         runtime: bool,
-    ) -> zbus::Result<Vec<(String, String, String)>>;
+    ) -> zbus::Result<DisableUnitFilesResult>;
 
     /// Reload daemon
     fn reload(&self) -> zbus::Result<()>;

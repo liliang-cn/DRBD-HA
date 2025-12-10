@@ -59,7 +59,7 @@ impl DataMigration {
         };
 
         // Validate source path exists
-        if !tokio::fs::metadata(&config.source_path).await.is_ok() {
+        if tokio::fs::metadata(&config.source_path).await.is_err() {
             return Err(AppError::Validation(format!(
                 "Source path does not exist: {}",
                 config.source_path

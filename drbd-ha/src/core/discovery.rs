@@ -52,7 +52,7 @@ impl ReactorDiscovery {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().map_or(false, |ext| ext == "toml") {
+            if path.extension().is_some_and(|ext| ext == "toml") {
                 let content = match fs::read_to_string(&path) {
                     Ok(c) => c,
                     Err(e) => {
@@ -71,7 +71,7 @@ impl ReactorDiscovery {
                         let mut on_demote_failure = "reboot".to_string();
 
                         // We assume one resource per promoter usually
-                        for (res_name, res_conf) in promoter.resources {
+                        if let Some((res_name, res_conf)) = promoter.resources.into_iter().next() {
                             resource_name = res_name;
                             if let Some(starts) = res_conf.start {
                                 services = starts;
@@ -82,8 +82,6 @@ impl ReactorDiscovery {
                             if let Some(fail_action) = res_conf.on_demote_failure {
                                 on_demote_failure = fail_action;
                             }
-                            // Break after first resource (limitation for now)
-                            break;
                         }
 
                         // Heuristics to detect HA Type

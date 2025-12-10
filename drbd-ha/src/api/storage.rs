@@ -115,20 +115,19 @@ pub async fn create_pool(
             return Err(err);
         }
 
-        let lvm_provider: LvmProvider;
-        if node.is_local {
-            lvm_provider = LvmProvider::new_local(req.name.clone());
+        let lvm_provider = if node.is_local {
+            LvmProvider::new_local(req.name.clone())
         } else {
             let credential = crate::core::SshCredential::Password("ignored".to_string());
-            lvm_provider = LvmProvider::new_remote(
+            LvmProvider::new_remote(
                 req.name.clone(),
                 state.ssh_manager.clone(),
                 node.ip.clone(),
                 node.ssh_port,
                 node.ssh_user.clone(),
                 credential,
-            );
-        }
+            )
+        };
 
         // Init pool
         if let Err(e) = lvm_provider.init_pool(device).await {
@@ -255,7 +254,7 @@ pub async fn create_volume(
         .await?
         .ok_or_else(|| AppError::Internal(format!("LVM VG '{}' not found on system", pool.name)))?;
 
-    if (req.size_gb as u64 * 1024 * 1024 * 1024) > vg_info.free {
+    if (req.size_gb * 1024 * 1024 * 1024) > vg_info.free {
         return Err(AppError::Validation(format!(
             "Requested size ({}GB) exceeds available free space ({} bytes) in pool '{}'",
             req.size_gb, vg_info.free, pool.name

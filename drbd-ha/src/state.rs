@@ -76,6 +76,7 @@ impl AppState {
     }
 
     /// Broadcast a progress event
+    #[allow(clippy::too_many_arguments)]
     pub fn send_progress(
         &self,
         operation_id: &str,

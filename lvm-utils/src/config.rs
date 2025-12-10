@@ -14,7 +14,7 @@ pub async fn configure_lvm_filter() -> LvmResult<()> {
 
     let content = fs::read_to_string(LVM_CONF_PATH)
         .await
-        .map_err(|e| LvmError::Io(e))?;
+        .map_err(LvmError::Io)?;
 
     let filter_regex = Regex::new(r"(?m)^\s*filter\s*=\s*\[.*?\]")
         .map_err(|e| LvmError::Config(format!("Invalid regex: {}", e)))?;
@@ -56,7 +56,7 @@ pub async fn configure_lvm_filter() -> LvmResult<()> {
 
     // If no filter was found, add it to the 'devices' section
     if !filter_found {
-        let devices_start_regex = Regex::new(r"(?m)^devices\s*\{{")
+        let devices_start_regex = Regex::new(r"(?m)^devices\s*\{")
             .map_err(|e| LvmError::Config(format!("Invalid regex: {}", e)))?;
 
         if let Some(captures) = devices_start_regex.captures(&modified_content) {
@@ -80,7 +80,7 @@ pub async fn configure_lvm_filter() -> LvmResult<()> {
     if modified_content != content {
         fs::write(LVM_CONF_PATH, modified_content.as_bytes())
             .await
-            .map_err(|e| LvmError::Io(e))?;
+            .map_err(LvmError::Io)?;
         info!("Successfully configured LVM filter in {}", LVM_CONF_PATH);
     } else {
         info!(

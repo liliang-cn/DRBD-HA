@@ -353,24 +353,23 @@ pub async fn create_profile(
         let mut node_lvm_paths: Vec<(Node, String)> = Vec::new(); // (Node, LVM_path)
 
         for node in &all_nodes {
-            let lvm_provider: LvmProvider;
             let current_vg_name = storage_pool.name.clone(); // Use the same VG name as the pool
             let lv_name = format!("drbd-ha-lv-{}", req.resource_name); // Consistent LV name
 
-            if node.is_local {
-                lvm_provider = LvmProvider::new_local(current_vg_name.clone());
+            let lvm_provider = if node.is_local {
+                LvmProvider::new_local(current_vg_name.clone())
             } else {
                 // Get credentials for remote node (dummy)
                 let credential = crate::core::SshCredential::Password("ignored".to_string());
-                lvm_provider = LvmProvider::new_remote(
+                LvmProvider::new_remote(
                     current_vg_name.clone(),
                     state.ssh_manager.clone(),
                     node.ip.clone(),
                     node.ssh_port,
                     node.ssh_user.clone(),
                     credential,
-                );
-            }
+                )
+            };
 
             // Create the LVM logical volume on this node
             // Note: We don't check DB existence because each node needs its own LV
@@ -1491,24 +1490,21 @@ pub async fn delete_profile(
             // Iterate over all nodes to delete the LVM logical volume
             let all_nodes = state.db.get_all_nodes()?;
             for node in &all_nodes {
-                let lvm_provider: LvmProvider;
-                if node.is_local {
-                    lvm_provider = LvmProvider::new_local(storage_pool.name.clone());
+                let lvm_provider = if node.is_local {
+                    LvmProvider::new_local(storage_pool.name.clone())
+                } else if let Ok(Some(credential)) = get_node_credential(&state, node).await {
+                    LvmProvider::new_remote(
+                        storage_pool.name.clone(),
+                        state.ssh_manager.clone(),
+                        node.ip.clone(),
+                        node.ssh_port,
+                        node.ssh_user.clone(),
+                        credential,
+                    )
                 } else {
-                    if let Ok(Some(credential)) = get_node_credential(&state, node).await {
-                        lvm_provider = LvmProvider::new_remote(
-                            storage_pool.name.clone(),
-                            state.ssh_manager.clone(),
-                            node.ip.clone(),
-                            node.ssh_port,
-                            node.ssh_user.clone(),
-                            credential,
-                        );
-                    } else {
-                        tracing::warn!("Skipping LVM delete on {}: no credential", node.hostname);
-                        continue;
-                    }
-                }
+                    tracing::warn!("Skipping LVM delete on {}: no credential", node.hostname);
+                    continue;
+                };
 
                 // Force remove try
                 if let Err(e) = lvm_provider.delete_volume(&volume.name).await {
@@ -1661,11 +1657,9 @@ pub async fn get_profile_status(
 
             // Remove tree drawing characters and whitespace
             let name = without_symbol
-                .trim()
                 .trim_start_matches('├')
                 .trim_start_matches('└')
                 .trim_start_matches('─')
-                .trim()
                 .split_whitespace()
                 .next()
                 .unwrap_or("");
