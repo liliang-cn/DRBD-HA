@@ -75,7 +75,12 @@ export function useSSE() {
         clearTimeout(reconnectTimeoutRef.current);
       }
     };
-  }, [updateNodeStatus, updateResourcesFromSSE, addNotification, updateProgress]);
+  }, [
+    updateNodeStatus,
+    updateResourcesFromSSE,
+    addNotification,
+    updateProgress,
+  ]);
 
   return { connected };
 }

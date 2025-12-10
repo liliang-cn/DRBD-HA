@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect } from 'react';
 import {
   Table,
   Button,
@@ -13,10 +13,10 @@ import {
   Checkbox,
   Row,
   Col,
-} from "antd";
-import { PlusOutlined, HddOutlined, ReloadOutlined } from "@ant-design/icons";
-import { storageApi, nodesApi } from "@/api";
-import type { StoragePool, BlockDevice, Node } from "@/types";
+} from 'antd';
+import { PlusOutlined, HddOutlined, ReloadOutlined } from '@ant-design/icons';
+import { storageApi, nodesApi } from '@/api';
+import type { StoragePool, BlockDevice, Node } from '@/types';
 
 export function Storage() {
   const [pools, setPools] = useState<StoragePool[]>([]);
@@ -25,7 +25,7 @@ export function Storage() {
   const [createLoading, setCreateLoading] = useState(false);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [disksByNode, setDisksByNode] = useState<Record<string, BlockDevice[]>>(
-    {}
+    {},
   );
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
   const [form] = Form.useForm();
@@ -37,7 +37,7 @@ export function Storage() {
       setPools(pools);
     } catch (error) {
       console.error(error);
-      message.error("Failed to load storage pools");
+      message.error('Failed to load storage pools');
     } finally {
       setLoading(false);
     }
@@ -71,14 +71,14 @@ export function Storage() {
 
   const handleCreate = async (values: any) => {
     if (selectedNodes.length === 0) {
-      message.error("Please select at least one node");
+      message.error('Please select at least one node');
       return;
     }
 
     setCreateLoading(true);
     try {
       const nodeDevices: Record<string, string> = {};
-      selectedNodes.forEach(nodeId => {
+      selectedNodes.forEach((nodeId) => {
         const device = values[`device_${nodeId}`];
         if (device) {
           nodeDevices[nodeId] = device;
@@ -87,17 +87,17 @@ export function Storage() {
 
       await storageApi.createPool({
         name: values.name,
-        pool_type: "lvm",
+        pool_type: 'lvm',
         node_devices: nodeDevices,
       });
-      message.success("Storage pool created successfully on selected nodes");
+      message.success('Storage pool created successfully on selected nodes');
       setModalVisible(false);
       form.resetFields();
       setSelectedNodes([]);
       fetchPools();
     } catch (error: any) {
       message.error(
-        error.response?.data?.message || "Failed to create storage pool"
+        error.response?.data?.message || 'Failed to create storage pool',
       );
     } finally {
       setCreateLoading(false);
@@ -118,30 +118,30 @@ export function Storage() {
       key: 'node_id',
       render: (nodeId: string) => {
         // Try to find by ID
-        let node = nodes.find(n => n.id === nodeId);
+        let node = nodes.find((n) => n.id === nodeId);
         // If not found, and nodeId === 'local', look for is_local flag
         if (!node && nodeId === 'local') {
-            node = nodes.find(n => n.is_local);
+          node = nodes.find((n) => n.is_local);
         }
         return node ? node.hostname : nodeId;
-      }
+      },
     },
     {
-      title: "Device",
-      dataIndex: "device",
-      key: "device",
+      title: 'Device',
+      dataIndex: 'device',
+      key: 'device',
     },
     {
-      title: "Total Size",
-      dataIndex: "total_size",
-      key: "total_size",
-      render: (size: number) => (size / 1024 / 1024 / 1024).toFixed(2) + " GB",
+      title: 'Total Size',
+      dataIndex: 'total_size',
+      key: 'total_size',
+      render: (size: number) => (size / 1024 / 1024 / 1024).toFixed(2) + ' GB',
     },
     {
-      title: "Free Size",
-      dataIndex: "free_size",
-      key: "free_size",
-      render: (size: number) => (size / 1024 / 1024 / 1024).toFixed(2) + " GB",
+      title: 'Free Size',
+      dataIndex: 'free_size',
+      key: 'free_size',
+      render: (size: number) => (size / 1024 / 1024 / 1024).toFixed(2) + ' GB',
     },
   ];
 
@@ -197,7 +197,7 @@ export function Storage() {
             }
             precision={2}
             suffix="GB"
-            valueStyle={{ color: "#3f8600" }}
+            valueStyle={{ color: '#3f8600' }}
           />
         </Card>
       </div>
@@ -221,7 +221,7 @@ export function Storage() {
           <Form.Item
             name="name"
             label="Pool Name"
-            rules={[{ required: true, message: "Please enter pool name" }]}
+            rules={[{ required: true, message: 'Please enter pool name' }]}
           >
             <Input placeholder="e.g., ha_pool" />
           </Form.Item>
@@ -229,9 +229,9 @@ export function Storage() {
           <Form.Item label="Create Pool On Nodes">
             <div
               style={{
-                border: "1px solid #d9d9d9",
-                borderRadius: "4px",
-                padding: "12px",
+                border: '1px solid #d9d9d9',
+                borderRadius: '4px',
+                padding: '12px',
               }}
             >
               {nodes.length === 0 ? (
@@ -242,11 +242,11 @@ export function Storage() {
                     <Col span={24} key={node.id}>
                       <div
                         style={{
-                          paddingBottom: "12px",
-                          borderBottom: "1px solid #f0f0f0",
+                          paddingBottom: '12px',
+                          borderBottom: '1px solid #f0f0f0',
                         }}
                       >
-                        <div style={{ marginBottom: "8px" }}>
+                        <div style={{ marginBottom: '8px' }}>
                           <Checkbox
                             checked={selectedNodes.includes(node.id)}
                             onChange={(e) => {
@@ -254,14 +254,14 @@ export function Storage() {
                                 setSelectedNodes([...selectedNodes, node.id]);
                               } else {
                                 setSelectedNodes(
-                                  selectedNodes.filter((id) => id !== node.id)
+                                  selectedNodes.filter((id) => id !== node.id),
                                 );
                               }
                             }}
                           >
-                            <strong>{node.hostname}</strong>{" "}
+                            <strong>{node.hostname}</strong>{' '}
                             {node.is_local && (
-                              <span style={{ color: "#1890ff" }}>(Local)</span>
+                              <span style={{ color: '#1890ff' }}>(Local)</span>
                             )}
                           </Checkbox>
                         </div>
@@ -272,10 +272,10 @@ export function Storage() {
                             rules={[
                               {
                                 required: true,
-                                message: "Please select a device",
+                                message: 'Please select a device',
                               },
                             ]}
-                            style={{ margin: "8px 0 0 24px" }}
+                            style={{ margin: '8px 0 0 24px' }}
                           >
                             <Select placeholder="Select a disk">
                               {(disksByNode[node.id] || []).map((disk) => (

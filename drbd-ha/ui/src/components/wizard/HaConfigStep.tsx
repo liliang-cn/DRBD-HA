@@ -10,15 +10,15 @@ import {
   Select,
   Checkbox,
   Space,
-} from "antd";
-import type { FormInstance } from "antd";
+} from 'antd';
+import type { FormInstance } from 'antd';
 import {
   AppstoreOutlined,
   CloudServerOutlined,
   HddOutlined,
   ApiOutlined,
-} from "@ant-design/icons";
-import type { HaType, ServiceFileInfo } from "@/types";
+} from '@ant-design/icons';
+import type { HaType, ServiceFileInfo } from '@/types';
 
 // Define Resource type locally
 interface Resource {
@@ -28,17 +28,17 @@ interface Resource {
 
 interface HaConfigStepProps {
   form: FormInstance;
-  mode?: "service" | "storage";
+  mode?: 'service' | 'storage';
   haType: HaType;
   onHaTypeChange: (type: HaType) => void;
-  storageStrategy: "raw" | "lvm";
+  storageStrategy: 'raw' | 'lvm';
   resources: Resource[];
   services: ServiceFileInfo[];
 }
 
 export function HaConfigStep({
   form,
-  mode = "service",
+  mode = 'service',
   haType,
   onHaTypeChange,
   storageStrategy,
@@ -48,22 +48,22 @@ export function HaConfigStep({
   return (
     <Card
       title={
-        mode === "service"
-          ? "Step 3: Configure Service HA"
-          : "Step 3: Configure Storage Sharing"
+        mode === 'service'
+          ? 'Step 3: Configure Service HA'
+          : 'Step 3: Configure Storage Sharing'
       }
       className="max-w-4xl mx-auto"
     >
       <Form form={form} layout="vertical">
         <Form.Item
-          label={mode === "service" ? "Service Type" : "Storage Protocol"}
+          label={mode === 'service' ? 'Service Type' : 'Storage Protocol'}
         >
           <Radio.Group
             value={haType}
             onChange={(e) => onHaTypeChange(e.target.value)}
             buttonStyle="solid"
           >
-            {mode === "service" ? (
+            {mode === 'service' ? (
               <Radio.Button value="generic">
                 <AppstoreOutlined /> Application Service
               </Radio.Button>
@@ -93,7 +93,7 @@ export function HaConfigStep({
           <Input placeholder="my-service-ha" />
         </Form.Item>
 
-        {storageStrategy === "lvm" ? (
+        {storageStrategy === 'lvm' ? (
           <Form.Item
             name="resource_name"
             label="DRBD Resource"
@@ -118,19 +118,19 @@ export function HaConfigStep({
         )}
 
         {/* Generic & NFS fields */}
-        {(haType === "generic" || haType === "nfs") && (
+        {(haType === 'generic' || haType === 'nfs') && (
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 name="mount_point"
                 label={
-                  haType === "nfs" ? "Export Path (Mount Point)" : "Mount Point"
+                  haType === 'nfs' ? 'Export Path (Mount Point)' : 'Mount Point'
                 }
                 rules={[{ required: true }]}
               >
                 <Input
                   placeholder={
-                    haType === "nfs" ? "/exports/share1" : "/var/lib/myservice"
+                    haType === 'nfs' ? '/exports/share1' : '/var/lib/myservice'
                   }
                 />
               </Form.Item>
@@ -139,9 +139,9 @@ export function HaConfigStep({
               <Form.Item name="fs_type" label="Filesystem" initialValue="xfs">
                 <Select
                   options={[
-                    { value: "xfs" },
-                    { value: "ext4" },
-                    { value: "btrfs" },
+                    { value: 'xfs' },
+                    { value: 'ext4' },
+                    { value: 'btrfs' },
                   ]}
                 />
               </Form.Item>
@@ -150,7 +150,7 @@ export function HaConfigStep({
         )}
 
         {/* Generic Service Selection */}
-        {haType === "generic" && (
+        {haType === 'generic' && (
           <Form.Item
             name="services"
             label="Services"
@@ -168,7 +168,7 @@ export function HaConfigStep({
         )}
 
         {/* NFS Specific */}
-        {haType === "nfs" && (
+        {haType === 'nfs' && (
           <>
             <Form.Item
               name="nfs_allowed_networks"
@@ -188,7 +188,7 @@ export function HaConfigStep({
         )}
 
         {/* iSCSI Specific */}
-        {haType === "iscsi" && (
+        {haType === 'iscsi' && (
           <>
             <Form.Item
               name="iscsi_iqn"
@@ -207,7 +207,7 @@ export function HaConfigStep({
         )}
 
         {/* NVMe-oF Specific */}
-        {haType === "nvmeof" && (
+        {haType === 'nvmeof' && (
           <>
             <Form.Item
               name="nvmeof_nqn"
@@ -223,7 +223,7 @@ export function HaConfigStep({
                   label="Fabric Type"
                   initialValue="tcp"
                 >
-                  <Select options={[{ value: "tcp" }, { value: "rdma" }]} />
+                  <Select options={[{ value: 'tcp' }, { value: 'rdma' }]} />
                 </Form.Item>
               </Col>
               <Col span={12}>
@@ -268,7 +268,7 @@ export function HaConfigStep({
           </Col>
         </Row>
 
-        {(haType === "generic" || haType === "nfs") && (
+        {(haType === 'generic' || haType === 'nfs') && (
           <>
             <Divider>Data Migration</Divider>
             <Form.Item
@@ -279,10 +279,10 @@ export function HaConfigStep({
               <Checkbox
                 onChange={(e) => {
                   const checked = e.target.checked;
-                  if (checked && !form.getFieldValue("source_path")) {
+                  if (checked && !form.getFieldValue('source_path')) {
                     form.setFieldValue(
-                      "source_path",
-                      form.getFieldValue("mount_point")
+                      'source_path',
+                      form.getFieldValue('mount_point'),
                     );
                   }
                 }}
@@ -298,7 +298,7 @@ export function HaConfigStep({
               }
             >
               {({ getFieldValue }) =>
-                getFieldValue("migrate_data") ? (
+                getFieldValue('migrate_data') ? (
                   <div className="bg-gray-50 p-4 rounded-md mb-4 border border-gray-200">
                     <Form.Item
                       name="source_path"

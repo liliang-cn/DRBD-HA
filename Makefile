@@ -58,8 +58,12 @@ test:
 	@echo "Running all tests in the workspace..."
 	cargo test --workspace
 
-# Format all Rust code in the workspace
+# Format all Rust code and UI code
 format:
 	@echo "Formatting all Rust code in the workspace..."
 	cargo fmt --all
 	@echo "Rust code formatting complete."
+	@echo "Formatting UI code..."
+	cd drbd-ha/ui && npm run format
+	@echo "UI code formatting complete."
+	@echo "All code formatting complete."

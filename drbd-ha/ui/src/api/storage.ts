@@ -1,4 +1,4 @@
-import { api } from "./client";
+import { api } from './client';
 import type {
   StoragePool,
   CreateStoragePoolRequest,
@@ -6,13 +6,17 @@ import type {
   CreateVolumeRequest,
   CreateVolumeResponse,
   Volume,
-} from "@/types";
+} from '@/types';
 
 export const storageApi = {
-  listPools: () => api.get<{ pools: StoragePool[] }>("/pools"),
+  listPools: () => api.get<{ pools: StoragePool[] }>('/pools'),
 
-  createPool: (data: { name: string; device?: string; pool_type: string; node_devices?: Record<string, string> }) =>
-    api.post<{ id: string; name: string }>("/pools", data),
+  createPool: (data: {
+    name: string;
+    device?: string;
+    pool_type: string;
+    node_devices?: Record<string, string>;
+  }) => api.post<{ id: string; name: string }>('/pools', data),
 
   createVolume: (poolId: string, data: CreateVolumeRequest) =>
     api.post<CreateVolumeResponse>(`/pools/${poolId}/volumes`, data),

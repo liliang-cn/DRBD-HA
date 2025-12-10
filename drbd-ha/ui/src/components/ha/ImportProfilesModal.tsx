@@ -10,7 +10,11 @@ interface ImportProfilesModalProps {
   onSuccess: () => void;
 }
 
-export function ImportProfilesModal({ open, onCancel, onSuccess }: ImportProfilesModalProps) {
+export function ImportProfilesModal({
+  open,
+  onCancel,
+  onSuccess,
+}: ImportProfilesModalProps) {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [profiles, setProfiles] = useState<HaProfile[]>([]);
@@ -37,19 +41,21 @@ export function ImportProfilesModal({ open, onCancel, onSuccess }: ImportProfile
 
   const handleImport = async () => {
     if (selectedRowKeys.length === 0) return;
-    
+
     setImporting(true);
     try {
       const names = selectedRowKeys as string[];
       const res = await haProfilesApi.importProfiles(names);
-      
+
       if (res.imported.length > 0) {
-        message.success(`Successfully imported ${res.imported.length} profiles`);
+        message.success(
+          `Successfully imported ${res.imported.length} profiles`,
+        );
       }
       if (res.failed.length > 0) {
         message.warning(`Failed to import: ${res.failed.join(', ')}`);
       }
-      
+
       onSuccess();
       onCancel();
     } catch (err) {
@@ -61,22 +67,22 @@ export function ImportProfilesModal({ open, onCancel, onSuccess }: ImportProfile
 
   const columns = [
     { title: 'Name', dataIndex: 'name', key: 'name' },
-    { 
-      title: 'Type', 
-      dataIndex: 'ha_type', 
+    {
+      title: 'Type',
+      dataIndex: 'ha_type',
       key: 'ha_type',
-      render: (t: string) => <Tag>{(t || 'Generic').toUpperCase()}</Tag>
+      render: (t: string) => <Tag>{(t || 'Generic').toUpperCase()}</Tag>,
     },
     { title: 'Resource', dataIndex: 'resource_name', key: 'resource_name' },
-    { 
-      title: 'Services', 
+    {
+      title: 'Services',
       key: 'services',
       render: (_: unknown, r: HaProfile) => (
         <span className="text-xs text-gray-500">
           {r.promoter.services.join(', ')}
         </span>
-      )
-    }
+      ),
+    },
   ];
 
   return (
@@ -86,24 +92,32 @@ export function ImportProfilesModal({ open, onCancel, onSuccess }: ImportProfile
       onCancel={onCancel}
       width={700}
       footer={[
-        <Button key="cancel" onClick={onCancel}>Cancel</Button>,
-        <Button 
-          key="import" 
-          type="primary" 
-          icon={<ImportOutlined />} 
+        <Button key="cancel" onClick={onCancel}>
+          Cancel
+        </Button>,
+        <Button
+          key="import"
+          type="primary"
+          icon={<ImportOutlined />}
           loading={importing}
           disabled={selectedRowKeys.length === 0}
           onClick={handleImport}
         >
           Import Selected ({selectedRowKeys.length})
-        </Button>
+        </Button>,
       ]}
     >
       <div className="mb-4 flex justify-between items-center">
         <Typography.Text type="secondary">
-          The following profiles were found in <code>/etc/drbd-reactor.d/</code> but are not managed by the database.
+          The following profiles were found in <code>/etc/drbd-reactor.d/</code>{' '}
+          but are not managed by the database.
         </Typography.Text>
-        <Button icon={<ReloadOutlined />} onClick={fetchUnmanaged} loading={loading} size="small">
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={fetchUnmanaged}
+          loading={loading}
+          size="small"
+        >
           Refresh
         </Button>
       </div>

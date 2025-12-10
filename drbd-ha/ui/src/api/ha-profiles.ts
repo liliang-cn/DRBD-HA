@@ -1,23 +1,25 @@
-import { api } from "./client";
+import { api } from './client';
 import type {
   HaProfile,
   CreateHaProfileRequest,
   HaProfileStatus,
-} from "@/types";
+} from '@/types';
 
 export const haProfilesApi = {
-  list: () => api.get<{ profiles: HaProfile[] }>("/ha/profiles"),
+  list: () => api.get<{ profiles: HaProfile[] }>('/ha/profiles'),
 
   get: (id: string) => api.get<HaProfile>(`/ha/profiles/${id}`),
 
   create: (data: CreateHaProfileRequest) =>
     api.post<{ profile: HaProfile; config_path: string; message: string }>(
-      "/ha/profiles",
-      data
+      '/ha/profiles',
+      data,
     ),
 
   delete: (id: string, deleteResource?: boolean) =>
-    api.delete<void>(`/ha/profiles/${id}${deleteResource ? '?delete_resource=true' : ''}`),
+    api.delete<void>(
+      `/ha/profiles/${id}${deleteResource ? '?delete_resource=true' : ''}`,
+    ),
 
   getStatus: (id: string) =>
     api.get<HaProfileStatus>(`/ha/profiles/${id}/status`),
@@ -35,7 +37,7 @@ export const haProfilesApi = {
       delay?: number;
       keep_masked?: boolean;
       force?: boolean;
-    }
+    },
   ) =>
     api.post<{
       success: boolean;
@@ -51,21 +53,23 @@ export const haProfilesApi = {
       active_state: string;
       sub_state: string;
       running: boolean;
-    }>("/ha/reactor/status"),
+    }>('/ha/reactor/status'),
 
   reloadReactor: () =>
-    api.post<{ success: boolean; message: string }>("/ha/reactor/reload"),
+    api.post<{ success: boolean; message: string }>('/ha/reactor/reload'),
 
   // VIP management
-  addVip: (id: string, vip: { address: string; netmask: number; interface: string }) =>
-    api.post<{ message: string }>(`/ha/profiles/${id}/vip`, vip),
+  addVip: (
+    id: string,
+    vip: { address: string; netmask: number; interface: string },
+  ) => api.post<{ message: string }>(`/ha/profiles/${id}/vip`, vip),
 
   removeVip: (id: string) =>
     api.delete<{ message: string }>(`/ha/profiles/${id}/vip`),
 
   // Discovery and Import
-  getUnmanaged: () => api.get<HaProfile[]>("/ha/unmanaged"),
+  getUnmanaged: () => api.get<HaProfile[]>('/ha/unmanaged'),
 
   importProfiles: (names: string[]) =>
-    api.post<{ imported: string[]; failed: string[] }>("/ha/import", { names }),
+    api.post<{ imported: string[]; failed: string[] }>('/ha/import', { names }),
 };

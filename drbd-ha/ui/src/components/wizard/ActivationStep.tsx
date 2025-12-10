@@ -1,14 +1,14 @@
-import { Card, Result, Button, Space, Spin, Progress } from "antd";
-import { LoadingOutlined, CheckCircleOutlined } from "@ant-design/icons";
+import { Card, Result, Button, Space, Spin, Progress } from 'antd';
+import { LoadingOutlined, CheckCircleOutlined } from '@ant-design/icons';
 
 interface ActivationStepProps {
   activationStatus:
-    | "pending"
-    | "creating"
-    | "activating"
-    | "checking"
-    | "success"
-    | "error";
+    | 'pending'
+    | 'creating'
+    | 'activating'
+    | 'checking'
+    | 'success'
+    | 'error';
   activationError: string | null;
   progressPercent: number;
   progressSteps: Array<{ message: string; done: boolean }>;
@@ -26,26 +26,26 @@ export function ActivationStep({
 }: ActivationStepProps) {
   return (
     <Card title="Step 4: Activating HA" className="max-w-4xl mx-auto">
-      {(activationStatus === "creating" ||
-        activationStatus === "activating" ||
-        activationStatus === "checking") && (
+      {(activationStatus === 'creating' ||
+        activationStatus === 'activating' ||
+        activationStatus === 'checking') && (
         <div className="py-6">
           <div className="text-center mb-6">
             <Spin
               indicator={<LoadingOutlined style={{ fontSize: 48 }} spin />}
             />
             <div className="mt-4 text-xl font-medium">
-              {activationStatus === "creating" &&
-                "Creating HA Profile & Storage..."}
-              {activationStatus === "activating" && "Activating HA..."}
-              {activationStatus === "checking" && "Verifying Services..."}
+              {activationStatus === 'creating' &&
+                'Creating HA Profile & Storage...'}
+              {activationStatus === 'activating' && 'Activating HA...'}
+              {activationStatus === 'checking' && 'Verifying Services...'}
             </div>
           </div>
 
           <Progress
             percent={progressPercent}
             status="active"
-            strokeColor={{ "0%": "#108ee9", "100%": "#87d068" }}
+            strokeColor={{ '0%': '#108ee9', '100%': '#87d068' }}
             className="mb-6"
           />
 
@@ -58,7 +58,7 @@ export function ActivationStep({
                   ) : (
                     <LoadingOutlined className="text-blue-500" spin />
                   )}
-                  <span className={s.done ? "text-gray-500" : "text-gray-700"}>
+                  <span className={s.done ? 'text-gray-500' : 'text-gray-700'}>
                     {s.message}
                   </span>
                 </div>
@@ -68,7 +68,7 @@ export function ActivationStep({
         </div>
       )}
 
-      {activationStatus === "success" && (
+      {activationStatus === 'success' && (
         <Result
           status="success"
           title="HA Setup Complete!"
@@ -83,7 +83,7 @@ export function ActivationStep({
         />
       )}
 
-      {activationStatus === "error" && (
+      {activationStatus === 'error' && (
         <Result
           status="error"
           title="Activation Failed"

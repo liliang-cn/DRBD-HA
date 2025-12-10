@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 import {
   Card,
   Row,
@@ -10,7 +10,7 @@ import {
   Spin,
   Alert,
   Badge,
-} from "antd";
+} from 'antd';
 import {
   ClusterOutlined,
   HddOutlined,
@@ -19,10 +19,10 @@ import {
   WarningOutlined,
   CloseCircleOutlined,
   SyncOutlined,
-} from "@ant-design/icons";
-import { dashboardApi } from "@/api";
-import { useNotificationsStore } from "@/stores/notifications";
-import type { DashboardSummary, NotificationEvent } from "@/types";
+} from '@ant-design/icons';
+import { dashboardApi } from '@/api';
+import { useNotificationsStore } from '@/stores/notifications';
+import type { DashboardSummary, NotificationEvent } from '@/types';
 
 const { Text } = Typography;
 
@@ -37,7 +37,7 @@ export function Dashboard() {
       const data = await dashboardApi.getSummary();
       setSummary(data);
     } catch (err) {
-      console.error("Failed to fetch dashboard summary:", err);
+      console.error('Failed to fetch dashboard summary:', err);
     } finally {
       setLoading(false);
     }
@@ -62,22 +62,22 @@ export function Dashboard() {
   // [F01] Cluster Health Traffic Light
   const healthStatus = {
     healthy: {
-      color: "success",
+      color: 'success',
       icon: <CheckCircleOutlined />,
-      text: "Healthy",
-      message: "All systems operational",
+      text: 'Healthy',
+      message: 'All systems operational',
     },
     warning: {
-      color: "warning",
+      color: 'warning',
       icon: <WarningOutlined />,
-      text: "Warning",
-      message: "Some components are degraded",
+      text: 'Warning',
+      message: 'Some components are degraded',
     },
     critical: {
-      color: "error",
+      color: 'error',
       icon: <CloseCircleOutlined />,
-      text: "Critical",
-      message: "Cluster is in critical state",
+      text: 'Critical',
+      message: 'Cluster is in critical state',
     },
   }[summary.health];
 
@@ -94,7 +94,7 @@ export function Dashboard() {
           </div>
         }
         description={healthStatus.message}
-        type={healthStatus.color as "success" | "warning" | "error"}
+        type={healthStatus.color as 'success' | 'warning' | 'error'}
         showIcon={false}
         className="border-l-4"
       />
@@ -109,13 +109,13 @@ export function Dashboard() {
               suffix={`/ ${summary.nodes.total}`}
               prefix={<ClusterOutlined />}
               valueStyle={{
-                color: summary.nodes.offline > 0 ? "#cf1322" : "#3f8600",
+                color: summary.nodes.offline > 0 ? '#cf1322' : '#3f8600',
               }}
             />
             <div className="text-xs text-gray-500 mt-2">
               {summary.nodes.offline > 0
                 ? `${summary.nodes.offline} Offline`
-                : "All Online"}
+                : 'All Online'}
             </div>
           </Card>
         </Col>
@@ -129,7 +129,7 @@ export function Dashboard() {
               prefix={<HddOutlined />}
             />
             <div className="text-xs text-gray-500 mt-2">
-              Free:{" "}
+              Free:{' '}
               {(summary.storage.free_bytes / 1024 / 1024 / 1024).toFixed(1)} GB
               ({summary.storage.pool_count} Pools)
             </div>
@@ -143,11 +143,11 @@ export function Dashboard() {
               suffix={`/ ${summary.ha_services.total}`}
               prefix={<AppstoreOutlined />}
               valueStyle={{
-                color: summary.ha_services.error > 0 ? "#cf1322" : "#3f8600",
+                color: summary.ha_services.error > 0 ? '#cf1322' : '#3f8600',
               }}
             />
             <div className="text-xs text-gray-500 mt-2">
-              {summary.ha_services.standby} Standby,{" "}
+              {summary.ha_services.standby} Standby,{' '}
               {summary.ha_services.stopped} Stopped
             </div>
           </Card>
@@ -160,13 +160,13 @@ export function Dashboard() {
               suffix={`/ ${summary.resources.total}`}
               prefix={<SyncOutlined spin={summary.resources.degraded > 0} />}
               valueStyle={{
-                color: summary.resources.degraded > 0 ? "#faad14" : "#3f8600",
+                color: summary.resources.degraded > 0 ? '#faad14' : '#3f8600',
               }}
             />
             <div className="text-xs text-gray-500 mt-2">
               {summary.resources.degraded > 0
                 ? `${summary.resources.degraded} Degraded`
-                : "All Healthy"}
+                : 'All Healthy'}
             </div>
           </Card>
         </Col>
@@ -186,8 +186,8 @@ export function Dashboard() {
                       w-32 h-32 border-2 rounded-lg flex flex-col items-center justify-center bg-gray-50
                       ${
                         i < summary.nodes.online
-                          ? "border-green-500 shadow-green-100"
-                          : "border-red-500 bg-red-50"
+                          ? 'border-green-500 shadow-green-100'
+                          : 'border-red-500 bg-red-50'
                       }
                       transition-all hover:shadow-lg
                     `}
@@ -195,8 +195,8 @@ export function Dashboard() {
                       <ClusterOutlined className="text-3xl mb-2 text-gray-600" />
                       <div className="font-bold">Node {i + 1}</div>
                       <Badge
-                        status={i < summary.nodes.online ? "success" : "error"}
-                        text={i < summary.nodes.online ? "Online" : "Offline"}
+                        status={i < summary.nodes.online ? 'success' : 'error'}
+                        text={i < summary.nodes.online ? 'Online' : 'Offline'}
                       />
                     </div>
 
@@ -222,19 +222,19 @@ export function Dashboard() {
                 {summary.resources.degraded > 0 ? (
                   <div
                     className="absolute inset-0 bg-yellow-400 animate-pulse rounded"
-                    style={{ width: "100%" }}
+                    style={{ width: '100%' }}
                   ></div>
                 ) : (
                   <div
                     className="absolute inset-0 bg-green-400 rounded"
-                    style={{ width: "100%" }}
+                    style={{ width: '100%' }}
                   ></div>
                 )}
                 <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-white px-2 text-xs text-gray-500">
                   DRBD Replication (
                   {summary.resources.degraded > 0
-                    ? "Syncing/Degraded"
-                    : "Healthy"}
+                    ? 'Syncing/Degraded'
+                    : 'Healthy'}
                   )
                 </div>
               </div>
@@ -256,9 +256,9 @@ export function Dashboard() {
                   <List.Item className="border-b border-gray-100 last:border-0">
                     <List.Item.Meta
                       avatar={
-                        item.level === "error" ? (
+                        item.level === 'error' ? (
                           <CloseCircleOutlined className="text-red-500" />
-                        ) : item.level === "warning" ? (
+                        ) : item.level === 'warning' ? (
                           <WarningOutlined className="text-yellow-500" />
                         ) : (
                           <CheckCircleOutlined className="text-blue-500" />
@@ -270,7 +270,7 @@ export function Dashboard() {
                           <span>{item.source}</span>
                           <span>
                             {new Date(
-                              item.timestamp * 1000
+                              item.timestamp * 1000,
                             ).toLocaleTimeString()}
                           </span>
                         </div>
@@ -278,7 +278,7 @@ export function Dashboard() {
                     />
                   </List.Item>
                 )}
-                locale={{ emptyText: "No recent events" }}
+                locale={{ emptyText: 'No recent events' }}
               />
             </div>
           </Card>
@@ -302,8 +302,8 @@ export function Dashboard() {
                         className="w-2 h-2 rounded-full"
                         style={{
                           backgroundColor: service.active_node
-                            ? "#52c41a"
-                            : "#bfbfbf",
+                            ? '#52c41a'
+                            : '#bfbfbf',
                         }}
                       ></div>
                       <div className="flex-1">
@@ -313,12 +313,12 @@ export function Dashboard() {
                         <div className="text-xs text-gray-500">
                           {service.active_node
                             ? `Active on ${service.active_node}`
-                            : "Not active"}
+                            : 'Not active'}
                         </div>
                       </div>
                     </div>
                     <Tag
-                      color={service.active_node ? "green" : "default"}
+                      color={service.active_node ? 'green' : 'default'}
                       className="text-xs"
                     >
                       {service.status}

@@ -45,7 +45,7 @@ export const useHaProfilesStore = create<HaProfilesState>((set, get) => ({
   updateProfileStatus: (id: string, status: string) => {
     set((state) => ({
       profiles: state.profiles.map((p) =>
-        p.id === id ? { ...p, status: status as HaProfile['status'] } : p
+        p.id === id ? { ...p, status: status as HaProfile['status'] } : p,
       ),
     }));
   },

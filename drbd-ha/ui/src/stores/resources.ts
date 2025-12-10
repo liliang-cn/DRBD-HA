@@ -34,7 +34,9 @@ export const useResourcesStore = create<ResourcesState>((set, get) => ({
           ...resource,
           role: sseData.role,
           devices: resource.devices.map((device, index) =>
-            index === 0 ? { ...device, disk_state: sseData.disk_state } : device
+            index === 0
+              ? { ...device, disk_state: sseData.disk_state }
+              : device,
           ),
         };
       }

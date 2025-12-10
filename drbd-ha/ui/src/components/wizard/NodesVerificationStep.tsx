@@ -1,5 +1,5 @@
-import { Card, Table, Tag, Alert } from "antd";
-import type { Node } from "@/types";
+import { Card, Table, Tag, Alert } from 'antd';
+import type { Node } from '@/types';
 
 interface NodesVerificationStepProps {
   nodes: Node[];
@@ -13,19 +13,19 @@ export function NodesVerificationStep({ nodes }: NodesVerificationStepProps) {
         rowKey="id"
         pagination={false}
         columns={[
-          { title: "Hostname", dataIndex: "hostname" },
-          { title: "IP", dataIndex: "ip" },
+          { title: 'Hostname', dataIndex: 'hostname' },
+          { title: 'IP', dataIndex: 'ip' },
           {
-            title: "Status",
-            dataIndex: "status",
+            title: 'Status',
+            dataIndex: 'status',
             render: (status: string) => (
-              <Tag color={status === "online" ? "green" : "red"}>{status}</Tag>
+              <Tag color={status === 'online' ? 'green' : 'red'}>{status}</Tag>
             ),
           },
           {
-            title: "Type",
+            title: 'Type',
             render: (_, r: { is_local: boolean }) => (
-              <Tag>{r.is_local ? "Local" : "Remote"}</Tag>
+              <Tag>{r.is_local ? 'Local' : 'Remote'}</Tag>
             ),
           },
         ]}

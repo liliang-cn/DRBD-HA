@@ -1,6 +1,21 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Tag, Modal, Form, Input, InputNumber, message, Popconfirm, Space } from 'antd';
-import { PlusOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  Table,
+  Button,
+  Tag,
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  message,
+  Popconfirm,
+  Space,
+} from 'antd';
+import {
+  PlusOutlined,
+  DeleteOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { useNodesStore } from '@/stores/nodes';
 import { nodesApi } from '@/api';
 import type { Node, AddNodeRequest } from '@/types';
@@ -51,7 +66,9 @@ export function Nodes() {
       if (result.status === 'online') {
         message.success(`Node ${result.hostname} is online`);
       } else {
-        message.warning(`Node ${result.hostname}: ${result.message || result.status}`);
+        message.warning(
+          `Node ${result.hostname}: ${result.message || result.status}`,
+        );
       }
       fetch();
     } catch (err) {
@@ -110,7 +127,11 @@ export function Nodes() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-semibold">Nodes</h2>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => setModalOpen(true)}
+        >
           Add Node
         </Button>
       </div>
@@ -131,7 +152,11 @@ export function Nodes() {
         destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={handleAdd}>
-          <Form.Item name="hostname" label="Hostname" rules={[{ required: true }]}>
+          <Form.Item
+            name="hostname"
+            label="Hostname"
+            rules={[{ required: true }]}
+          >
             <Input placeholder="node2" />
           </Form.Item>
           <Form.Item name="ip" label="IP Address" rules={[{ required: true }]}>

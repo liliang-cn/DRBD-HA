@@ -12,7 +12,14 @@ export const nodesApi = {
 
   getDisks: (id: string) => api.get<BlockDevice[]>(`/nodes/${id}/disks`),
 
-  getAvailableDisks: (id: string) => api.get<BlockDevice[]>(`/nodes/${id}/disks/available`),
+  getAvailableDisks: (id: string) =>
+    api.get<BlockDevice[]>(`/nodes/${id}/disks/available`),
 
-  check: (id: string) => api.post<{ id: string; hostname: string; status: string; message: string | null }>(`/nodes/${id}/check`),
+  check: (id: string) =>
+    api.post<{
+      id: string;
+      hostname: string;
+      status: string;
+      message: string | null;
+    }>(`/nodes/${id}/check`),
 };

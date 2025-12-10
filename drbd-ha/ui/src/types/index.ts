@@ -6,7 +6,7 @@ export interface Node {
   ssh_port: number;
   ssh_user: string;
   is_local: boolean;
-  status: "online" | "offline" | "error" | "unknown";
+  status: 'online' | 'offline' | 'error' | 'unknown';
   last_seen: string | null;
 }
 
@@ -70,15 +70,15 @@ export interface CreateResourceRequest {
 
 export interface ResourceAction {
   action:
-    | "up"
-    | "down"
-    | "primary"
-    | "secondary"
-    | "connect"
-    | "disconnect"
-    | "invalidate"
-    | "verify"
-    | "recover_split_brain";
+    | 'up'
+    | 'down'
+    | 'primary'
+    | 'secondary'
+    | 'connect'
+    | 'disconnect'
+    | 'invalidate'
+    | 'verify'
+    | 'recover_split_brain';
   force?: boolean;
 }
 
@@ -102,7 +102,7 @@ export interface GeneratedUnits {
   service_overrides: ServiceOverride[];
 }
 
-export type HaType = "generic" | "nfs" | "iscsi" | "nvmeof";
+export type HaType = 'generic' | 'nfs' | 'iscsi' | 'nvmeof';
 
 export interface NfsConfig {
   export_path: string;
@@ -135,7 +135,7 @@ export interface HaProfile {
     stop_on_demote: boolean;
     on_demote_failure: string;
   };
-  status: "active" | "standby" | "stopped" | "error" | "unknown";
+  status: 'active' | 'standby' | 'stopped' | 'error' | 'unknown';
   generated_units: GeneratedUnits;
   nfs?: NfsConfig;
   iscsi?: IscsiConfig;
@@ -296,7 +296,7 @@ export interface ProgressEvent {
 }
 
 export interface NotificationEvent {
-  level: "info" | "warning" | "error";
+  level: 'info' | 'warning' | 'error';
   message: string;
   source: string;
   timestamp: number;
@@ -317,7 +317,7 @@ export interface HaServiceDetail {
 }
 
 export interface DashboardSummary {
-  health: "healthy" | "warning" | "critical";
+  health: 'healthy' | 'warning' | 'critical';
   nodes: {
     total: number;
     online: number;

@@ -1,41 +1,41 @@
-import { useEffect, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { Button, message, Steps, Form } from "antd";
+import { useEffect, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Button, message, Steps, Form } from 'antd';
 import {
   ArrowLeftOutlined,
   ArrowRightOutlined,
   RocketOutlined,
-} from "@ant-design/icons";
-import { useNodesStore } from "@/stores/nodes";
-import { useResourcesStore } from "@/stores/resources";
-import { useNotificationsStore } from "@/stores/notifications";
-import { useHaProfilesStore } from "@/stores/ha-profiles";
+} from '@ant-design/icons';
+import { useNodesStore } from '@/stores/nodes';
+import { useResourcesStore } from '@/stores/resources';
+import { useNotificationsStore } from '@/stores/notifications';
+import { useHaProfilesStore } from '@/stores/ha-profiles';
 import {
   haProfilesApi,
   resourcesApi,
   nodesApi,
   servicesApi,
   storageApi,
-} from "@/api";
+} from '@/api';
 import type {
   BlockDevice,
   ServiceFileInfo,
   CreateHaProfileRequest,
   StoragePool,
   HaType,
-} from "@/types";
+} from '@/types';
 import {
   NodesVerificationStep,
   StorageConfigStep,
   HaConfigStep,
   ActivationStep,
-} from "@/components/wizard";
+} from '@/components/wizard';
 
 interface WizardProps {
-  mode?: "service" | "storage"; // service: generic only, storage: nfs/iscsi/nvmeof
+  mode?: 'service' | 'storage'; // service: generic only, storage: nfs/iscsi/nvmeof
 }
 
-export function Wizard({ mode = "service" }: WizardProps) {
+export function Wizard({ mode = 'service' }: WizardProps) {
   const navigate = useNavigate();
   const { nodes, fetch: fetchNodes } = useNodesStore();
   const { resources, fetch: fetchResources } = useResourcesStore();
@@ -53,19 +53,19 @@ export function Wizard({ mode = "service" }: WizardProps) {
   const [haForm] = Form.useForm();
 
   // Strategies
-  const [storageStrategy, setStorageStrategy] = useState<"raw" | "lvm">("raw");
+  const [storageStrategy, setStorageStrategy] = useState<'raw' | 'lvm'>('raw');
   const [haType, setHaType] = useState<HaType>(
-    mode === "service" ? "generic" : "nfs"
+    mode === 'service' ? 'generic' : 'nfs',
   );
 
   // Step 4: Activation state
   const [createdProfileId, setCreatedProfileId] = useState<string | null>(null);
   const [createdProfileName, setCreatedProfileName] = useState<string | null>(
-    null
+    null,
   );
   const [activationStatus, setActivationStatus] = useState<
-    "pending" | "creating" | "activating" | "checking" | "success" | "error"
-  >("pending");
+    'pending' | 'creating' | 'activating' | 'checking' | 'success' | 'error'
+  >('pending');
   const [activationError, setActivationError] = useState<string | null>(null);
   const statusPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [progressSteps, setProgressSteps] = useState<
@@ -80,14 +80,14 @@ export function Wizard({ mode = "service" }: WizardProps) {
   // Reset type-specific fields when haType changes
   useEffect(() => {
     // Skip on initial mount
-    if (!haForm.getFieldValue("name")) {
+    if (!haForm.getFieldValue('name')) {
       return;
     }
 
     const currentValues = haForm.getFieldsValue();
 
     // Clear fields based on type
-    if (haType === "nfs") {
+    if (haType === 'nfs') {
       // NFS: keep mount_point and fs_type, clear iscsi/nvmeof fields
       haForm.setFieldsValue({
         ...currentValues,
@@ -97,7 +97,7 @@ export function Wizard({ mode = "service" }: WizardProps) {
         nvmeof_port: undefined,
         nvmeof_transport: undefined,
       });
-    } else if (haType === "iscsi") {
+    } else if (haType === 'iscsi') {
       // iSCSI: clear mount_point/fs_type/nfs fields, keep iscsi fields
       haForm.setFieldsValue({
         ...currentValues,
@@ -109,7 +109,7 @@ export function Wizard({ mode = "service" }: WizardProps) {
         nvmeof_port: undefined,
         nvmeof_transport: undefined,
       });
-    } else if (haType === "nvmeof") {
+    } else if (haType === 'nvmeof') {
       // NVMe-oF: clear mount_point/fs_type/nfs/iscsi fields
       haForm.setFieldsValue({
         ...currentValues,
@@ -138,7 +138,7 @@ export function Wizard({ mode = "service" }: WizardProps) {
   // Load disks or pools when entering step 1
   useEffect(() => {
     if (step === 1) {
-      if (storageStrategy === "raw") {
+      if (storageStrategy === 'raw') {
         nodes.forEach(async (node) => {
           try {
             const disks = await nodesApi.getAvailableDisks(node.id);
@@ -162,10 +162,10 @@ export function Wizard({ mode = "service" }: WizardProps) {
       fetchResources();
       loadServices();
       // If LVM strategy, pre-fill resource name from previous step
-      if (storageStrategy === "lvm") {
+      if (storageStrategy === 'lvm') {
         const values = resourceForm.getFieldsValue();
-        haForm.setFieldValue("resource_name", values.name);
-        haForm.setFieldValue("fs_type", values.fs_type || "xfs");
+        haForm.setFieldValue('resource_name', values.name);
+        haForm.setFieldValue('fs_type', values.fs_type || 'xfs');
       }
     }
   }, [step, nodes, resources.length, storageStrategy, fetchResources]);
@@ -186,8 +186,8 @@ export function Wizard({ mode = "service" }: WizardProps) {
     const relevantProgress = progressEvents.filter(
       (p) =>
         p.resource === createdProfileName &&
-        (p.operation === "create_ha_profile" ||
-          p.operation === "activate_profile")
+        (p.operation === 'create_ha_profile' ||
+          p.operation === 'activate_profile'),
     );
 
     if (relevantProgress.length > 0) {
@@ -202,7 +202,7 @@ export function Wizard({ mode = "service" }: WizardProps) {
       });
 
       if (latest.completed && latest.success === false) {
-        setActivationStatus("error");
+        setActivationStatus('error');
         setActivationError(latest.message);
       }
     }
@@ -221,34 +221,34 @@ export function Wizard({ mode = "service" }: WizardProps) {
 
       const allServicesRunning =
         status.service_statuses?.every((s) => s.active) ?? false;
-      const hasDrbdRole = status.drbd?.role === "Primary";
+      const hasDrbdRole = status.drbd?.role === 'Primary';
 
       if (allServicesRunning && hasDrbdRole) {
-        setActivationStatus("success");
+        setActivationStatus('success');
         return;
       }
 
       if (retries > 0) {
         statusPollRef.current = setTimeout(
           () => pollServiceStatus(profileId, retries - 1),
-          2000
+          2000,
         );
       } else {
         if (status.active_node) {
-          setActivationStatus("success");
+          setActivationStatus('success');
         } else {
-          setActivationStatus("error");
-          setActivationError("Services did not start within expected time");
+          setActivationStatus('error');
+          setActivationError('Services did not start within expected time');
         }
       }
     } catch (err) {
       if (retries > 0) {
         statusPollRef.current = setTimeout(
           () => pollServiceStatus(profileId, retries - 1),
-          2000
+          2000,
         );
       } else {
-        setActivationStatus("error");
+        setActivationStatus('error');
         setActivationError((err as { message: string }).message);
       }
     }
@@ -257,7 +257,7 @@ export function Wizard({ mode = "service" }: WizardProps) {
   const handleNext = async () => {
     if (step === 0) {
       if (nodes.length < 2) {
-        message.warning("At least 2 nodes are required for HA");
+        message.warning('At least 2 nodes are required for HA');
         return;
       }
       setStep(1);
@@ -266,49 +266,49 @@ export function Wizard({ mode = "service" }: WizardProps) {
         await resourceForm.validateFields();
         const values = resourceForm.getFieldsValue();
 
-        if (storageStrategy === "raw") {
+        if (storageStrategy === 'raw') {
           setLoading(true);
           await resourcesApi.create(values);
-          message.success("DRBD resource created");
+          message.success('DRBD resource created');
           await fetchResources();
           try {
             await resourcesApi.init(values.name);
-            message.success("Resource initialized");
-            const fsType = values.fs_type || "xfs";
+            message.success('Resource initialized');
+            const fsType = values.fs_type || 'xfs';
             try {
               await resourcesApi.mkfs(values.name, fsType, true);
               message.success(`Filesystem (${fsType}) created`);
             } catch (mkfsErr) {
               message.warning(
                 `Filesystem creation skipped: ${
-                  (mkfsErr as { message?: string }).message || "unknown error"
-                }`
+                  (mkfsErr as { message?: string }).message || 'unknown error'
+                }`,
               );
             }
           } catch (initErr) {
             message.warning(
               `Resource initialization skipped: ${
-                (initErr as { message?: string }).message || "unknown error"
-              }`
+                (initErr as { message?: string }).message || 'unknown error'
+              }`,
             );
           }
-          haForm.setFieldValue("resource_name", values.name);
-          haForm.setFieldValue("fs_type", values.fs_type || "xfs");
+          haForm.setFieldValue('resource_name', values.name);
+          haForm.setFieldValue('fs_type', values.fs_type || 'xfs');
         } else {
           // LVM mode
           if (!values.name) {
-            message.error("Please enter a resource name");
+            message.error('Please enter a resource name');
             return;
           }
           if (!values.lvm_pool_id || !values.lvm_volume_size_gb) {
-            message.error("Please select a storage pool and size");
+            message.error('Please select a storage pool and size');
             return;
           }
           // Pre-fill resource_name and fs_type for LVM mode
-          console.log("LVM Mode - Resource values:", values);
-          console.log("Setting resource_name to:", values.name);
-          haForm.setFieldValue("resource_name", values.name);
-          haForm.setFieldValue("fs_type", values.fs_type || "xfs");
+          console.log('LVM Mode - Resource values:', values);
+          console.log('Setting resource_name to:', values.name);
+          haForm.setFieldValue('resource_name', values.name);
+          haForm.setFieldValue('fs_type', values.fs_type || 'xfs');
         }
         setStep(2);
       } catch (err) {
@@ -325,29 +325,29 @@ export function Wizard({ mode = "service" }: WizardProps) {
         const haValues = haForm.getFieldsValue(true); // true = include disabled fields
         const resourceValues = resourceForm.getFieldsValue(true);
 
-        console.log("=== Form Debug ===");
-        console.log("Storage Strategy:", storageStrategy);
-        console.log("HA Type:", haType);
-        console.log("HA Form Values:", haValues);
-        console.log("Resource Form Values:", resourceValues);
-        console.log("haValues.resource_name:", haValues.resource_name);
-        console.log("resourceValues.name:", resourceValues.name);
+        console.log('=== Form Debug ===');
+        console.log('Storage Strategy:', storageStrategy);
+        console.log('HA Type:', haType);
+        console.log('HA Form Values:', haValues);
+        console.log('Resource Form Values:', resourceValues);
+        console.log('haValues.resource_name:', haValues.resource_name);
+        console.log('resourceValues.name:', resourceValues.name);
 
         const resourceName =
-          storageStrategy === "lvm"
+          storageStrategy === 'lvm'
             ? resourceValues.name // LVM: from resourceForm
             : haValues.resource_name; // Raw: from dropdown selection
 
-        console.log("=== Resource Name Calculation ===");
-        console.log("storageStrategy === 'lvm':", storageStrategy === "lvm");
-        console.log("Using LVM branch:", storageStrategy === "lvm");
-        console.log("resourceValues.name:", resourceValues.name);
-        console.log("haValues.resource_name:", haValues.resource_name);
-        console.log("Final resourceName:", resourceName);
+        console.log('=== Resource Name Calculation ===');
+        console.log("storageStrategy === 'lvm':", storageStrategy === 'lvm');
+        console.log('Using LVM branch:', storageStrategy === 'lvm');
+        console.log('resourceValues.name:', resourceValues.name);
+        console.log('haValues.resource_name:', haValues.resource_name);
+        console.log('Final resourceName:', resourceName);
 
         if (!resourceName) {
-          console.error("ERROR: Resource name is empty!");
-          message.error("Resource name is missing. Please go back and check.");
+          console.error('ERROR: Resource name is empty!');
+          message.error('Resource name is missing. Please go back and check.');
           setLoading(false);
           return;
         }
@@ -359,22 +359,22 @@ export function Wizard({ mode = "service" }: WizardProps) {
           name: haValues.name,
           ha_type: haType,
           resource_name: resourceName,
-          mount_point: haValues.mount_point || "", // Empty string if not provided
+          mount_point: haValues.mount_point || '', // Empty string if not provided
           fs_type:
-            storageStrategy === "lvm"
-              ? resourceValues.fs_type || haValues.fs_type || "xfs"
-              : haValues.fs_type || "xfs",
+            storageStrategy === 'lvm'
+              ? resourceValues.fs_type || haValues.fs_type || 'xfs'
+              : haValues.fs_type || 'xfs',
           services: haValues.services || [],
           auto_disable_services: true,
           vip: haValues.vip_address
             ? {
                 address: haValues.vip_address,
                 netmask: haValues.vip_netmask || 24,
-                interface: haValues.vip_interface || "eth0",
+                interface: haValues.vip_interface || 'eth0',
               }
             : undefined,
           migration:
-            haValues.migrate_data && (haType === "generic" || haType === "nfs")
+            haValues.migrate_data && (haType === 'generic' || haType === 'nfs')
               ? {
                   migrate_data: true,
                   source_path: haValues.source_path,
@@ -384,72 +384,72 @@ export function Wizard({ mode = "service" }: WizardProps) {
               : undefined,
         };
 
-        if (haType === "nfs") {
+        if (haType === 'nfs') {
           request.nfs = {
-            export_path: haValues.mount_point || "/exports/default", // Fallback to default if empty
+            export_path: haValues.mount_point || '/exports/default', // Fallback to default if empty
             allowed_networks: haValues.nfs_allowed_networks
               ? haValues.nfs_allowed_networks
-                  .split(",")
+                  .split(',')
                   .map((s: string) => s.trim())
-              : ["*"],
-            options: haValues.nfs_options || "rw,sync,no_root_squash",
+              : ['*'],
+            options: haValues.nfs_options || 'rw,sync,no_root_squash',
           };
-        } else if (haType === "iscsi") {
+        } else if (haType === 'iscsi') {
           request.iscsi = {
             iqn: haValues.iscsi_iqn,
             allowed_initiators: haValues.iscsi_allowed_initiators
               ? haValues.iscsi_allowed_initiators
-                  .split(",")
+                  .split(',')
                   .map((s: string) => s.trim())
               : [],
           };
-        } else if (haType === "nvmeof") {
+        } else if (haType === 'nvmeof') {
           request.nvmeof = {
             nqn: haValues.nvmeof_nqn,
             allowed_nqns: haValues.nvmeof_allowed_nqns
               ? haValues.nvmeof_allowed_nqns
-                  .split(",")
+                  .split(',')
                   .map((s: string) => s.trim())
               : [],
-            fabric_type: haValues.nvmeof_fabric_type || "tcp",
-            trsvcid: haValues.nvmeof_trsvcid || "4420",
+            fabric_type: haValues.nvmeof_fabric_type || 'tcp',
+            trsvcid: haValues.nvmeof_trsvcid || '4420',
           };
         }
 
-        if (storageStrategy === "lvm") {
+        if (storageStrategy === 'lvm') {
           request.lvm_pool_id = resourceValues.lvm_pool_id;
           request.lvm_volume_size_gb = resourceValues.lvm_volume_size_gb;
           request.drbd_port = resourceValues.port;
           request.drbd_minor = resourceValues.minor;
         }
 
-        console.log("Final request:", JSON.stringify(request, null, 2));
+        console.log('Final request:', JSON.stringify(request, null, 2));
 
         // Now transition to step 3 and start creating
         setStep(3);
-        setActivationStatus("creating");
+        setActivationStatus('creating');
 
         const result = await haProfilesApi.create(request);
         const profileId = result.profile.id;
         setCreatedProfileId(profileId);
         await fetchProfiles();
 
-        setActivationStatus("activating");
+        setActivationStatus('activating');
         try {
           await haProfilesApi.activate(profileId);
-          setActivationStatus("checking");
+          setActivationStatus('checking');
           pollServiceStatus(profileId);
         } catch (activateErr) {
-          setActivationStatus("error");
+          setActivationStatus('error');
           setActivationError((activateErr as { message: string }).message);
         }
       } catch (err) {
         if ((err as { message?: string }).message) {
           message.error((err as { message: string }).message);
         }
-        setActivationStatus("error");
+        setActivationStatus('error');
         setActivationError(
-          (err as { message?: string }).message || "Unknown error"
+          (err as { message?: string }).message || 'Unknown error',
         );
       } finally {
         setLoading(false);
@@ -462,20 +462,20 @@ export function Wizard({ mode = "service" }: WizardProps) {
   };
 
   const handleDone = () => {
-    navigate("/dashboard");
+    navigate('/dashboard');
   };
 
   const handleRetry = async () => {
     if (createdProfileId) {
-      setActivationStatus("activating");
+      setActivationStatus('activating');
       setActivationError(null);
       setProgressSteps([]);
       try {
         await haProfilesApi.activate(createdProfileId);
-        setActivationStatus("checking");
+        setActivationStatus('checking');
         pollServiceStatus(createdProfileId);
       } catch (err) {
-        setActivationStatus("error");
+        setActivationStatus('error');
         setActivationError((err as { message: string }).message);
       }
     }
@@ -484,17 +484,17 @@ export function Wizard({ mode = "service" }: WizardProps) {
   const currentProgress = progressEvents.find(
     (p) =>
       p.resource === createdProfileName &&
-      (p.operation === "create_ha_profile" ||
-        p.operation === "activate_profile") &&
-      !p.completed
+      (p.operation === 'create_ha_profile' ||
+        p.operation === 'activate_profile') &&
+      !p.completed,
   );
   const progressPercent =
     currentProgress?.progress ??
-    (activationStatus === "checking"
+    (activationStatus === 'checking'
       ? 90
-      : activationStatus === "success"
-      ? 100
-      : 0);
+      : activationStatus === 'success'
+        ? 100
+        : 0);
 
   const renderStepContent = () => {
     switch (step) {
@@ -558,10 +558,10 @@ export function Wizard({ mode = "service" }: WizardProps) {
           current={step}
           className="mb-8 max-w-3xl mx-auto"
           items={[
-            { title: "Nodes", description: "Verify cluster" },
-            { title: "Storage", description: "Configure Storage" },
-            { title: "HA", description: "Configure services" },
-            { title: "Activate", description: "Start services" },
+            { title: 'Nodes', description: 'Verify cluster' },
+            { title: 'Storage', description: 'Configure Storage' },
+            { title: 'HA', description: 'Configure services' },
+            { title: 'Activate', description: 'Start services' },
           ]}
         />
 
@@ -569,17 +569,17 @@ export function Wizard({ mode = "service" }: WizardProps) {
 
         <div
           className={`flex mt-8 max-w-4xl mx-auto ${
-            activationStatus === "success"
-              ? "justify-center"
-              : "justify-between"
+            activationStatus === 'success'
+              ? 'justify-center'
+              : 'justify-between'
           }`}
         >
-          {step < 3 && activationStatus !== "success" && (
+          {step < 3 && activationStatus !== 'success' && (
             <Button
               icon={<ArrowLeftOutlined />}
-              onClick={step === 0 ? () => navigate("/dashboard") : handlePrev}
+              onClick={step === 0 ? () => navigate('/dashboard') : handlePrev}
             >
-              {step === 0 ? "Cancel" : "Previous"}
+              {step === 0 ? 'Cancel' : 'Previous'}
             </Button>
           )}
 
@@ -590,7 +590,7 @@ export function Wizard({ mode = "service" }: WizardProps) {
               onClick={handleNext}
               loading={loading}
             >
-              {step === 2 ? "Create & Activate" : "Next"}
+              {step === 2 ? 'Create & Activate' : 'Next'}
             </Button>
           ) : null}
         </div>

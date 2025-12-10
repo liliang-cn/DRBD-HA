@@ -9,7 +9,9 @@ interface NodesState {
   fetch: () => Promise<void>;
   add: (data: Parameters<typeof nodesApi.add>[0]) => Promise<Node>;
   remove: (id: string) => Promise<void>;
-  updateStatus: (updates: Array<{ id: string; status: string; last_seen?: number }>) => void;
+  updateStatus: (
+    updates: Array<{ id: string; status: string; last_seen?: number }>,
+  ) => void;
 }
 
 export const useNodesStore = create<NodesState>((set, get) => ({
@@ -46,7 +48,9 @@ export const useNodesStore = create<NodesState>((set, get) => ({
           return {
             ...node,
             status: update.status as Node['status'],
-            last_seen: update.last_seen ? new Date(update.last_seen * 1000).toISOString() : node.last_seen,
+            last_seen: update.last_seen
+              ? new Date(update.last_seen * 1000).toISOString()
+              : node.last_seen,
           };
         }
         return node;

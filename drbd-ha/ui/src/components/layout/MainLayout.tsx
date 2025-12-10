@@ -17,7 +17,11 @@ const menuItems = [
   { key: '/nodes', icon: <ClusterOutlined />, label: 'Nodes' },
   { key: '/storage', icon: <DatabaseOutlined />, label: 'Storage' },
   // { key: '/resources', icon: <DatabaseOutlined />, label: 'Resources' },
-  { key: '/ha-profiles', icon: <SafetyCertificateOutlined />, label: 'HA Profiles' },
+  {
+    key: '/ha-profiles',
+    icon: <SafetyCertificateOutlined />,
+    label: 'HA Profiles',
+  },
   { key: '/logs', icon: <FileTextOutlined />, label: 'Logs' },
   { key: 'api-docs', icon: <FileTextOutlined />, label: 'API Docs' },
 ];
@@ -47,7 +51,9 @@ export function MainLayout() {
         className="border-r border-gray-200"
       >
         <div className="h-16 flex items-center justify-center border-b border-gray-200">
-          <span className={`font-bold text-lg ${collapsed ? 'hidden' : ''}`}>DRBD HA</span>
+          <span className={`font-bold text-lg ${collapsed ? 'hidden' : ''}`}>
+            DRBD HA
+          </span>
           {collapsed && <DatabaseOutlined className="text-xl" />}
         </div>
         <Menu
@@ -65,10 +71,16 @@ export function MainLayout() {
         >
           <h1 className="text-lg font-medium">DRBD HA</h1>
           <div className="flex items-center gap-4">
-            <Badge status={connected ? 'success' : 'error'} text={connected ? 'Connected' : 'Disconnected'} />
+            <Badge
+              status={connected ? 'success' : 'error'}
+              text={connected ? 'Connected' : 'Disconnected'}
+            />
           </div>
         </Header>
-        <Content className="m-3 p-6 bg-white rounded-lg" style={{ minHeight: 'calc(100vh - 64px - 24px)' }}>
+        <Content
+          className="m-3 p-6 bg-white rounded-lg"
+          style={{ minHeight: 'calc(100vh - 64px - 24px)' }}
+        >
           <Outlet />
         </Content>
       </Layout>

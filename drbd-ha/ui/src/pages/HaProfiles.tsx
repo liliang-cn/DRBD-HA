@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Table,
   Button,
@@ -14,7 +14,7 @@ import {
   Descriptions,
   Dropdown,
   Checkbox,
-} from "antd";
+} from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -27,19 +27,19 @@ import {
   SearchOutlined,
   AppstoreOutlined,
   CloudServerOutlined,
-} from "@ant-design/icons";
-import { useHaProfilesStore } from "@/stores/ha-profiles";
-import { useResourcesStore } from "@/stores/resources";
-import { haProfilesApi } from "@/api";
-import { ImportProfilesModal } from "@/components/ha/ImportProfilesModal";
-import type { HaProfile, HaProfileStatus, VipConfig } from "@/types";
+} from '@ant-design/icons';
+import { useHaProfilesStore } from '@/stores/ha-profiles';
+import { useResourcesStore } from '@/stores/resources';
+import { haProfilesApi } from '@/api';
+import { ImportProfilesModal } from '@/components/ha/ImportProfilesModal';
+import type { HaProfile, HaProfileStatus, VipConfig } from '@/types';
 
 const statusColor: Record<string, string> = {
-  active: "green",
-  standby: "blue",
-  stopped: "default",
-  error: "red",
-  unknown: "default",
+  active: 'green',
+  standby: 'blue',
+  stopped: 'default',
+  error: 'red',
+  unknown: 'default',
 };
 
 export function HaProfiles() {
@@ -48,14 +48,14 @@ export function HaProfiles() {
   const { fetch: fetchResources } = useResourcesStore();
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<HaProfileStatus | null>(
-    null
+    null,
   );
   const [selectedProfile, setSelectedProfile] = useState<HaProfile | null>(
-    null
+    null,
   );
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [profileToDelete, setProfileToDelete] = useState<HaProfile | null>(
-    null
+    null,
   );
   const [deleteResource, setDeleteResource] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -84,8 +84,8 @@ export function HaProfiles() {
       await haProfilesApi.delete(profileToDelete.id, deleteResource);
       message.success(
         deleteResource
-          ? "HA Profile and DRBD resource deleted"
-          : "HA Profile deleted"
+          ? 'HA Profile and DRBD resource deleted'
+          : 'HA Profile deleted',
       );
       setDeleteModalOpen(false);
       setProfileToDelete(null);
@@ -112,7 +112,7 @@ export function HaProfiles() {
   const handleActivate = async (id: string) => {
     try {
       await haProfilesApi.activate(id);
-      message.success("Profile activated");
+      message.success('Profile activated');
       fetch();
     } catch (err) {
       message.error((err as { message: string }).message);
@@ -122,7 +122,7 @@ export function HaProfiles() {
   const handleDeactivate = async (id: string) => {
     try {
       await haProfilesApi.deactivate(id);
-      message.success("Profile deactivated");
+      message.success('Profile deactivated');
       fetch();
     } catch (err) {
       message.error((err as { message: string }).message);
@@ -132,7 +132,7 @@ export function HaProfiles() {
   const handleEvict = async (id: string) => {
     try {
       await haProfilesApi.evict(id);
-      message.success("Eviction initiated");
+      message.success('Eviction initiated');
       fetch();
     } catch (err) {
       message.error((err as { message: string }).message);
@@ -142,7 +142,7 @@ export function HaProfiles() {
   const handleReloadReactor = async () => {
     try {
       await haProfilesApi.reloadReactor();
-      message.success("drbd-reactor reloaded");
+      message.success('drbd-reactor reloaded');
     } catch (err) {
       message.error((err as { message: string }).message);
     }
@@ -160,7 +160,7 @@ export function HaProfiles() {
     setVipSubmitting(true);
     try {
       await haProfilesApi.addVip(selectedProfileForVip.id, values);
-      message.success("VIP added successfully");
+      message.success('VIP added successfully');
       setVipModalOpen(false);
       setSelectedProfileForVip(null);
       fetch();
@@ -174,7 +174,7 @@ export function HaProfiles() {
   const handleRemoveVip = async (profile: HaProfile) => {
     try {
       await haProfilesApi.removeVip(profile.id);
-      message.success("VIP removed successfully");
+      message.success('VIP removed successfully');
       fetch();
     } catch (err) {
       message.error((err as { message: string }).message);
@@ -187,59 +187,59 @@ export function HaProfiles() {
       label?: string;
       icon?: React.ReactNode;
       onClick?: () => void;
-      type?: "divider";
+      type?: 'divider';
       danger?: boolean;
     }> = [
       {
-        key: "status",
-        label: "View Status",
+        key: 'status',
+        label: 'View Status',
         icon: <EyeOutlined />,
         onClick: () => handleViewStatus(record),
       },
     ];
 
-    const isActive = record.status === "active";
+    const isActive = record.status === 'active';
     const hasVip = !!record.vip;
 
     // Show Activate only when not active
     if (!isActive) {
-      items.push({ type: "divider" as const });
+      items.push({ type: 'divider' as const });
       items.push({
-        key: "activate",
-        label: "Activate",
+        key: 'activate',
+        label: 'Activate',
         onClick: () => handleActivate(record.id),
       });
     }
 
     // Show Deactivate only when active
     if (isActive) {
-      items.push({ type: "divider" as const });
+      items.push({ type: 'divider' as const });
       items.push({
-        key: "deactivate",
-        label: "Deactivate",
+        key: 'deactivate',
+        label: 'Deactivate',
         onClick: () => handleDeactivate(record.id),
       });
       items.push({
-        key: "evict",
-        label: "Evict (Failover)",
+        key: 'evict',
+        label: 'Evict (Failover)',
         danger: true,
         onClick: () => handleEvict(record.id),
       });
     }
 
     // VIP management
-    items.push({ type: "divider" as const });
+    items.push({ type: 'divider' as const });
     if (hasVip) {
       items.push({
-        key: "remove-vip",
-        label: "Remove VIP",
+        key: 'remove-vip',
+        label: 'Remove VIP',
         danger: true,
         onClick: () => handleRemoveVip(record),
       });
     } else {
       items.push({
-        key: "add-vip",
-        label: "Add VIP",
+        key: 'add-vip',
+        label: 'Add VIP',
         onClick: () => openAddVipModal(record),
       });
     }
@@ -248,18 +248,18 @@ export function HaProfiles() {
   };
 
   const columns = [
-    { title: "Name", dataIndex: "name", key: "name" },
+    { title: 'Name', dataIndex: 'name', key: 'name' },
     {
-      title: "Type",
-      dataIndex: "ha_type",
-      key: "ha_type",
-      render: (t: string) => <Tag>{(t || "generic").toUpperCase()}</Tag>,
+      title: 'Type',
+      dataIndex: 'ha_type',
+      key: 'ha_type',
+      render: (t: string) => <Tag>{(t || 'generic').toUpperCase()}</Tag>,
     },
-    { title: "Resource", dataIndex: "resource_name", key: "resource_name" },
-    { title: "Mount Point", dataIndex: "mount_point", key: "mount_point" },
+    { title: 'Resource', dataIndex: 'resource_name', key: 'resource_name' },
+    { title: 'Mount Point', dataIndex: 'mount_point', key: 'mount_point' },
     {
-      title: "VIP",
-      key: "vip",
+      title: 'VIP',
+      key: 'vip',
       render: (_: unknown, record: HaProfile) =>
         record.vip ? (
           <Space size="small">
@@ -275,9 +275,9 @@ export function HaProfiles() {
         ),
     },
     {
-      title: "Status",
-      dataIndex: "status",
-      key: "status",
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
       render: (status: string, record: HaProfile) => {
         const isLoading = statusLoading.has(record.id);
         if (isLoading) {
@@ -289,15 +289,15 @@ export function HaProfiles() {
           );
         }
         return (
-          <Tag color={statusColor[status] || "default"}>
+          <Tag color={statusColor[status] || 'default'}>
             {status.toUpperCase()}
           </Tag>
         );
       },
     },
     {
-      title: "Services",
-      key: "services",
+      title: 'Services',
+      key: 'services',
       render: (_: unknown, record: HaProfile) => (
         <Space>
           {record.promoter.services.slice(0, 2).map((s) => (
@@ -310,8 +310,8 @@ export function HaProfiles() {
       ),
     },
     {
-      title: "Actions",
-      key: "actions",
+      title: 'Actions',
+      key: 'actions',
       render: (_: unknown, record: HaProfile) => (
         <Space>
           <Dropdown menu={{ items: getActionItems(record) }}>
@@ -346,16 +346,16 @@ export function HaProfiles() {
             menu={{
               items: [
                 {
-                  key: "service",
-                  label: "Service HA",
+                  key: 'service',
+                  label: 'Service HA',
                   icon: <AppstoreOutlined />,
-                  onClick: () => navigate("/service-ha/create"),
+                  onClick: () => navigate('/service-ha/create'),
                 },
                 {
-                  key: "storage",
-                  label: "Storage Sharing",
+                  key: 'storage',
+                  label: 'Storage Sharing',
                   icon: <CloudServerOutlined />,
-                  onClick: () => navigate("/storage-sharing/create"),
+                  onClick: () => navigate('/storage-sharing/create'),
                 },
               ],
             }}
@@ -400,7 +400,7 @@ export function HaProfiles() {
               </Descriptions.Item>
               <Descriptions.Item label="Type">
                 <Tag>
-                  {(selectedProfile.ha_type || "generic").toUpperCase()}
+                  {(selectedProfile.ha_type || 'generic').toUpperCase()}
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="Status">
@@ -409,7 +409,7 @@ export function HaProfiles() {
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="Active Node">
-                {selectedStatus.active_node || "N/A"}
+                {selectedStatus.active_node || 'N/A'}
               </Descriptions.Item>
               <Descriptions.Item label="VIP Active">
                 {selectedStatus.vip_active ? (
@@ -420,14 +420,14 @@ export function HaProfiles() {
               </Descriptions.Item>
             </Descriptions>
 
-            {selectedProfile.ha_type === "nfs" && selectedProfile.nfs && (
+            {selectedProfile.ha_type === 'nfs' && selectedProfile.nfs && (
               <Card title="NFS Configuration" size="small">
                 <Descriptions bordered column={1}>
                   <Descriptions.Item label="Export Path">
                     {selectedProfile.nfs.export_path}
                   </Descriptions.Item>
                   <Descriptions.Item label="Allowed Networks">
-                    {selectedProfile.nfs.allowed_networks.join(", ")}
+                    {selectedProfile.nfs.allowed_networks.join(', ')}
                   </Descriptions.Item>
                   <Descriptions.Item label="Options">
                     {selectedProfile.nfs.options}
@@ -436,7 +436,7 @@ export function HaProfiles() {
               </Card>
             )}
 
-            {selectedProfile.ha_type === "iscsi" && selectedProfile.iscsi && (
+            {selectedProfile.ha_type === 'iscsi' && selectedProfile.iscsi && (
               <Card title="iSCSI Configuration" size="small">
                 <Descriptions bordered column={1}>
                   <Descriptions.Item label="Target IQN">
@@ -444,14 +444,14 @@ export function HaProfiles() {
                   </Descriptions.Item>
                   <Descriptions.Item label="Allowed Initiators">
                     {selectedProfile.iscsi.allowed_initiators.length > 0
-                      ? selectedProfile.iscsi.allowed_initiators.join(", ")
-                      : "All"}
+                      ? selectedProfile.iscsi.allowed_initiators.join(', ')
+                      : 'All'}
                   </Descriptions.Item>
                 </Descriptions>
               </Card>
             )}
 
-            {selectedProfile.ha_type === "nvmeof" && selectedProfile.nvmeof && (
+            {selectedProfile.ha_type === 'nvmeof' && selectedProfile.nvmeof && (
               <Card title="NVMe-oF Configuration" size="small">
                 <Descriptions bordered column={1}>
                   <Descriptions.Item label="Target NQN">
@@ -482,7 +482,7 @@ export function HaProfiles() {
                     {selectedStatus.drbd.disk}
                   </Descriptions.Item>
                   <Descriptions.Item label="Open">
-                    {selectedStatus.drbd.open ? "Yes" : "No"}
+                    {selectedStatus.drbd.open ? 'Yes' : 'No'}
                   </Descriptions.Item>
                 </Descriptions>
               </Card>
@@ -492,23 +492,23 @@ export function HaProfiles() {
               <Table
                 dataSource={selectedStatus.service_statuses}
                 columns={[
-                  { title: "Service", dataIndex: "name", key: "name" },
+                  { title: 'Service', dataIndex: 'name', key: 'name' },
                   {
-                    title: "Active",
-                    dataIndex: "active",
-                    key: "active",
+                    title: 'Active',
+                    dataIndex: 'active',
+                    key: 'active',
                     render: (active: boolean) => (
-                      <Tag color={active ? "green" : "default"}>
-                        {active ? "Running" : "Stopped"}
+                      <Tag color={active ? 'green' : 'default'}>
+                        {active ? 'Running' : 'Stopped'}
                       </Tag>
                     ),
                   },
-                  { title: "State", dataIndex: "state", key: "state" },
+                  { title: 'State', dataIndex: 'state', key: 'state' },
                   {
-                    title: "Enabled",
-                    dataIndex: "enabled",
-                    key: "enabled",
-                    render: (enabled: boolean) => (enabled ? "Yes" : "No"),
+                    title: 'Enabled',
+                    dataIndex: 'enabled',
+                    key: 'enabled',
+                    render: (enabled: boolean) => (enabled ? 'Yes' : 'No'),
                   },
                 ]}
                 rowKey="name"
@@ -525,7 +525,7 @@ export function HaProfiles() {
         title={
           <span>
             <ExclamationCircleOutlined
-              style={{ color: "#faad14", marginRight: 8 }}
+              style={{ color: '#faad14', marginRight: 8 }}
             />
             Delete HA Profile
           </span>
@@ -540,7 +540,7 @@ export function HaProfiles() {
         {profileToDelete && (
           <div className="space-y-4">
             <p>
-              Are you sure you want to delete the HA profile{" "}
+              Are you sure you want to delete the HA profile{' '}
               <strong>{profileToDelete.name}</strong>?
             </p>
             <div className="p-3 bg-gray-50 rounded">
@@ -548,7 +548,7 @@ export function HaProfiles() {
                 checked={deleteResource}
                 onChange={(e) => setDeleteResource(e.target.checked)}
               >
-                Also delete DRBD resource{" "}
+                Also delete DRBD resource{' '}
                 <strong>{profileToDelete.resource_name}</strong>
               </Checkbox>
               <p className="text-gray-500 text-sm mt-2 ml-6">
@@ -562,7 +562,7 @@ export function HaProfiles() {
 
       {/* Add VIP Modal */}
       <Modal
-        title={`Add VIP to ${selectedProfileForVip?.name || "Profile"}`}
+        title={`Add VIP to ${selectedProfileForVip?.name || 'Profile'}`}
         open={vipModalOpen}
         onCancel={() => {
           setVipModalOpen(false);
@@ -576,10 +576,10 @@ export function HaProfiles() {
             name="address"
             label="IP Address"
             rules={[
-              { required: true, message: "Please enter IP address" },
+              { required: true, message: 'Please enter IP address' },
               {
                 pattern: /^(\d{1,3}\.){3}\d{1,3}$/,
-                message: "Invalid IP address format",
+                message: 'Invalid IP address format',
               },
             ]}
           >
@@ -588,14 +588,14 @@ export function HaProfiles() {
           <Form.Item
             name="netmask"
             label="Netmask (CIDR)"
-            rules={[{ required: true, message: "Please enter netmask" }]}
+            rules={[{ required: true, message: 'Please enter netmask' }]}
           >
             <InputNumber min={1} max={32} className="w-full" />
           </Form.Item>
           <Form.Item
             name="interface"
             label="Network Interface"
-            rules={[{ required: true, message: "Please enter interface name" }]}
+            rules={[{ required: true, message: 'Please enter interface name' }]}
           >
             <Input placeholder="eth0" />
           </Form.Item>
@@ -616,7 +616,7 @@ export function HaProfiles() {
 }
 
 const roleColor: Record<string, string> = {
-  Primary: "green",
-  Secondary: "blue",
-  Unknown: "default",
+  Primary: 'green',
+  Secondary: 'blue',
+  Unknown: 'default',
 };

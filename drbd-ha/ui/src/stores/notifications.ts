@@ -19,7 +19,9 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
 
   updateProgress: (progress) => {
     const existing = get().progress;
-    const index = existing.findIndex((p) => p.operation_id === progress.operation_id);
+    const index = existing.findIndex(
+      (p) => p.operation_id === progress.operation_id,
+    );
     if (index >= 0) {
       const updated = [...existing];
       updated[index] = progress;
@@ -30,7 +32,11 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
     // Remove completed progress after 5 seconds
     if (progress.completed) {
       setTimeout(() => {
-        set({ progress: get().progress.filter((p) => p.operation_id !== progress.operation_id) });
+        set({
+          progress: get().progress.filter(
+            (p) => p.operation_id !== progress.operation_id,
+          ),
+        });
       }, 5000);
     }
   },

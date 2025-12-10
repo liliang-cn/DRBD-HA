@@ -1,5 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Tag, Modal, Form, Input, InputNumber, Select, message, Popconfirm, Space, Dropdown } from 'antd';
+import {
+  Table,
+  Button,
+  Tag,
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+  message,
+  Popconfirm,
+  Space,
+  Dropdown,
+} from 'antd';
 import { PlusOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons';
 import { useResourcesStore } from '@/stores/resources';
 import { useNodesStore } from '@/stores/nodes';
@@ -25,7 +38,9 @@ export function Resources() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm<CreateResourceRequest>();
   const [submitting, setSubmitting] = useState(false);
-  const [availableDisks, setAvailableDisks] = useState<Record<string, BlockDevice[]>>({});
+  const [availableDisks, setAvailableDisks] = useState<
+    Record<string, BlockDevice[]>
+  >({});
 
   useEffect(() => {
     fetch();
@@ -59,7 +74,10 @@ export function Resources() {
 
   const handleAction = async (name: string, action: string, force = false) => {
     try {
-      const result = await resourcesApi.action(name, { action: action as any, force });
+      const result = await resourcesApi.action(name, {
+        action: action as any,
+        force,
+      });
       if (result.success) {
         message.success(`${action} completed`);
       } else {
@@ -93,13 +111,33 @@ export function Resources() {
 
   const getActionItems = (record: DrbdResource) => [
     { key: 'up', label: 'Up', onClick: () => handleAction(record.name, 'up') },
-    { key: 'down', label: 'Down', onClick: () => handleAction(record.name, 'down') },
+    {
+      key: 'down',
+      label: 'Down',
+      onClick: () => handleAction(record.name, 'down'),
+    },
     { type: 'divider' as const },
-    { key: 'primary', label: 'Primary', onClick: () => handleAction(record.name, 'primary') },
-    { key: 'primary-force', label: 'Primary (Force)', onClick: () => handleAction(record.name, 'primary', true) },
-    { key: 'secondary', label: 'Secondary', onClick: () => handleAction(record.name, 'secondary') },
+    {
+      key: 'primary',
+      label: 'Primary',
+      onClick: () => handleAction(record.name, 'primary'),
+    },
+    {
+      key: 'primary-force',
+      label: 'Primary (Force)',
+      onClick: () => handleAction(record.name, 'primary', true),
+    },
+    {
+      key: 'secondary',
+      label: 'Secondary',
+      onClick: () => handleAction(record.name, 'secondary'),
+    },
     { type: 'divider' as const },
-    { key: 'init', label: 'Initialize', onClick: () => handleInit(record.name) },
+    {
+      key: 'init',
+      label: 'Initialize',
+      onClick: () => handleInit(record.name),
+    },
   ];
 
   const columns = [
@@ -108,7 +146,9 @@ export function Resources() {
       title: 'Role',
       dataIndex: 'role',
       key: 'role',
-      render: (role: string) => <Tag color={roleColor[role] || 'default'}>{role}</Tag>,
+      render: (role: string) => (
+        <Tag color={roleColor[role] || 'default'}>{role}</Tag>
+      ),
     },
     {
       title: 'Disk State',
@@ -124,7 +164,10 @@ export function Resources() {
       render: (_: unknown, record: DrbdResource) => (
         <Space>
           {record.connections.map((c) => (
-            <Tag key={c.name} color={c.connection_state === 'Connected' ? 'green' : 'orange'}>
+            <Tag
+              key={c.name}
+              color={c.connection_state === 'Connected' ? 'green' : 'orange'}
+            >
               {c.name}: {c.connection_state}
             </Tag>
           ))}
@@ -141,7 +184,10 @@ export function Resources() {
               Actions <DownOutlined />
             </Button>
           </Dropdown>
-          <Popconfirm title="Delete this resource?" onConfirm={() => handleDelete(record.name)}>
+          <Popconfirm
+            title="Delete this resource?"
+            onConfirm={() => handleDelete(record.name)}
+          >
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
@@ -153,12 +199,22 @@ export function Resources() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-semibold">DRBD Resources</h2>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => setModalOpen(true)}
+        >
           Create Resource
         </Button>
       </div>
 
-      <Table dataSource={resources} columns={columns} rowKey="name" loading={loading} pagination={false} />
+      <Table
+        dataSource={resources}
+        columns={columns}
+        rowKey="name"
+        loading={loading}
+        pagination={false}
+      />
 
       <Modal
         title="Create DRBD Resource"
@@ -169,16 +225,34 @@ export function Resources() {
         destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={handleCreate}>
-          <Form.Item name="name" label="Resource Name" rules={[{ required: true, pattern: /^[a-zA-Z][a-zA-Z0-9_-]*$/ }]}>
+          <Form.Item
+            name="name"
+            label="Resource Name"
+            rules={[{ required: true, pattern: /^[a-zA-Z][a-zA-Z0-9_-]*$/ }]}
+          >
             <Input placeholder="r0" />
           </Form.Item>
-          <Form.Item name="port" label="DRBD Port" rules={[{ required: true }]} initialValue={7789}>
+          <Form.Item
+            name="port"
+            label="DRBD Port"
+            rules={[{ required: true }]}
+            initialValue={7789}
+          >
             <InputNumber min={7000} max={8000} className="w-full" />
           </Form.Item>
-          <Form.Item name="minor" label="Minor Number" rules={[{ required: true }]} initialValue={0}>
+          <Form.Item
+            name="minor"
+            label="Minor Number"
+            rules={[{ required: true }]}
+            initialValue={0}
+          >
             <InputNumber min={0} className="w-full" />
           </Form.Item>
-          <Form.Item name="auto_promote" label="Auto Promote" initialValue={false}>
+          <Form.Item
+            name="auto_promote"
+            label="Auto Promote"
+            initialValue={false}
+          >
             <Select
               options={[
                 { value: true, label: 'Yes (Standard DRBD)' },

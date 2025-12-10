@@ -9,15 +9,15 @@ import {
   Col,
   Select,
   Alert,
-} from "antd";
-import type { FormInstance } from "antd";
-import { HddOutlined, DatabaseOutlined } from "@ant-design/icons";
-import type { Node, BlockDevice, StoragePool } from "@/types";
+} from 'antd';
+import type { FormInstance } from 'antd';
+import { HddOutlined, DatabaseOutlined } from '@ant-design/icons';
+import type { Node, BlockDevice, StoragePool } from '@/types';
 
 interface StorageConfigStepProps {
   form: FormInstance;
-  storageStrategy: "raw" | "lvm";
-  onStrategyChange: (strategy: "raw" | "lvm") => void;
+  storageStrategy: 'raw' | 'lvm';
+  onStrategyChange: (strategy: 'raw' | 'lvm') => void;
   nodes: Node[];
   availableDisks: Record<string, BlockDevice[]>;
   storagePools: StoragePool[];
@@ -82,7 +82,7 @@ export function StorageConfigStep({
           </Col>
         </Row>
 
-        {storageStrategy === "raw" ? (
+        {storageStrategy === 'raw' ? (
           <>
             <Form.Item
               name="fs_type"
@@ -91,9 +91,9 @@ export function StorageConfigStep({
             >
               <Select
                 options={[
-                  { value: "xfs" },
-                  { value: "ext4" },
-                  { value: "btrfs" },
+                  { value: 'xfs' },
+                  { value: 'ext4' },
+                  { value: 'btrfs' },
                 ]}
               />
             </Form.Item>
@@ -101,9 +101,9 @@ export function StorageConfigStep({
             {nodes.map((node) => (
               <Form.Item
                 key={node.id}
-                name={["node_disks", node.id]}
+                name={['node_disks', node.id]}
                 label={`${node.hostname} (${node.ip})`}
-                rules={[{ required: true, message: "Select a disk" }]}
+                rules={[{ required: true, message: 'Select a disk' }]}
               >
                 <Select
                   placeholder="Select disk"
@@ -129,10 +129,7 @@ export function StorageConfigStep({
                     options={storagePools.map((p) => ({
                       value: p.id,
                       label: `${p.name} (Free: ${(
-                        p.free_size /
-                        1024 /
-                        1024 /
-                        1024
+                        p.free_size / 1024 / 1024 / 1024
                       ).toFixed(1)} GB)`,
                     }))}
                   />
@@ -156,9 +153,9 @@ export function StorageConfigStep({
             >
               <Select
                 options={[
-                  { value: "xfs" },
-                  { value: "ext4" },
-                  { value: "btrfs" },
+                  { value: 'xfs' },
+                  { value: 'ext4' },
+                  { value: 'btrfs' },
                 ]}
               />
             </Form.Item>
