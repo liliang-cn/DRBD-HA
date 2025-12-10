@@ -1,0 +1,13 @@
+[package]
+name = "systemd-utils"
+version = "0.1.0"
+edition = "2021"
+description = "Systemd service controller via D-Bus and remote command execution"
+license = "Apache-2.0"
+
+[dependencies]
+zbus = "5"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+async-trait = "0.1"
+regex = "1"

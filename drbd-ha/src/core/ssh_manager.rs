@@ -6,7 +6,9 @@
 use crate::config::SshConfig;
 use crate::core::shell_cmd::CommandOutput;
 use crate::error::{AppError, AppResult};
+use async_trait::async_trait;
 pub use ssh_cmd::SshCredential;
+use systemd_utils::{self, CommandExecutor, SystemdError, SystemdResult};
 
 /// SSH connection manager
 pub struct SshManager {
@@ -127,5 +129,28 @@ impl SshManager {
             .delete_file(host, port, user, credential, path)
             .await
             .map_err(|e| AppError::Ssh(e.to_string()))
+    }
+}
+
+#[async_trait]
+impl CommandExecutor<SshCredential> for SshManager {
+    async fn execute(
+        &self,
+        host: &str,
+        port: u16,
+        user: &str,
+        credential: &SshCredential,
+        command: &str,
+    ) -> SystemdResult<systemd_utils::CommandOutput> {
+        let output = self.inner
+            .execute(host, port, user, credential, command)
+            .await
+            .map_err(|e| SystemdError::RemoteExecution(e.to_string()))?;
+
+        Ok(systemd_utils::CommandOutput {
+            stdout: output.stdout,
+            stderr: output.stderr,
+            exit_code: output.exit_code,
+        })
     }
 }

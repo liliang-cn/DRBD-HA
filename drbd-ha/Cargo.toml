@@ -29,6 +29,7 @@ ssh-cmd = { path = "../ssh-cmd" }
 lvm-utils = { path = "../lvm-utils" }
 shell-cmd = { path = "../shell-cmd" }
 drbd-utils = { path = "../drbd-utils" }
+systemd-utils = { path = "../systemd-utils" }
 
 # Systemd D-Bus
 zbus = "5"
