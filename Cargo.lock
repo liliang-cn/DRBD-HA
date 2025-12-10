@@ -584,6 +584,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "config-gen"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tera",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -709,6 +718,7 @@ dependencies = [
  "axum-prometheus",
  "base64",
  "chrono",
+ "config-gen",
  "drbd-utils",
  "futures",
  "gethostname",
