@@ -132,7 +132,10 @@ pub async fn create_pool(
 
         // Init pool
         if let Err(e) = lvm_provider.init_pool(device).await {
-            return Err(AppError::Internal(format!("Node {}: Failed to create VG: {}", node.hostname, e)));
+            return Err(AppError::Internal(format!(
+                "Node {}: Failed to create VG: {}",
+                node.hostname, e
+            )));
         }
 
         // Get sizes (this runs vgdisplay)
@@ -146,7 +149,7 @@ pub async fn create_pool(
                 node.ip.clone(),
                 node.ssh_port,
                 node.ssh_user.clone(),
-                credential
+                credential,
             )
         };
 
@@ -170,7 +173,10 @@ pub async fn create_pool(
         };
 
         if let Err(e) = state.db.insert_storage_pool(&new_pool, &node.id) {
-            return Err(AppError::Internal(format!("Node {}: Created VG but DB insert failed: {}", node.hostname, e)));
+            return Err(AppError::Internal(format!(
+                "Node {}: Created VG but DB insert failed: {}",
+                node.hostname, e
+            )));
         } else {
             responses.push(CreateStoragePoolResponse {
                 id: new_pool.id,

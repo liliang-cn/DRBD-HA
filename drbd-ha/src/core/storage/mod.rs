@@ -1,5 +1,5 @@
-pub mod provider;
 pub mod lvm_provider;
+pub mod provider;
 
-pub use provider::StorageProvider;
 pub use lvm_provider::LvmProvider;
+pub use provider::StorageProvider;

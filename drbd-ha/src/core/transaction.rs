@@ -112,7 +112,12 @@ impl Transaction {
     }
 
     /// Add a remote operation
-    pub fn add_remote(&mut self, description: &str, target: NodeTarget, command: &str) -> &mut Self {
+    pub fn add_remote(
+        &mut self,
+        description: &str,
+        target: NodeTarget,
+        command: &str,
+    ) -> &mut Self {
         self.operations.push(Operation {
             description: description.to_string(),
             target: Some(target),

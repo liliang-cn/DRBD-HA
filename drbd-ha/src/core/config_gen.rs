@@ -292,14 +292,12 @@ mod tests {
             port: 7789,
             minor: 0,
             device: "/dev/drbd0".to_string(),
-            nodes: vec![
-                NodeConfig {
-                    hostname: "node1".to_string(),
-                    ip: "192.168.1.1".to_string(),
-                    disk: "/dev/sdb1".to_string(),
-                    node_id: 0,
-                },
-            ],
+            nodes: vec![NodeConfig {
+                hostname: "node1".to_string(),
+                ip: "192.168.1.1".to_string(),
+                disk: "/dev/sdb1".to_string(),
+                node_id: 0,
+            }],
             auto_promote: false, // For drbd-reactor managed resources
             ..Default::default()
         };
@@ -339,10 +337,7 @@ mod tests {
 
     #[test]
     fn test_config_paths() {
-        assert_eq!(
-            ConfigPaths::drbd_resource_path("r0"),
-            "/etc/drbd.d/r0.res"
-        );
+        assert_eq!(ConfigPaths::drbd_resource_path("r0"), "/etc/drbd.d/r0.res");
         assert_eq!(
             ConfigPaths::promoter_path("r0"),
             "/etc/drbd-reactor.d/r0.toml"

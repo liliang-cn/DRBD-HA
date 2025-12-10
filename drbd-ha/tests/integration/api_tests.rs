@@ -11,12 +11,12 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tower::ServiceExt;
 
+use drbd_ha::api::create_router;
 use drbd_ha::{
     config::{AppConfig, DatabaseConfig},
-    state::AppState,
     core::Database,
+    state::AppState,
 };
-use drbd_ha::api::create_router;
 
 /// Create a test application state with in-memory database
 fn create_test_state() -> Arc<AppState> {
@@ -331,7 +331,11 @@ async fn test_create_ha_profile_invalid_mount_point() {
     .await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body["message"].as_str().unwrap().to_lowercase().contains("mount"));
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .to_lowercase()
+        .contains("mount"));
 }
 
 #[tokio::test]
@@ -353,7 +357,11 @@ async fn test_create_ha_profile_invalid_fs_type() {
     .await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body["message"].as_str().unwrap().to_lowercase().contains("filesystem"));
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .to_lowercase()
+        .contains("filesystem"));
 }
 
 #[tokio::test]

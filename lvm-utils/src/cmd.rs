@@ -1,7 +1,7 @@
-use tokio::process::Command;
-use tracing::{info, debug, error};
 use crate::error::{LvmError, LvmResult};
 use ssh_cmd::CommandOutput;
+use tokio::process::Command;
+use tracing::{debug, error, info};
 
 #[allow(dead_code)]
 pub async fn run_local_command(cmd_str: &str, description: &str) -> LvmResult<CommandOutput> {
@@ -23,17 +23,12 @@ pub async fn run_local_command(cmd_str: &str, description: &str) -> LvmResult<Co
     if cmd_output.success() {
         debug!(
             "Command '{}' succeeded. Stdout: '{}', Stderr: '{}'",
-            cmd_str,
-            cmd_output.stdout,
-            cmd_output.stderr
+            cmd_str, cmd_output.stdout, cmd_output.stderr
         );
     } else {
         error!(
             "Command '{}' failed with exit code {}. Stdout: '{}', Stderr: '{}'",
-            cmd_str,
-            cmd_output.exit_code,
-            cmd_output.stdout,
-            cmd_output.stderr
+            cmd_str, cmd_output.exit_code, cmd_output.stdout, cmd_output.stderr
         );
     }
 

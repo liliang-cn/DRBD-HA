@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use std::collections::HashMap;
+use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct StoragePool {
@@ -25,12 +25,12 @@ pub struct Volume {
 /// Request to create a new storage pool (LVM VG)
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateStoragePoolRequest {
-    pub name: String,       // e.g., "ha_pool"
-    /// Primary device (legacy/single-node support). 
+    pub name: String, // e.g., "ha_pool"
+    /// Primary device (legacy/single-node support).
     /// If `node_devices` is empty, this device is used for the local node.
-    pub device: Option<String>,     
-    pub pool_type: String,  // e.g., "lvm"
-    
+    pub device: Option<String>,
+    pub pool_type: String, // e.g., "lvm"
+
     /// Map of Node ID to Device Path for cluster-wide pool creation.
     /// e.g. {"node1": "/dev/sdb", "node2": "/dev/sdc"}
     #[serde(default)]

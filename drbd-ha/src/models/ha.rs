@@ -22,9 +22,9 @@ impl Default for HaType {
 /// NFS Configuration
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct NfsConfig {
-    pub export_path: String, // e.g., "/exports/share1"
+    pub export_path: String,           // e.g., "/exports/share1"
     pub allowed_networks: Vec<String>, // e.g., ["192.168.1.0/24"]
-    pub options: String, // e.g., "rw,sync,no_root_squash"
+    pub options: String,               // e.g., "rw,sync,no_root_squash"
 }
 
 /// iSCSI Configuration
@@ -41,7 +41,7 @@ pub struct NvmeOfConfig {
     pub nqn: String, // e.g., "nqn.2025-01.com.haforge:subsys"
     pub allowed_nqns: Vec<String>,
     pub fabric_type: String, // e.g., "tcp"
-    pub trsvcid: String, // e.g., "4420"
+    pub trsvcid: String,     // e.g., "4420"
 }
 
 /// HA Profile - defines how a service should be made highly available
@@ -71,7 +71,7 @@ pub struct HaProfile {
     /// Generated systemd unit information
     #[serde(default)]
     pub generated_units: GeneratedUnits,
-    
+
     // Specific configs
     pub nfs: Option<NfsConfig>,
     pub iscsi: Option<IscsiConfig>,
@@ -265,7 +265,6 @@ pub struct PromoterResources {
     #[serde(default = "default_true")]
     pub stop_services_on_exit: bool,
 }
-
 
 fn default_true() -> bool {
     true

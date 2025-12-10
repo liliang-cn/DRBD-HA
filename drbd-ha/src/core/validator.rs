@@ -10,8 +10,9 @@ use std::sync::LazyLock;
 static RESOURCE_NAME_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$").unwrap());
 
-static BLOCK_DEVICE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^/dev/(sd[a-z]+\d*|nvme\d+n\d+(p\d+)?|vd[a-z]+\d*|drbd\d+|loop\d+)$").unwrap());
+static BLOCK_DEVICE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^/dev/(sd[a-z]+\d*|nvme\d+n\d+(p\d+)?|vd[a-z]+\d*|drbd\d+|loop\d+)$").unwrap()
+});
 
 static IP_ADDRESS_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\d{1,3}\.){3}\d{1,3}$").unwrap());
@@ -28,7 +29,9 @@ static SERVICE_NAME_RE: LazyLock<Regex> =
 /// Validate DRBD resource name
 pub fn validate_resource_name(name: &str) -> AppResult<()> {
     if name.is_empty() {
-        return Err(AppError::Validation("Resource name cannot be empty".to_string()));
+        return Err(AppError::Validation(
+            "Resource name cannot be empty".to_string(),
+        ));
     }
     if !RESOURCE_NAME_RE.is_match(name) {
         return Err(AppError::Validation(format!(
@@ -53,16 +56,13 @@ pub fn validate_block_device(path: &str) -> AppResult<()> {
 /// Validate IP address
 pub fn validate_ip_address(ip: &str) -> AppResult<()> {
     if !IP_ADDRESS_RE.is_match(ip) {
-        return Err(AppError::Validation(format!(
-            "Invalid IP address '{}'",
-            ip
-        )));
+        return Err(AppError::Validation(format!("Invalid IP address '{}'", ip)));
     }
     // Additional check for valid octets
     for octet in ip.split('.') {
-        let num: u32 = octet.parse().map_err(|_| {
-            AppError::Validation(format!("Invalid IP address '{}'", ip))
-        })?;
+        let num: u32 = octet
+            .parse()
+            .map_err(|_| AppError::Validation(format!("Invalid IP address '{}'", ip)))?;
         if num > 255 {
             return Err(AppError::Validation(format!(
                 "Invalid IP address '{}': octet {} > 255",
@@ -295,7 +295,9 @@ mod tests {
 
     #[test]
     fn test_check_device_has_filesystem() {
-        assert!(check_device_has_filesystem("/dev/sda1: UUID=\"abc\" TYPE=\"ext4\""));
+        assert!(check_device_has_filesystem(
+            "/dev/sda1: UUID=\"abc\" TYPE=\"ext4\""
+        ));
         assert!(!check_device_has_filesystem(""));
         assert!(!check_device_has_filesystem("   "));
     }

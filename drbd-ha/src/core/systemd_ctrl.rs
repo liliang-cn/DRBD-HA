@@ -129,7 +129,10 @@ impl SystemdController {
     }
 
     /// List all available service unit files (including disabled ones)
-    pub async fn list_service_files(&self, include_system: bool) -> AppResult<Vec<ServiceFileInfo>> {
+    pub async fn list_service_files(
+        &self,
+        include_system: bool,
+    ) -> AppResult<Vec<ServiceFileInfo>> {
         self.inner
             .list_service_files(include_system)
             .await

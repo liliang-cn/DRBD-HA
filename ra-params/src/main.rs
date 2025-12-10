@@ -96,7 +96,7 @@ fn verify_files(xml_path: &Path, ts_path: &Path) -> Result<()> {
     let ra: ResourceAgent = from_str(&xml_content).context("Failed to parse XML")?;
 
     // 2. Generate Expected TS
-    let agent_name = &ra.name; 
+    let agent_name = &ra.name;
     let expected_ts = generate_ts(&ra, agent_name);
 
     // 3. Read Actual TS
@@ -108,10 +108,10 @@ fn verify_files(xml_path: &Path, ts_path: &Path) -> Result<()> {
         Ok(())
     } else {
         eprintln!("❌ Verification FAILED: The files do not match.");
-        
+
         let expected_path = PathBuf::from("expected.ts");
         fs::write(&expected_path, &expected_ts).context("Failed to write expected.ts")?;
-        
+
         eprintln!("Written expected output to: {}", expected_path.display());
         eprintln!("You can check the difference with:");
         eprintln!("  diff {} {}", expected_path.display(), ts_path.display());
@@ -161,10 +161,17 @@ fn scan_and_process(
                             }
                             Err(e) => {
                                 fail_count += 1;
-                                let agent_name =
-                                    agent_path.file_name().unwrap().to_string_lossy().to_string();
+                                let agent_name = agent_path
+                                    .file_name()
+                                    .unwrap()
+                                    .to_string_lossy()
+                                    .to_string();
                                 failures.push((agent_name.clone(), e.to_string()));
-                                eprintln!("Failed to process agent {}: {}", agent_path.display(), e);
+                                eprintln!(
+                                    "Failed to process agent {}: {}",
+                                    agent_path.display(),
+                                    e
+                                );
                             }
                         }
                     }
@@ -192,11 +199,7 @@ fn scan_and_process(
     Ok(())
 }
 
-fn process_agent(
-    agent_path: &Path,
-    output_dir: &Path,
-    save_xml: bool,
-) -> Result<ResourceAgent> {
+fn process_agent(agent_path: &Path, output_dir: &Path, save_xml: bool) -> Result<ResourceAgent> {
     let agent_name = agent_path.file_name().unwrap().to_string_lossy();
     println!("Processing Agent: {}", agent_name);
 

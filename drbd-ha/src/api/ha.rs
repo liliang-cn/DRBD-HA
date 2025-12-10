@@ -12,13 +12,13 @@ use utoipa::ToSchema;
 use crate::core::{
     cluster_sync::{ClusterSync, HaSyncConfig},
     config_gen::{ConfigGenerator, ConfigPaths, NodeConfig, ResourceConfig},
-    mount_unit::MountUnitGenerator,
-    service_override::ServiceOverrideGenerator,
     data_migration::{DataMigration, MigrationConfig},
+    mount_unit::MountUnitGenerator,
+    run_shell_command,
+    service_override::ServiceOverrideGenerator,
     systemd_ctrl::{ServiceFileInfo, ServiceInfo, SystemdController},
-    validator, run_shell_command, LvmProvider, StorageProvider,
-    NfsGenerator, IscsiGenerator, NvmeOfGenerator, ServiceInitFactory,
-    ReactorDiscovery,
+    validator, IscsiGenerator, LvmProvider, NfsGenerator, NvmeOfGenerator, ReactorDiscovery,
+    ServiceInitFactory, StorageProvider,
 };
 use crate::error::{AppError, AppResult};
 use crate::models::{
@@ -559,13 +559,22 @@ pub async fn create_profile(
     // Determine services to start based on type
     let _start_services = match req.ha_type {
         HaType::Generic => {
-            state.send_progress(&operation_id, "create_ha_profile", Some(&req.name), 30, "Generating service overrides...", false, None);
+            state.send_progress(
+                &operation_id,
+                "create_ha_profile",
+                Some(&req.name),
+                30,
+                "Generating service overrides...",
+                false,
+                None,
+            );
             if let Some(mount_unit) = &generated_units.mount_unit {
                 let override_infos = ServiceOverrideGenerator::generate_for_services(
                     &req.services,
                     mount_unit,
                     &req.name,
-                ).await?;
+                )
+                .await?;
 
                 for info in override_infos {
                     generated_units.service_overrides.push(ServiceOverride {
@@ -574,32 +583,83 @@ pub async fn create_profile(
                         override_path: info.override_path,
                     });
                 }
-                messages.push(format!("Generated {} service override(s)", req.services.len()));
+                messages.push(format!(
+                    "Generated {} service override(s)",
+                    req.services.len()
+                ));
             }
 
             // Initialize Storage if we created it
             if req.lvm_pool_id.is_some() {
-                state.send_progress(&operation_id, "create_ha_profile", Some(&req.name), 35, "Initializing service storage...", false, None);
-                
+                state.send_progress(
+                    &operation_id,
+                    "create_ha_profile",
+                    Some(&req.name),
+                    35,
+                    "Initializing service storage...",
+                    false,
+                    None,
+                );
+
                 // 1. Promote & Mkfs
-                run_shell_command(&format!("drbdadm primary {}", req.resource_name), "Promote for setup").await?;
-                let mkfs_cmd = format!("mkfs.{} /dev/drbd{}", req.fs_type, req.drbd_minor.unwrap_or(0));
+                run_shell_command(
+                    &format!("drbdadm primary {}", req.resource_name),
+                    "Promote for setup",
+                )
+                .await?;
+                let mkfs_cmd = format!(
+                    "mkfs.{} /dev/drbd{}",
+                    req.fs_type,
+                    req.drbd_minor.unwrap_or(0)
+                );
                 run_shell_command(&mkfs_cmd, "Create filesystem").await?;
 
                 // 2. Mount
-                run_shell_command(&format!("mkdir -p {}", req.mount_point), "Create mount point").await?;
-                run_shell_command(&format!("mount /dev/drbd{} {}", req.drbd_minor.unwrap_or(0), req.mount_point), "Mount for setup").await?;
+                run_shell_command(
+                    &format!("mkdir -p {}", req.mount_point),
+                    "Create mount point",
+                )
+                .await?;
+                run_shell_command(
+                    &format!(
+                        "mount /dev/drbd{} {}",
+                        req.drbd_minor.unwrap_or(0),
+                        req.mount_point
+                    ),
+                    "Mount for setup",
+                )
+                .await?;
 
                 // 3. Service Initialization (The "Silver Bullet")
                 if req.init_service {
                     for service in &req.services {
                         if let Some(initializer) = ServiceInitFactory::detect(service) {
-                            state.send_progress(&operation_id, "create_ha_profile", Some(&req.name), 37, &format!("Initializing data for {}", service), false, None);
+                            state.send_progress(
+                                &operation_id,
+                                "create_ha_profile",
+                                Some(&req.name),
+                                37,
+                                &format!("Initializing data for {}", service),
+                                false,
+                                None,
+                            );
                             if let Err(e) = initializer.initialize(&req.mount_point).await {
-                                tracing::error!("Service initialization failed for {}: {}", service, e);
+                                tracing::error!(
+                                    "Service initialization failed for {}: {}",
+                                    service,
+                                    e
+                                );
                                 // Cleanup before error
-                                let _ = run_shell_command(&format!("umount {}", req.mount_point), "Cleanup umount").await;
-                                let _ = run_shell_command(&format!("drbdadm secondary {}", req.resource_name), "Cleanup secondary").await;
+                                let _ = run_shell_command(
+                                    &format!("umount {}", req.mount_point),
+                                    "Cleanup umount",
+                                )
+                                .await;
+                                let _ = run_shell_command(
+                                    &format!("drbdadm secondary {}", req.resource_name),
+                                    "Cleanup secondary",
+                                )
+                                .await;
                                 return Err(e);
                             }
                             messages.push(format!("Initialized data for {}", service));
@@ -608,8 +668,16 @@ pub async fn create_profile(
                 }
 
                 // 4. Unmount & Demote
-                run_shell_command(&format!("umount {}", req.mount_point), "Unmount after setup").await?;
-                run_shell_command(&format!("drbdadm secondary {}", req.resource_name), "Demote after setup").await?;
+                run_shell_command(
+                    &format!("umount {}", req.mount_point),
+                    "Unmount after setup",
+                )
+                .await?;
+                run_shell_command(
+                    &format!("drbdadm secondary {}", req.resource_name),
+                    "Demote after setup",
+                )
+                .await?;
             }
 
             req.services.clone()
@@ -742,35 +810,38 @@ pub async fn create_profile(
                 false,
                 None,
             );
-            
+
             let exports_content = format!(
                 "{} {}({})\n",
                 req.mount_point,
-                nfs_config.allowed_networks.first().unwrap_or(&"*".to_string()),
+                nfs_config
+                    .allowed_networks
+                    .first()
+                    .unwrap_or(&"*".to_string()),
                 nfs_config.options
             );
-            
+
             // Write to local /etc/exports
             let mut current_exports = tokio::fs::read_to_string("/etc/exports")
                 .await
                 .unwrap_or_default();
-            
+
             // Remove any existing entry for this mount point
             current_exports = current_exports
                 .lines()
                 .filter(|line| !line.starts_with(&format!("{} ", req.mount_point)))
                 .collect::<Vec<_>>()
                 .join("\n");
-            
+
             if !current_exports.is_empty() && !current_exports.ends_with('\n') {
                 current_exports.push('\n');
             }
             current_exports.push_str(&exports_content);
-            
+
             tokio::fs::write("/etc/exports", current_exports.as_bytes())
                 .await
                 .map_err(|e| AppError::Config(format!("Failed to write /etc/exports: {}", e)))?;
-            
+
             // Sync to remote nodes
             let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
             for node in &remote_nodes {
@@ -1316,33 +1387,23 @@ pub async fn delete_profile(
         tracing::warn!("Failed to remove mount unit: {}", e);
     }
 
-        // Step 3: Delete promoter configuration file
+    // Step 3: Delete promoter configuration file
 
-        // We always delete the config file when deleting the profile to prevent "zombie" configurations
+    // We always delete the config file when deleting the profile to prevent "zombie" configurations
 
-        let config_path = ConfigPaths::promoter_path(&profile.name);
+    let config_path = ConfigPaths::promoter_path(&profile.name);
 
-        if tokio::fs::metadata(&config_path).await.is_ok() {
-
-            match tokio::fs::remove_file(&config_path).await {
-
-                Ok(_) => {
-
-                    tracing::info!("Deleted promoter config file: {}", config_path);
-
-                }
-
-                Err(e) => {
-
-                    tracing::warn!("Failed to delete config file {}: {}", config_path, e);
-
-                }
-
+    if tokio::fs::metadata(&config_path).await.is_ok() {
+        match tokio::fs::remove_file(&config_path).await {
+            Ok(_) => {
+                tracing::info!("Deleted promoter config file: {}", config_path);
             }
 
+            Err(e) => {
+                tracing::warn!("Failed to delete config file {}: {}", config_path, e);
+            }
         }
-
-    
+    }
 
     // Step 4: Reload systemd daemon
     let _ = run_shell_command("systemctl daemon-reload", "Reload systemd daemon").await;
@@ -1381,7 +1442,10 @@ pub async fn delete_profile(
     {
         use crate::core::drbd_cmd::DrbdCmd;
 
-        tracing::info!("Bringing down and deleting DRBD resource: {}", resource_name);
+        tracing::info!(
+            "Bringing down and deleting DRBD resource: {}",
+            resource_name
+        );
 
         // Bring down the resource on local node
         if let Ok(down_cmd) = DrbdCmd::down_cmd(&resource_name) {
@@ -1397,7 +1461,11 @@ pub async fn delete_profile(
         tracing::info!("Deleting local DRBD config: {}", drbd_config_path);
         if tokio::fs::metadata(&drbd_config_path).await.is_ok() {
             if let Err(e) = tokio::fs::remove_file(&drbd_config_path).await {
-                tracing::warn!("Failed to delete local DRBD config {}: {}", drbd_config_path, e);
+                tracing::warn!(
+                    "Failed to delete local DRBD config {}: {}",
+                    drbd_config_path,
+                    e
+                );
             } else {
                 tracing::info!("Deleted local DRBD config: {}", drbd_config_path);
             }
@@ -1414,7 +1482,11 @@ pub async fn delete_profile(
     // Step 8: Delete the LVM logical volume (Force cleanup)
     // We attempt to find the volume in the DB. If found, we delete it from all nodes.
     if let Some(volume) = state.db.get_volume_by_drbd_res(&resource_name)? {
-        tracing::info!("Deleting associated LVM logical volume '{}' (id: {})", volume.name, volume.id);
+        tracing::info!(
+            "Deleting associated LVM logical volume '{}' (id: {})",
+            volume.name,
+            volume.id
+        );
         if let Ok(Some(storage_pool)) = state.db.get_storage_pool(&volume.pool_id) {
             // Iterate over all nodes to delete the LVM logical volume
             let all_nodes = state.db.get_all_nodes()?;
@@ -1437,31 +1509,48 @@ pub async fn delete_profile(
                         continue;
                     }
                 }
-                
+
                 // Force remove try
                 if let Err(e) = lvm_provider.delete_volume(&volume.name).await {
                     tracing::warn!(
                         "Failed to delete LVM volume '{}' on node '{}': {}",
-                        volume.name, node.hostname, e
+                        volume.name,
+                        node.hostname,
+                        e
                     );
                 } else {
-                    tracing::info!("Deleted LVM volume '{}' on node '{}'", volume.name, node.hostname);
+                    tracing::info!(
+                        "Deleted LVM volume '{}' on node '{}'",
+                        volume.name,
+                        node.hostname
+                    );
                 }
             }
 
             // Update pool's free size (best effort)
-            if let Ok(Some(vg_info)) = crate::core::lvm_utils::get_vg_info(&storage_pool.name).await {
-                let _ = state.db.update_storage_pool_sizes(&storage_pool.id, vg_info.size, vg_info.free);
+            if let Ok(Some(vg_info)) = crate::core::lvm_utils::get_vg_info(&storage_pool.name).await
+            {
+                let _ = state.db.update_storage_pool_sizes(
+                    &storage_pool.id,
+                    vg_info.size,
+                    vg_info.free,
+                );
             }
         } else {
-            tracing::warn!("Storage pool for volume {} not found in DB, cannot delete LV", volume.name);
+            tracing::warn!(
+                "Storage pool for volume {} not found in DB, cannot delete LV",
+                volume.name
+            );
         }
 
         // Delete volume record from database
         state.db.delete_volume(&volume.id)?;
         tracing::info!("Deleted LVM volume record from database: {}", volume.id);
     } else {
-        tracing::warn!("No volume record found for resource {}, skipping LVM deletion", resource_name);
+        tracing::warn!(
+            "No volume record found for resource {}, skipping LVM deletion",
+            resource_name
+        );
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -2179,7 +2268,7 @@ pub async fn activate_profile(
             return Err(e);
         }
         tracing::info!("activate_profile: NFS state directory setup complete");
-        
+
         // Refresh NFS exports
         tracing::info!("activate_profile: Refreshing NFS exports");
         crate::core::run_shell_command("exportfs -ra", "Refresh NFS exports").await?;

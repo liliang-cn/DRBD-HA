@@ -66,7 +66,9 @@ impl Resource {
 
     /// Get connection by peer node ID
     pub fn get_connection(&self, peer_node_id: i32) -> Option<&Connection> {
-        self.connections.iter().find(|c| c.peer_node_id == peer_node_id)
+        self.connections
+            .iter()
+            .find(|c| c.peer_node_id == peer_node_id)
     }
 }
 
@@ -577,8 +579,14 @@ mod tests {
 
     #[test]
     fn test_disk_state_parsing() {
-        assert_eq!(DiskState::from_str("UpToDate").unwrap(), DiskState::UpToDate);
-        assert_eq!(DiskState::from_str("Inconsistent").unwrap(), DiskState::Inconsistent);
+        assert_eq!(
+            DiskState::from_str("UpToDate").unwrap(),
+            DiskState::UpToDate
+        );
+        assert_eq!(
+            DiskState::from_str("Inconsistent").unwrap(),
+            DiskState::Inconsistent
+        );
     }
 
     #[test]

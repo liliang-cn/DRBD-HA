@@ -26,13 +26,13 @@ struct ResourceSection {
 pub struct ReactorDiscovery;
 
 use crate::models::{
-    HaProfile, HaType, PromoterSettings, HaProfileStatus, GeneratedUnits,
-    NfsConfig, IscsiConfig, NvmeOfConfig,
+    GeneratedUnits, HaProfile, HaProfileStatus, HaType, IscsiConfig, NfsConfig, NvmeOfConfig,
+    PromoterSettings,
 };
-use std::path::Path;
-use std::fs;
 use anyhow::Result;
 use serde::Deserialize;
+use std::fs;
+use std::path::Path;
 use tracing::warn;
 
 impl ReactorDiscovery {
@@ -51,7 +51,7 @@ impl ReactorDiscovery {
         for entry in fs::read_dir(path)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.extension().map_or(false, |ext| ext == "toml") {
                 let content = match fs::read_to_string(&path) {
                     Ok(c) => c,
@@ -69,7 +69,7 @@ impl ReactorDiscovery {
                         let mut resource_name = String::new();
                         let mut stop_on_demote = true;
                         let mut on_demote_failure = "reboot".to_string();
-                        
+
                         // We assume one resource per promoter usually
                         for (res_name, res_conf) in promoter.resources {
                             resource_name = res_name;
@@ -83,7 +83,7 @@ impl ReactorDiscovery {
                                 on_demote_failure = fail_action;
                             }
                             // Break after first resource (limitation for now)
-                            break; 
+                            break;
                         }
 
                         // Heuristics to detect HA Type
@@ -99,7 +99,7 @@ impl ReactorDiscovery {
                                 // Placeholder for NFS config - populated with dummy data
                                 // Real data would require parsing the service unit or arguments
                                 nfs_config = Some(NfsConfig {
-                                    export_path: "/unknown".to_string(), 
+                                    export_path: "/unknown".to_string(),
                                     allowed_networks: vec!["*".to_string()],
                                     options: "rw".to_string(),
                                 });
@@ -126,8 +126,8 @@ impl ReactorDiscovery {
                             ha_type,
                             resource_name,
                             mount_point: "".to_string(), // Cannot determine reliably
-                            fs_type: "xfs".to_string(), // Default guess
-                            vip: None, // Hard to parse from systemd override args
+                            fs_type: "xfs".to_string(),  // Default guess
+                            vip: None,                   // Hard to parse from systemd override args
                             promoter: PromoterSettings {
                                 services,
                                 stop_on_demote,

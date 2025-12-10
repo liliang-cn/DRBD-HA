@@ -43,7 +43,8 @@ impl SshManager {
         credential: &SshCredential,
         command: &str,
     ) -> AppResult<CommandOutput> {
-        let output = self.inner
+        let output = self
+            .inner
             .execute(host, port, user, credential, command)
             .await
             .map_err(|e| AppError::Ssh(e.to_string()))?;
@@ -142,7 +143,8 @@ impl CommandExecutor<SshCredential> for SshManager {
         credential: &SshCredential,
         command: &str,
     ) -> SystemdResult<systemd_utils::CommandOutput> {
-        let output = self.inner
+        let output = self
+            .inner
             .execute(host, port, user, credential, command)
             .await
             .map_err(|e| SystemdError::RemoteExecution(e.to_string()))?;

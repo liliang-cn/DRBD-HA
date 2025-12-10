@@ -13,7 +13,7 @@ pub enum SshError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("Encoding error: {0}")]
     Encoding(String),
 }

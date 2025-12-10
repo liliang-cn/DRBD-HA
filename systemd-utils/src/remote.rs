@@ -47,7 +47,9 @@ where
         credential: &C,
         command: &str,
     ) -> SystemdResult<CommandOutput> {
-        (**self).execute(host, port, user, credential, command).await
+        (**self)
+            .execute(host, port, user, credential, command)
+            .await
     }
 }
 

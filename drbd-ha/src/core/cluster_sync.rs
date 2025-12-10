@@ -7,9 +7,9 @@
 use crate::core::{Database, SshCredential, SshManager};
 use crate::error::{AppError, AppResult};
 use crate::models::Node;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::collections::HashMap;
 
 /// Cluster configuration synchronizer
 pub struct ClusterSync {
@@ -34,10 +34,7 @@ impl ClusterSync {
         db: Arc<Database>,
         _credentials: Arc<RwLock<HashMap<String, SshCredential>>>, // Kept for signature compatibility if needed, or remove
     ) -> Self {
-        Self {
-            ssh_manager,
-            db,
-        }
+        Self { ssh_manager, db }
     }
 
     /// Get credential for a node (Dummy)
@@ -68,20 +65,13 @@ impl ClusterSync {
             };
 
             // Sync files to this node
-            match self
-                .sync_to_node(&node, &credential, config)
-                .await
-            {
+            match self.sync_to_node(&node, &credential, config).await {
                 Ok(_) => {
                     tracing::info!("Synced HA config to node {}", node.hostname);
                     synced_nodes.push(node.hostname.clone());
                 }
                 Err(e) => {
-                    tracing::error!(
-                        "Failed to sync HA config to node {}: {}",
-                        node.hostname,
-                        e
-                    );
+                    tracing::error!("Failed to sync HA config to node {}: {}", node.hostname, e);
                     errors.push(format!("{}: {}", node.hostname, e));
                 }
             }
@@ -118,7 +108,13 @@ impl ClusterSync {
             if !dir.is_empty() {
                 let mkdir_cmd = format!("mkdir -p '{}'", dir);
                 self.ssh_manager
-                    .execute(&node.ip, node.ssh_port, &node.ssh_user, credential, &mkdir_cmd)
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        credential,
+                        &mkdir_cmd,
+                    )
                     .await?;
             }
 
@@ -134,7 +130,13 @@ impl ClusterSync {
         // Reload systemd daemon on remote node
         let reload_cmd = "systemctl daemon-reload";
         self.ssh_manager
-            .execute(&node.ip, node.ssh_port, &node.ssh_user, credential, reload_cmd)
+            .execute(
+                &node.ip,
+                node.ssh_port,
+                &node.ssh_user,
+                credential,
+                reload_cmd,
+            )
             .await?;
 
         Ok(())
@@ -149,12 +151,21 @@ impl ClusterSync {
         content: &str,
     ) -> AppResult<()> {
         self.ssh_manager
-            .write_file(&node.ip, node.ssh_port, &node.ssh_user, credential, path, content)
+            .write_file(
+                &node.ip,
+                node.ssh_port,
+                &node.ssh_user,
+                credential,
+                path,
+                content,
+            )
             .await
-            .map_err(|e| AppError::Ssh(format!(
-                "Failed to write {} on {}: {}",
-                path, node.hostname, e
-            )))
+            .map_err(|e| {
+                AppError::Ssh(format!(
+                    "Failed to write {} on {}: {}",
+                    path, node.hostname, e
+                ))
+            })
     }
 
     /// Remove HA configuration from all remote nodes
@@ -187,19 +198,37 @@ impl ClusterSync {
                     .delete_file(&node.ip, node.ssh_port, &node.ssh_user, &credential, path)
                     .await
                 {
-                    tracing::warn!("Failed to delete override {} on {}: {}", path, node.hostname, e);
+                    tracing::warn!(
+                        "Failed to delete override {} on {}: {}",
+                        path,
+                        node.hostname,
+                        e
+                    );
                 }
-                
+
                 // Also remove the runtime reactor.conf if it exists
                 // Path format: /etc/systemd/system/{service_name}.d/ha-override.conf
                 // We want: /run/systemd/system/{service_name}.d/reactor.conf
                 if let Some(parent) = std::path::Path::new(path).parent() {
                     if let Some(dir_name) = parent.file_name() {
-                        let run_path = format!("/run/systemd/system/{}/reactor.conf", dir_name.to_string_lossy());
-                        tracing::info!("Removing remote runtime override on {}: {}", node.hostname, run_path);
+                        let run_path = format!(
+                            "/run/systemd/system/{}/reactor.conf",
+                            dir_name.to_string_lossy()
+                        );
+                        tracing::info!(
+                            "Removing remote runtime override on {}: {}",
+                            node.hostname,
+                            run_path
+                        );
                         let _ = self
                             .ssh_manager
-                            .delete_file(&node.ip, node.ssh_port, &node.ssh_user, &credential, &run_path)
+                            .delete_file(
+                                &node.ip,
+                                node.ssh_port,
+                                &node.ssh_user,
+                                &credential,
+                                &run_path,
+                            )
                             .await;
                     }
                 }
@@ -253,7 +282,13 @@ impl ClusterSync {
             let down_cmd = format!("drbdadm down {} 2>/dev/null || true", resource_name);
             let _ = self
                 .ssh_manager
-                .execute(&node.ip, node.ssh_port, &node.ssh_user, &credential, &down_cmd)
+                .execute(
+                    &node.ip,
+                    node.ssh_port,
+                    &node.ssh_user,
+                    &credential,
+                    &down_cmd,
+                )
                 .await;
 
             // Remove config file
@@ -261,11 +296,21 @@ impl ClusterSync {
             let rm_cmd = format!("rm -f '{}'", config_path);
             let _ = self
                 .ssh_manager
-                .execute(&node.ip, node.ssh_port, &node.ssh_user, &credential, &rm_cmd)
+                .execute(
+                    &node.ip,
+                    node.ssh_port,
+                    &node.ssh_user,
+                    &credential,
+                    &rm_cmd,
+                )
                 .await;
 
             synced_nodes.push(node.hostname.clone());
-            tracing::info!("Removed DRBD resource {} from node {}", resource_name, node.hostname);
+            tracing::info!(
+                "Removed DRBD resource {} from node {}",
+                resource_name,
+                node.hostname
+            );
         }
 
         Ok(synced_nodes)

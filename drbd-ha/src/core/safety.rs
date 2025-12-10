@@ -83,21 +83,33 @@ impl SafetyChecker {
 
         // 1. Check if device exists
         let exists_cmd = format!("test -b {} && echo exists", device);
-        let exists_output = run_shell_command(&exists_cmd, &format!("Check if device {} exists", device)).await?;
+        let exists_output =
+            run_shell_command(&exists_cmd, &format!("Check if device {} exists", device)).await?;
         if !exists_output.stdout.contains("exists") {
-            result.add_error(format!("Device {} does not exist or is not a block device", device));
+            result.add_error(format!(
+                "Device {} does not exist or is not a block device",
+                device
+            ));
             return Ok(result);
         }
 
         // 2. Check if device is mounted
-        let mount_output = run_shell_command("cat /proc/mounts", "Read /proc/mounts to check if device is mounted").await?;
+        let mount_output = run_shell_command(
+            "cat /proc/mounts",
+            "Read /proc/mounts to check if device is mounted",
+        )
+        .await?;
         if mount_output.stdout.contains(device) {
             result.add_error(format!("Device {} is currently mounted", device));
         }
 
         // 3. Check if device has existing filesystem
         let blkid_cmd = format!("blkid {} 2>/dev/null || true", device);
-        let blkid_output = run_shell_command(&blkid_cmd, &format!("Check for existing filesystem on {}", device)).await?;
+        let blkid_output = run_shell_command(
+            &blkid_cmd,
+            &format!("Check for existing filesystem on {}", device),
+        )
+        .await?;
         if !blkid_output.stdout.trim().is_empty() {
             // Extract filesystem type if present
             if blkid_output.stdout.contains("TYPE=") {
@@ -122,7 +134,11 @@ impl SafetyChecker {
         // 5. Check if device is in use by LVM/MD/etc
         let device_name = device.trim_start_matches("/dev/");
         let holders_cmd = format!("ls /sys/block/{}/holders/ 2>/dev/null || true", device_name);
-        let holders_output = run_shell_command(&holders_cmd, &format!("Check if device {} is in use by LVM/MD/etc", device)).await?;
+        let holders_output = run_shell_command(
+            &holders_cmd,
+            &format!("Check if device {} is in use by LVM/MD/etc", device),
+        )
+        .await?;
         if !holders_output.stdout.trim().is_empty() {
             result.add_error(format!(
                 "Device {} is in use by: {}",
@@ -142,7 +158,10 @@ impl SafetyChecker {
         if result.is_safe {
             info!("Device {} passed all safety checks", device);
         } else {
-            warn!("Device {} failed safety checks: {:?}", device, result.errors);
+            warn!(
+                "Device {} failed safety checks: {:?}",
+                device, result.errors
+            );
         }
 
         Ok(result)
@@ -156,15 +175,26 @@ impl SafetyChecker {
 
         // 1. Check if device exists
         let exists_cmd = format!("test -b {} && echo exists", device);
-        let exists_output = run_shell_command(&exists_cmd, &format!("Check if device {} exists for DRBD", device)).await?;
+        let exists_output = run_shell_command(
+            &exists_cmd,
+            &format!("Check if device {} exists for DRBD", device),
+        )
+        .await?;
         if !exists_output.stdout.contains("exists") {
-            result.add_error(format!("Device {} does not exist or is not a block device", device));
+            result.add_error(format!(
+                "Device {} does not exist or is not a block device",
+                device
+            ));
             return Ok(result);
         }
 
         // 2. Check if device is already in use as a DRBD backing device
         // Check all DRBD resource configs for this device
-        let drbdadm_dump = run_shell_command("drbdadm dump all 2>/dev/null || true", "Dump DRBD configuration to check for existing usage").await?;
+        let drbdadm_dump = run_shell_command(
+            "drbdadm dump all 2>/dev/null || true",
+            "Dump DRBD configuration to check for existing usage",
+        )
+        .await?;
         if drbdadm_dump.stdout.contains(device) {
             result.add_error(format!(
                 "Device {} is already configured as a DRBD backing device",
@@ -173,7 +203,11 @@ impl SafetyChecker {
         }
 
         // 3. Check if device is mounted
-        let mount_output = run_shell_command("cat /proc/mounts", "Read /proc/mounts to check if device is mounted").await?;
+        let mount_output = run_shell_command(
+            "cat /proc/mounts",
+            "Read /proc/mounts to check if device is mounted",
+        )
+        .await?;
         if mount_output.stdout.contains(device) {
             result.add_error(format!("Device {} is currently mounted", device));
         }
@@ -191,7 +225,11 @@ impl SafetyChecker {
 
         // 5. Warn about existing data
         let blkid_cmd = format!("blkid {} 2>/dev/null || true", device);
-        let blkid_output = run_shell_command(&blkid_cmd, &format!("Check for existing data on {}", device)).await?;
+        let blkid_output = run_shell_command(
+            &blkid_cmd,
+            &format!("Check for existing data on {}", device),
+        )
+        .await?;
         if !blkid_output.stdout.trim().is_empty() {
             result.add_warning(format!(
                 "Device {} has existing data. It will be overwritten by DRBD metadata!",
@@ -268,7 +306,13 @@ impl SafetyChecker {
         if !unreachable.is_empty() {
             let msg = unreachable
                 .iter()
-                .map(|r| format!("{}: {}", r.host, r.error.as_deref().unwrap_or("unknown error")))
+                .map(|r| {
+                    format!(
+                        "{}: {}",
+                        r.host,
+                        r.error.as_deref().unwrap_or("unknown error")
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("; ");
 
@@ -286,7 +330,11 @@ impl SafetyChecker {
     /// Get the disk device containing the root filesystem
     async fn get_root_disk(&self) -> AppResult<Option<String>> {
         // Find the device for root filesystem
-        let output = run_shell_command("df / | tail -1 | awk '{print $1}'", "Get root filesystem device").await?;
+        let output = run_shell_command(
+            "df / | tail -1 | awk '{print $1}'",
+            "Get root filesystem device",
+        )
+        .await?;
         let root_device = output.stdout.trim();
 
         if root_device.is_empty() {
@@ -297,12 +345,15 @@ impl SafetyChecker {
         // e.g., /dev/sda1 -> /dev/sda, /dev/nvme0n1p1 -> /dev/nvme0n1
         let base_disk = if root_device.contains("nvme") {
             // NVMe: /dev/nvme0n1p1 -> /dev/nvme0n1
-            root_device.trim_end_matches(|c: char| c == 'p' || c.is_ascii_digit())
+            root_device
+                .trim_end_matches(|c: char| c == 'p' || c.is_ascii_digit())
                 .trim_end_matches('p')
                 .to_string()
         } else {
             // Regular: /dev/sda1 -> /dev/sda
-            root_device.trim_end_matches(|c: char| c.is_ascii_digit()).to_string()
+            root_device
+                .trim_end_matches(|c: char| c.is_ascii_digit())
+                .to_string()
         };
 
         Ok(Some(base_disk))
@@ -319,11 +370,17 @@ impl SafetyChecker {
     ) -> AppResult<SafetyCheckResult> {
         let mut result = SafetyCheckResult::new(&format!("{}:{}", host, device));
 
-        info!("Running remote safety checks on {} for device {}", host, device);
+        info!(
+            "Running remote safety checks on {} for device {}",
+            host, device
+        );
 
         // 1. Check if device exists
         let exists_cmd = format!("test -b {} && echo exists", device);
-        let exists_output = self.ssh_manager.execute(host, port, user, credential, &exists_cmd).await?;
+        let exists_output = self
+            .ssh_manager
+            .execute(host, port, user, credential, &exists_cmd)
+            .await?;
         if !exists_output.stdout.contains("exists") {
             result.add_error(format!("Device {} does not exist on {}", device, host));
             return Ok(result);
@@ -331,14 +388,23 @@ impl SafetyChecker {
 
         // 2. Check if device is mounted
         let mount_cmd = "cat /proc/mounts";
-        let mount_output = self.ssh_manager.execute(host, port, user, credential, mount_cmd).await?;
+        let mount_output = self
+            .ssh_manager
+            .execute(host, port, user, credential, mount_cmd)
+            .await?;
         if mount_output.stdout.contains(device) {
-            result.add_error(format!("Device {} is currently mounted on {}", device, host));
+            result.add_error(format!(
+                "Device {} is currently mounted on {}",
+                device, host
+            ));
         }
 
         // 3. Check if already used by DRBD
         let drbd_cmd = "drbdadm dump all 2>/dev/null || true";
-        let drbd_output = self.ssh_manager.execute(host, port, user, credential, drbd_cmd).await?;
+        let drbd_output = self
+            .ssh_manager
+            .execute(host, port, user, credential, drbd_cmd)
+            .await?;
         if drbd_output.stdout.contains(device) {
             result.add_error(format!(
                 "Device {} is already configured as DRBD backing device on {}",
@@ -349,7 +415,10 @@ impl SafetyChecker {
         if result.is_safe {
             info!("Remote device {} on {} passed safety checks", device, host);
         } else {
-            warn!("Remote device {} on {} failed: {:?}", device, host, result.errors);
+            warn!(
+                "Remote device {} on {} failed: {:?}",
+                device, host, result.errors
+            );
         }
 
         Ok(result)

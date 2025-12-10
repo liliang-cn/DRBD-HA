@@ -1,5 +1,5 @@
 //! Service Initialization Logic
-//! 
+//!
 //! Handles the initialization of empty data directories for services like MySQL, PostgreSQL, etc.
 //! This prevents services from crashing loop when starting on a fresh DRBD volume.
 
@@ -26,7 +26,7 @@ impl ServiceInitFactory {
             _ => None,
         }
     }
-    
+
     /// Detect service type from systemd service name
     pub fn detect(service_name: &str) -> Option<Box<dyn ServiceInitializer + Send + Sync>> {
         if service_name.contains("mysql") || service_name.contains("mariadb") {
@@ -48,28 +48,39 @@ pub struct MysqlInitializer;
 #[async_trait::async_trait]
 impl ServiceInitializer for MysqlInitializer {
     async fn initialize(&self, mount_point: &str) -> AppResult<()> {
-        info!("Initializing MySQL/MariaDB data directory at {}", mount_point);
+        info!(
+            "Initializing MySQL/MariaDB data directory at {}",
+            mount_point
+        );
 
         // 1. Fix Permissions
         // Ensure directory exists and is owned by mysql user
-        run_shell_command(&format!("chown -R mysql:mysql {}", mount_point), "Fix MySQL permissions").await?;
+        run_shell_command(
+            &format!("chown -R mysql:mysql {}", mount_point),
+            "Fix MySQL permissions",
+        )
+        .await?;
         run_shell_command(&format!("chmod 750 {}", mount_point), "Fix MySQL chmod").await?;
 
         // 2. Initialize Data
         // Different commands for MySQL vs MariaDB, but usually mysql_install_db or mysqld --initialize works.
         // On Ubuntu/Debian with MariaDB, mysql_install_db is common.
         // On modern MySQL, mysqld --initialize-insecure.
-        
+
         // Try mysqld first (MySQL 5.7+)
         // check if directory is empty first
-        let check_empty = run_shell_command(&format!("ls -A {}", mount_point), "Check empty").await?;
+        let check_empty =
+            run_shell_command(&format!("ls -A {}", mount_point), "Check empty").await?;
         if !check_empty.stdout.trim().is_empty() {
             info!("MySQL data directory not empty, skipping initialization.");
             return Ok(());
         }
 
         // Try mysqld --initialize-insecure
-        let mysqld_cmd = format!("mysqld --initialize-insecure --user=mysql --datadir={}", mount_point);
+        let mysqld_cmd = format!(
+            "mysqld --initialize-insecure --user=mysql --datadir={}",
+            mount_point
+        );
         if let Ok(out) = run_shell_command(&mysqld_cmd, "MySQL Initialize").await {
             if out.success() {
                 info!("MySQL initialized successfully via mysqld");
@@ -80,9 +91,12 @@ impl ServiceInitializer for MysqlInitializer {
         // Fallback to mysql_install_db (MariaDB / Older MySQL)
         let install_db_cmd = format!("mysql_install_db --user=mysql --datadir={}", mount_point);
         let out = run_shell_command(&install_db_cmd, "MariaDB Initialize").await?;
-        
+
         if !out.success() {
-            return Err(crate::error::AppError::Internal(format!("Failed to initialize MySQL data: {}", out.stderr)));
+            return Err(crate::error::AppError::Internal(format!(
+                "Failed to initialize MySQL data: {}",
+                out.stderr
+            )));
         }
 
         info!("MariaDB initialized successfully via mysql_install_db");
@@ -99,11 +113,16 @@ impl ServiceInitializer for PostgresInitializer {
         info!("Initializing PostgreSQL data directory at {}", mount_point);
 
         // 1. Fix Permissions (postgres user)
-        run_shell_command(&format!("chown -R postgres:postgres {}", mount_point), "Fix Postgres permissions").await?;
+        run_shell_command(
+            &format!("chown -R postgres:postgres {}", mount_point),
+            "Fix Postgres permissions",
+        )
+        .await?;
         run_shell_command(&format!("chmod 700 {}", mount_point), "Fix Postgres chmod").await?;
 
         // 2. Check if empty
-        let check_empty = run_shell_command(&format!("ls -A {}", mount_point), "Check empty").await?;
+        let check_empty =
+            run_shell_command(&format!("ls -A {}", mount_point), "Check empty").await?;
         if !check_empty.stdout.trim().is_empty() {
             info!("Postgres data directory not empty, skipping initialization.");
             return Ok(());
@@ -115,7 +134,10 @@ impl ServiceInitializer for PostgresInitializer {
         let out = run_shell_command(&init_cmd, "Postgres Initialize").await?;
 
         if !out.success() {
-            return Err(crate::error::AppError::Internal(format!("Failed to initialize PostgreSQL: {}", out.stderr)));
+            return Err(crate::error::AppError::Internal(format!(
+                "Failed to initialize PostgreSQL: {}",
+                out.stderr
+            )));
         }
 
         Ok(())
@@ -129,11 +151,15 @@ pub struct RedisInitializer;
 impl ServiceInitializer for RedisInitializer {
     async fn initialize(&self, mount_point: &str) -> AppResult<()> {
         info!("Initializing Redis data directory at {}", mount_point);
-        
+
         // Redis just needs permissions
-        run_shell_command(&format!("chown -R redis:redis {}", mount_point), "Fix Redis permissions").await?;
+        run_shell_command(
+            &format!("chown -R redis:redis {}", mount_point),
+            "Fix Redis permissions",
+        )
+        .await?;
         run_shell_command(&format!("chmod 750 {}", mount_point), "Fix Redis chmod").await?;
-        
+
         Ok(())
     }
 }

@@ -108,7 +108,10 @@ impl AppState {
 
     /// Initialize with local node and database
     pub async fn with_local_node(config: AppConfig) -> AppResult<Self> {
-        tracing::debug!("with_local_node: Opening database at {}", config.database.path);
+        tracing::debug!(
+            "with_local_node: Opening database at {}",
+            config.database.path
+        );
         // Open database
         let db = Database::open(&config.database.path)?;
         tracing::debug!("with_local_node: Database opened");
@@ -121,9 +124,7 @@ impl AppState {
         tracing::debug!("with_local_node: Checking for local node");
         if state.db.get_node("local")?.is_none() {
             tracing::info!("with_local_node: Local node not found, creating...");
-            let hostname = gethostname::gethostname()
-                .to_string_lossy()
-                .to_string();
+            let hostname = gethostname::gethostname().to_string_lossy().to_string();
 
             // Get the local IP address (non-loopback)
             tracing::debug!("with_local_node: Detecting local IP");
@@ -159,10 +160,7 @@ impl AppState {
         }
 
         // Fallback: try to get IP from hostname command
-        if let Ok(output) = std::process::Command::new("hostname")
-            .arg("-I")
-            .output()
-        {
+        if let Ok(output) = std::process::Command::new("hostname").arg("-I").output() {
             if output.status.success() {
                 let ips = String::from_utf8_lossy(&output.stdout);
                 // Take the first IP address

@@ -67,6 +67,10 @@ fn cache_control(path: &str) -> &'static str {
 pub async fn serve_index() -> impl IntoResponse {
     match UiAssets::get("index.html") {
         Some(content) => Html(content.data.into_owned()).into_response(),
-        None => (StatusCode::NOT_FOUND, "UI not built. Run: cd ui && npm run build").into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            "UI not built. Run: cd ui && npm run build",
+        )
+            .into_response(),
     }
 }

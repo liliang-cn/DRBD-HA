@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct ResourceAgent {
     #[serde(rename = "@name")]
     pub name: String,
-    
+
     #[serde(rename = "@version")]
     pub version_attr: Option<String>,
 
@@ -98,13 +98,13 @@ mod tests {
         let xml_path = "../ra-params/samples/rabbitmq-server-ha.xml";
         let xml_content = fs::read_to_string(xml_path).expect("Failed to read XML file");
         let result: Result<ResourceAgent, _> = from_str(&xml_content);
-        
+
         match result {
             Ok(ra) => {
                 println!("Successfully parsed: {:?}", ra.name);
                 println!("Version: {}", ra.version());
                 assert_eq!(ra.version(), "1.0");
-            },
+            }
             Err(e) => panic!("Failed to parse: {}", e),
         }
     }
@@ -114,13 +114,13 @@ mod tests {
         let xml_path = "../ra-params/samples/ocivip.xml";
         let xml_content = fs::read_to_string(xml_path).expect("Failed to read XML file");
         let result: Result<ResourceAgent, _> = from_str(&xml_content);
-        
+
         match result {
             Ok(ra) => {
                 println!("Successfully parsed: {:?}", ra.name);
                 println!("Version: {}", ra.version());
                 assert_eq!(ra.version(), "1.0");
-            },
+            }
             Err(e) => panic!("Failed to parse: {}", e),
         }
     }

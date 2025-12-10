@@ -12,7 +12,7 @@ impl NvmeOfGenerator {
     ) -> Vec<String> {
         let subsystem = &config.nqn;
         let port_id = "1"; // Simplification: Assuming port 1. Real-world might need dynamic allocation.
-        
+
         let mut commands = Vec::new();
 
         // 1. Create Subsystem
@@ -24,13 +24,18 @@ impl NvmeOfGenerator {
 
         // 3. Create Namespace
         commands.push(format!("create namespace 1 on subsystem {}", subsystem));
-        commands.push(format!("set subsystem {} namespace 1 device path={}", subsystem, backing_device));
+        commands.push(format!(
+            "set subsystem {} namespace 1 device path={}",
+            subsystem, backing_device
+        ));
         commands.push(format!("set subsystem {} namespace 1 enable=1", subsystem));
 
         // 4. Create Port
         commands.push(format!("create port {}", port_id));
-        commands.push(format!("set port {} addr adrfam=ipv4 traddr={} trtype={} trsvcid={}", 
-            port_id, vip, config.fabric_type, config.trsvcid));
+        commands.push(format!(
+            "set port {} addr adrfam=ipv4 traddr={} trtype={} trsvcid={}",
+            port_id, vip, config.fabric_type, config.trsvcid
+        ));
 
         // 5. Link Subsystem to Port
         commands.push(format!("set port {} subsys {}", port_id, subsystem));
@@ -40,7 +45,7 @@ impl NvmeOfGenerator {
 
         commands
     }
-    
+
     // Teardown commands...
 }
 
@@ -65,14 +70,35 @@ mod tests {
         );
 
         assert_eq!(commands.len(), 9);
-        assert_eq!(commands[0], "create subsystem nqn.2025-01.com.example:nvme-storage");
-        assert_eq!(commands[1], "set subsystem nqn.2025-01.com.example:nvme-storage attr allow_any_host=1");
-        assert_eq!(commands[2], "create namespace 1 on subsystem nqn.2025-01.com.example:nvme-storage");
-        assert_eq!(commands[3], "set subsystem nqn.2025-01.com.example:nvme-storage namespace 1 device path=/dev/drbd0");
-        assert_eq!(commands[4], "set subsystem nqn.2025-01.com.example:nvme-storage namespace 1 enable=1");
+        assert_eq!(
+            commands[0],
+            "create subsystem nqn.2025-01.com.example:nvme-storage"
+        );
+        assert_eq!(
+            commands[1],
+            "set subsystem nqn.2025-01.com.example:nvme-storage attr allow_any_host=1"
+        );
+        assert_eq!(
+            commands[2],
+            "create namespace 1 on subsystem nqn.2025-01.com.example:nvme-storage"
+        );
+        assert_eq!(
+            commands[3],
+            "set subsystem nqn.2025-01.com.example:nvme-storage namespace 1 device path=/dev/drbd0"
+        );
+        assert_eq!(
+            commands[4],
+            "set subsystem nqn.2025-01.com.example:nvme-storage namespace 1 enable=1"
+        );
         assert_eq!(commands[5], "create port 1");
-        assert_eq!(commands[6], "set port 1 addr adrfam=ipv4 traddr=192.168.1.202 trtype=tcp trsvcid=4420");
-        assert_eq!(commands[7], "set port 1 subsys nqn.2025-01.com.example:nvme-storage");
+        assert_eq!(
+            commands[6],
+            "set port 1 addr adrfam=ipv4 traddr=192.168.1.202 trtype=tcp trsvcid=4420"
+        );
+        assert_eq!(
+            commands[7],
+            "set port 1 subsys nqn.2025-01.com.example:nvme-storage"
+        );
         assert_eq!(commands[8], "saveconfig");
     }
 
@@ -94,4 +120,3 @@ mod tests {
         assert!(commands[6].contains("trtype=rdma"));
     }
 }
-

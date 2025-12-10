@@ -6,7 +6,7 @@
 use crate::error::{AppError, AppResult};
 
 pub use drbd_utils::{
-    DrbdStatus, ResourceStatus, DeviceStatus, ConnectionStatus, PeerDeviceStatus,
+    ConnectionStatus, DeviceStatus, DrbdStatus, PeerDeviceStatus, ResourceStatus,
 };
 
 /// DRBD command builder wrapper
@@ -18,11 +18,13 @@ impl DrbdCmd {
     }
 
     pub fn resource_status_cmd(resource: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::resource_status_cmd(resource).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::resource_status_cmd(resource)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn create_md_cmd(resource: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::create_md_cmd(resource).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::create_md_cmd(resource)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn adjust_cmd(resource: &str) -> AppResult<String> {
@@ -38,11 +40,13 @@ impl DrbdCmd {
     }
 
     pub fn primary_cmd(resource: &str, force: bool) -> AppResult<String> {
-        drbd_utils::DrbdCmd::primary_cmd(resource, force).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::primary_cmd(resource, force)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn secondary_cmd(resource: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::secondary_cmd(resource).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::secondary_cmd(resource)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn connect_cmd(resource: &str) -> AppResult<String> {
@@ -50,11 +54,13 @@ impl DrbdCmd {
     }
 
     pub fn disconnect_cmd(resource: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::disconnect_cmd(resource).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::disconnect_cmd(resource)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn invalidate_cmd(resource: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::invalidate_cmd(resource).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::invalidate_cmd(resource)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn verify_cmd(resource: &str) -> AppResult<String> {
@@ -62,15 +68,18 @@ impl DrbdCmd {
     }
 
     pub fn connect_discard_cmd(resource: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::connect_discard_cmd(resource).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::connect_discard_cmd(resource)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn pause_sync_cmd(resource: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::pause_sync_cmd(resource).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::pause_sync_cmd(resource)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn resume_sync_cmd(resource: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::resume_sync_cmd(resource).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::resume_sync_cmd(resource)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn resize_cmd(resource: &str) -> AppResult<String> {
@@ -94,15 +103,18 @@ impl DrbdCmd {
     }
 
     pub fn mkfs_cmd(device: &str, fstype: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::mkfs_cmd(device, fstype).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::mkfs_cmd(device, fstype)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn mount_cmd(device: &str, mount_point: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::mount_cmd(device, mount_point).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::mount_cmd(device, mount_point)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn umount_cmd(mount_point: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::umount_cmd(mount_point).map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::umount_cmd(mount_point)
+            .map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn mkdir_cmd(mount_point: &str) -> AppResult<String> {

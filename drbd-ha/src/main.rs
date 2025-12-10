@@ -11,9 +11,8 @@ async fn main() -> anyhow::Result<()> {
 
     // 2. Setup EnvFilter
     // Use config level if RUST_LOG is not set
-    let log_level_str = std::env::var("RUST_LOG").unwrap_or_else(|_| {
-        format!("drbd_ha={0},tower_http={0}", config.log.level)
-    });
+    let log_level_str = std::env::var("RUST_LOG")
+        .unwrap_or_else(|_| format!("drbd_ha={0},tower_http={0}", config.log.level));
     let env_filter = tracing_subscriber::EnvFilter::new(log_level_str);
 
     // 3. Setup Layers
@@ -27,16 +26,18 @@ async fn main() -> anyhow::Result<()> {
     let file_layer = if let Some(path_str) = &config.log.file {
         let path = std::path::Path::new(path_str);
         let directory = path.parent().unwrap_or(std::path::Path::new("."));
-        let filename = path.file_name().unwrap_or(std::ffi::OsStr::new("drbd-ha.log"));
-        
+        let filename = path
+            .file_name()
+            .unwrap_or(std::ffi::OsStr::new("drbd-ha.log"));
+
         let file_appender = tracing_appender::rolling::daily(directory, filename);
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
         _file_guard = Some(guard);
-        
+
         Some(
             tracing_subscriber::fmt::layer()
                 .with_writer(non_blocking)
-                .with_ansi(false)
+                .with_ansi(false),
         )
     } else {
         None
@@ -72,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
     // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     tracing::info!("listening on {}", addr);
-    
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 

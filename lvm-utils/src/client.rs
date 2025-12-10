@@ -47,12 +47,15 @@ impl LvmClient {
         {
             // Avoid unused variable warning in test mode
             let _ = description;
-            
+
             crate::mock::tests::record_command(command.to_string());
             if let Some(output) = crate::mock::tests::get_next_mock_output() {
                 return Ok(output);
             }
-            panic!("Test tried to execute command without mock output: {}", command);
+            panic!(
+                "Test tried to execute command without mock output: {}",
+                command
+            );
         }
 
         #[cfg(not(test))]
@@ -101,27 +104,47 @@ impl LvmClient {
     pub async fn init_pool(&self, vg_name: &str, disk: &str) -> LvmResult<()> {
         let cmd = format!("vgcreate {} {}", vg_name, disk);
         let output = self
-            .execute(&cmd, &format!("Initialize LVM volume group '{}' on disk '{}'", vg_name, disk))
+            .execute(
+                &cmd,
+                &format!(
+                    "Initialize LVM volume group '{}' on disk '{}'",
+                    vg_name, disk
+                ),
+            )
             .await?;
 
         if !output.success() {
-            return Err(LvmError::Execution(format!("Failed to initialize LVM pool: {}", output.stderr)));
+            return Err(LvmError::Execution(format!(
+                "Failed to initialize LVM pool: {}",
+                output.stderr
+            )));
         }
         Ok(())
     }
 
     /// Create LVM Logical Volume
-    pub async fn create_volume(&self, vg_name: &str, vol_name: &str, size_gb: u64) -> LvmResult<String> {
-        let cmd = format!(
-            "lvcreate -L {}G -n {} {} --yes",
-            size_gb, vol_name, vg_name
-        );
+    pub async fn create_volume(
+        &self,
+        vg_name: &str,
+        vol_name: &str,
+        size_gb: u64,
+    ) -> LvmResult<String> {
+        let cmd = format!("lvcreate -L {}G -n {} {} --yes", size_gb, vol_name, vg_name);
         let output = self
-            .execute(&cmd, &format!("Create LVM logical volume '{}' of {}GB in VG '{}'", vol_name, size_gb, vg_name))
+            .execute(
+                &cmd,
+                &format!(
+                    "Create LVM logical volume '{}' of {}GB in VG '{}'",
+                    vol_name, size_gb, vg_name
+                ),
+            )
             .await?;
 
         if !output.success() {
-            return Err(LvmError::Execution(format!("Failed to create LVM volume: {}", output.stderr)));
+            return Err(LvmError::Execution(format!(
+                "Failed to create LVM volume: {}",
+                output.stderr
+            )));
         }
         Ok(format!("/dev/{}/{}", vg_name, vol_name))
     }
@@ -130,27 +153,47 @@ impl LvmClient {
     pub async fn delete_volume(&self, vg_name: &str, vol_name: &str) -> LvmResult<()> {
         let cmd = format!("lvremove -f /dev/{}/{}", vg_name, vol_name);
         let output = self
-            .execute(&cmd, &format!("Remove LVM logical volume '{}' from VG '{}'", vol_name, vg_name))
+            .execute(
+                &cmd,
+                &format!(
+                    "Remove LVM logical volume '{}' from VG '{}'",
+                    vol_name, vg_name
+                ),
+            )
             .await?;
 
         if !output.success() {
-            return Err(LvmError::Execution(format!("Failed to delete LVM volume: {}", output.stderr)));
+            return Err(LvmError::Execution(format!(
+                "Failed to delete LVM volume: {}",
+                output.stderr
+            )));
         }
         Ok(())
     }
 
     /// Resize LVM Logical Volume
-    pub async fn resize_volume(&self, vg_name: &str, vol_name: &str, new_size_gb: u64) -> LvmResult<()> {
-        let cmd = format!(
-            "lvextend -L {}G /dev/{}/{}",
-            new_size_gb, vg_name, vol_name
-        );
+    pub async fn resize_volume(
+        &self,
+        vg_name: &str,
+        vol_name: &str,
+        new_size_gb: u64,
+    ) -> LvmResult<()> {
+        let cmd = format!("lvextend -L {}G /dev/{}/{}", new_size_gb, vg_name, vol_name);
         let output = self
-            .execute(&cmd, &format!("Resize LVM logical volume '{}' to {}GB in VG '{}'", vol_name, new_size_gb, vg_name))
+            .execute(
+                &cmd,
+                &format!(
+                    "Resize LVM logical volume '{}' to {}GB in VG '{}'",
+                    vol_name, new_size_gb, vg_name
+                ),
+            )
             .await?;
 
         if !output.success() {
-            return Err(LvmError::Execution(format!("Failed to resize LVM volume: {}", output.stderr)));
+            return Err(LvmError::Execution(format!(
+                "Failed to resize LVM volume: {}",
+                output.stderr
+            )));
         }
         Ok(())
     }
@@ -209,14 +252,14 @@ pub async fn list_vg_info() -> LvmResult<Vec<LvmVgInfo>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock::tests::{clear_mocks, push_mock_output, get_recorded_commands_list};
+    use crate::mock::tests::{clear_mocks, get_recorded_commands_list, push_mock_output};
     use serial_test::serial;
 
     #[tokio::test]
     #[serial]
     async fn test_get_vg_info_parsing() {
         clear_mocks();
-        
+
         let json_output = r#"{
             "report": [
                 {
@@ -277,7 +320,7 @@ mod tests {
     #[serial]
     async fn test_init_pool() {
         clear_mocks();
-        
+
         push_mock_output(CommandOutput {
             stdout: "Volume group \"new_vg\" successfully created".to_string(),
             stderr: "".to_string(),
@@ -288,7 +331,7 @@ mod tests {
         let result = client.init_pool("new_vg", "/dev/sdb").await;
 
         assert!(result.is_ok());
-        
+
         let cmds = get_recorded_commands_list();
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0], "vgcreate new_vg /dev/sdb");
@@ -373,7 +416,7 @@ mod tests {
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            LvmError::JsonParse(_) => {},
+            LvmError::JsonParse(_) => {}
             _ => panic!("Expected JsonParse error"),
         }
     }

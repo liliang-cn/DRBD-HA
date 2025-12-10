@@ -12,7 +12,8 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use super::{
-    cluster, dashboard, doc::ApiDoc, ha, middleware::auth_middleware, metrics, resource, sse, storage, ui,
+    cluster, dashboard, doc::ApiDoc, ha, metrics, middleware::auth_middleware, resource, sse,
+    storage, ui,
 };
 use crate::state::AppState;
 

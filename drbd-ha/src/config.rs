@@ -109,7 +109,7 @@ pub struct LogConfig {
     /// Log level (trace, debug, info, warn, error)
     #[serde(default = "default_log_level")]
     pub level: String,
-    
+
     /// Path to log file (if not set, logs to stdout only)
     #[serde(default = "default_log_file")]
     pub file: Option<String>,
@@ -217,31 +217,39 @@ impl AppConfig {
 
     /// Load configuration from a TOML string
     pub fn from_str(content: &str) -> AppResult<Self> {
-        toml::from_str(content).map_err(|e| AppError::Config(format!("Failed to parse config: {}", e)))
+        toml::from_str(content)
+            .map_err(|e| AppError::Config(format!("Failed to parse config: {}", e)))
     }
 
     /// Load configuration with fallback to default
     pub fn load() -> Self {
         // 1. Try to load from DRBD_HA_CONFIG environment variable
         if let Ok(env_config_path) = std::env::var("DRBD_HA_CONFIG") {
-            tracing::info!("Attempting to load config from DRBD_HA_CONFIG='{}'", env_config_path);
+            tracing::info!(
+                "Attempting to load config from DRBD_HA_CONFIG='{}'",
+                env_config_path
+            );
             match Self::from_file(&env_config_path) {
                 Ok(config) => {
-                    tracing::info!("Loaded configuration from environment variable: {}", env_config_path);
+                    tracing::info!(
+                        "Loaded configuration from environment variable: {}",
+                        env_config_path
+                    );
                     return config;
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to load config from environment variable ({}): {}", env_config_path, e);
+                    tracing::warn!(
+                        "Failed to load config from environment variable ({}): {}",
+                        env_config_path,
+                        e
+                    );
                     // Fall through to default paths if env var fails
                 }
             }
         }
 
         // 2. Fallback to default search paths
-        let config_paths = [
-            "config/default.toml",
-            "/etc/drbd-ha/config.toml",
-        ];
+        let config_paths = ["config/default.toml", "/etc/drbd-ha/config.toml"];
 
         for path in config_paths {
             if Path::new(path).exists() {

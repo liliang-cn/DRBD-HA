@@ -4,9 +4,9 @@
 //! Follows the architecture: LVM -> DRBD -> XFS -> Reactor (VIP + exportfs).
 //! Crucially, manages NFS state data (/var/lib/nfs) to prevent stale file handles.
 
-use crate::models::NfsConfig;
 use crate::core::run_shell_command;
 use crate::error::AppResult;
+use crate::models::NfsConfig;
 use std::path::Path;
 use tracing::{info, warn};
 
@@ -23,21 +23,21 @@ impl NfsGenerator {
     ) -> String {
         // Format: ocf:heartbeat:exportfs name=nfs_exp fsid=1 directory=/exports/share clientspec='192.168.1.0/24' options='rw,sync,no_root_squash'
         // Note: We take the first allowed network. Complex multi-network setups might need multiple OCF resources.
-        let clientspec = config.allowed_networks.first().map(|s| s.as_str()).unwrap_or("*");
-        
+        let clientspec = config
+            .allowed_networks
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("*");
+
         format!(
             "ocf:heartbeat:exportfs name={}_exp fsid={} directory={} clientspec='{}' options='{}'",
-            resource_name,
-            fsid,
-            mount_point,
-            clientspec,
-            config.options
+            resource_name, fsid, mount_point, clientspec, config.options
         )
     }
 
     /// Setup NFS state directory for High Availability
     /// This moves /var/lib/nfs to the shared storage to preserve locks and mount states across failovers.
-    /// 
+    ///
     /// Actions:
     /// 1. Create `.nfs_state` directory in the mount point (DRBD storage).
     /// 2. Copy existing /var/lib/nfs content to it (if empty).
@@ -76,16 +76,28 @@ impl NfsGenerator {
         if Path::new(system_nfs_dir).is_dir() && !Path::new(system_nfs_dir).is_symlink() {
             // Check if we should copy data to shared storage (only if shared is empty)
             // Simplification: Just copy everything if shared is empty
-            let is_shared_empty = run_shell_command(&format!("ls -A {}", state_dir), "Check shared empty").await?
-                .stdout.trim().is_empty();
-            
+            let is_shared_empty =
+                run_shell_command(&format!("ls -A {}", state_dir), "Check shared empty")
+                    .await?
+                    .stdout
+                    .trim()
+                    .is_empty();
+
             if is_shared_empty {
                 info!("Copying existing NFS state to shared storage");
-                run_shell_command(&format!("cp -a {}/. {}", system_nfs_dir, state_dir), "Copy NFS state").await?;
+                run_shell_command(
+                    &format!("cp -a {}/. {}", system_nfs_dir, state_dir),
+                    "Copy NFS state",
+                )
+                .await?;
             }
 
             info!("Backing up local NFS state directory");
-            run_shell_command(&format!("mv {} {}", system_nfs_dir, backup_nfs_dir), "Backup NFS state").await?;
+            run_shell_command(
+                &format!("mv {} {}", system_nfs_dir, backup_nfs_dir),
+                "Backup NFS state",
+            )
+            .await?;
         } else if Path::new(system_nfs_dir).is_symlink() {
             // It's a symlink but pointing somewhere else? Remove it.
             warn!("Removing incorrect symlink at {}", system_nfs_dir);
@@ -94,7 +106,11 @@ impl NfsGenerator {
 
         // 4. Create Symlink
         info!("Linking {} -> {}", system_nfs_dir, state_dir);
-        run_shell_command(&format!("ln -s {} {}", state_dir, system_nfs_dir), "Link NFS state").await?;
+        run_shell_command(
+            &format!("ln -s {} {}", state_dir, system_nfs_dir),
+            "Link NFS state",
+        )
+        .await?;
 
         Ok(())
     }
@@ -111,9 +127,13 @@ impl NfsGenerator {
         hash = hash.wrapping_add(hash << 3);
         hash ^= hash >> 11;
         hash = hash.wrapping_add(hash << 15);
-        
+
         // Ensure > 0
-        if hash == 0 { 1 } else { hash }
+        if hash == 0 {
+            1
+        } else {
+            hash
+        }
     }
 }
 
@@ -127,5 +147,3 @@ impl NfsGenerator {
         String::new()
     }
 }
-
-

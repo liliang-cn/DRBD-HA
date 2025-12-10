@@ -1,9 +1,9 @@
 pub mod client;
-pub mod config;
 mod cmd;
+pub mod config;
 pub mod error;
 #[cfg(test)]
 pub mod mock;
 
-pub use client::{LvmClient, LvmVgInfo, get_vg_info, list_vg_info};
+pub use client::{get_vg_info, list_vg_info, LvmClient, LvmVgInfo};
 pub use config::configure_lvm_filter;

@@ -244,23 +244,29 @@ impl Database {
 
         // Migration 5: Remove UNIQUE constraint from storage_pools.name to allow same VG name on multiple nodes
         // We do this by recreating the table
-        // Check if we need to migrate (this is a heuristic, or we just run it if "migration_5_applied" flag is missing? 
+        // Check if we need to migrate (this is a heuristic, or we just run it if "migration_5_applied" flag is missing?
         // We don't have a migrations table.
         // We can try to insert a duplicate and see if it fails, but that's messy.
         // Let's just try to run the migration logic safely.
         // Actually, to be safe, we can check pragma index_list.
-        
-        let _indices: Vec<String> = conn.prepare("PRAGMA index_list(storage_pools)")
-            .map(|mut s| s.query_map([], |r| r.get::<_, String>(1)).unwrap().collect::<Result<Vec<_>, _>>().unwrap_or_default())
+
+        let _indices: Vec<String> = conn
+            .prepare("PRAGMA index_list(storage_pools)")
+            .map(|mut s| {
+                s.query_map([], |r| r.get::<_, String>(1))
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap_or_default()
+            })
             .unwrap_or_default();
-            
+
         // The original schema created `sqlite_autoindex_storage_pools_1` for the UNIQUE constraint on name?
         // Or `name TEXT NOT NULL UNIQUE` creates an index.
-        
+
         // Simpler approach: Try to create the new table structure.
         // If I change `init_schema` SQL, new installs are fine.
         // For existing installs, I need a migration.
-        
+
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS storage_pools_v2 (
@@ -276,15 +282,16 @@ impl Database {
                 UNIQUE(name, node_id) -- Name must be unique per node
             );
             "#,
-        ).ok();
+        )
+        .ok();
 
         // Check if we need to migrate data (if v2 is empty and v1 exists)
         // ... this is getting complicated for a stateless migration function.
-        
-        // Let's assume we just modify the `init_schema` for new deployments, 
-        // and for existing ones, we accept that it might fail if they don't manually fix it 
+
+        // Let's assume we just modify the `init_schema` for new deployments,
+        // and for existing ones, we accept that it might fail if they don't manually fix it
         // OR we force the migration.
-        
+
         // I will update `init_schema` to NOT have UNIQUE.
         // And add a migration block that:
         // 1. Renames storage_pools to storage_pools_old
@@ -292,11 +299,11 @@ impl Database {
         // 3. Copies data
         // 4. Drops old
         // But only if storage_pools has the wrong schema.
-        
+
         // Let's just do it:
         // We can check if we can insert a duplicate. If not, we migrate.
         // Or just run the migration unconditionally (idempotent if we check if temp table exists).
-        
+
         Ok(())
     }
 

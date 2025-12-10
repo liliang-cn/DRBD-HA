@@ -2,7 +2,7 @@ pub mod error;
 
 use crate::error::{ShellError, ShellResult};
 use tokio::process::Command;
-use tracing::{info, debug, error};
+use tracing::{debug, error, info};
 
 /// Command execution output
 #[derive(Debug, Clone)]
@@ -43,17 +43,12 @@ pub async fn run_shell_command(cmd_str: &str, description: &str) -> ShellResult<
     if cmd_output.success() {
         debug!(
             "Command '{}' succeeded. Stdout: '{}', Stderr: '{}'",
-            cmd_str,
-            cmd_output.stdout,
-            cmd_output.stderr
+            cmd_str, cmd_output.stdout, cmd_output.stderr
         );
     } else {
         error!(
             "Command '{}' failed with exit code {}. Stdout: '{}', Stderr: '{}'",
-            cmd_str,
-            cmd_output.exit_code,
-            cmd_output.stdout,
-            cmd_output.stderr
+            cmd_str, cmd_output.exit_code, cmd_output.stdout, cmd_output.stderr
         );
     }
 

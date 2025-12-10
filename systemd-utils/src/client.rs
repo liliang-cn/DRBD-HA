@@ -17,7 +17,8 @@ trait SystemdManager {
     fn stop_unit(&self, name: &str, mode: &str) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
 
     /// Restart a unit
-    fn restart_unit(&self, name: &str, mode: &str) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+    fn restart_unit(&self, name: &str, mode: &str)
+        -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
 
     /// Reload a unit
     fn reload_unit(&self, name: &str, mode: &str) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
@@ -117,7 +118,10 @@ impl SystemdController {
     }
 
     /// Get a unit proxy for the given unit path
-    async fn unit_proxy(&self, path: &zbus::zvariant::OwnedObjectPath) -> SystemdResult<SystemdUnitProxy<'_>> {
+    async fn unit_proxy(
+        &self,
+        path: &zbus::zvariant::OwnedObjectPath,
+    ) -> SystemdResult<SystemdUnitProxy<'_>> {
         SystemdUnitProxy::builder(&self.connection)
             .path(path.clone())
             .map_err(|e| SystemdError::DBus(format!("Failed to build unit proxy: {}", e)))?
@@ -138,10 +142,22 @@ impl SystemdController {
 
         let unit_proxy = self.unit_proxy(&unit_path).await?;
 
-        let active_state = unit_proxy.active_state().await.unwrap_or_else(|_| "unknown".to_string());
-        let sub_state = unit_proxy.sub_state().await.unwrap_or_else(|_| "unknown".to_string());
-        let load_state = unit_proxy.load_state().await.unwrap_or_else(|_| "unknown".to_string());
-        let description = unit_proxy.description().await.unwrap_or_else(|_| String::new());
+        let active_state = unit_proxy
+            .active_state()
+            .await
+            .unwrap_or_else(|_| "unknown".to_string());
+        let sub_state = unit_proxy
+            .sub_state()
+            .await
+            .unwrap_or_else(|_| "unknown".to_string());
+        let load_state = unit_proxy
+            .load_state()
+            .await
+            .unwrap_or_else(|_| "unknown".to_string());
+        let description = unit_proxy
+            .description()
+            .await
+            .unwrap_or_else(|_| String::new());
 
         Ok(ServiceStatus {
             name: unit.to_string(),
@@ -263,10 +279,12 @@ impl SystemdController {
 
         let unit_proxy = self.unit_proxy(&unit_path).await?;
 
-        let timestamp_usec = unit_proxy
-            .active_enter_timestamp()
-            .await
-            .map_err(|e| SystemdError::DBus(format!("Failed to get active timestamp for {}: {}", unit, e)))?;
+        let timestamp_usec = unit_proxy.active_enter_timestamp().await.map_err(|e| {
+            SystemdError::DBus(format!(
+                "Failed to get active timestamp for {}: {}",
+                unit, e
+            ))
+        })?;
 
         Ok((timestamp_usec / 1_000_000) as i64)
     }
@@ -281,27 +299,61 @@ impl SystemdController {
 
         // System service prefixes to filter out
         let system_prefixes = [
-            "systemd-", "dbus", "user@", "session-", "init.", "emergency.", "rescue.",
-            "getty@", "serial-getty@", "autovt@", "console-getty.", "container-getty@",
-            "kmod-static-nodes.", "ldconfig.", "modprobe@", "quotaon.", "sys-", "dev-",
-            "run-", "tmp.", "var-", "proc-", "-.mount", "-.slice",
+            "systemd-",
+            "dbus",
+            "user@",
+            "session-",
+            "init.",
+            "emergency.",
+            "rescue.",
+            "getty@",
+            "serial-getty@",
+            "autovt@",
+            "console-getty.",
+            "container-getty@",
+            "kmod-static-nodes.",
+            "ldconfig.",
+            "modprobe@",
+            "quotaon.",
+            "sys-",
+            "dev-",
+            "run-",
+            "tmp.",
+            "var-",
+            "proc-",
+            "-.mount",
+            "-.slice",
         ];
 
         let mut services: Vec<ServiceInfo> = units
             .into_iter()
             .filter(|(name, _, load_state, _, _, _, _, _, _, _)| {
-                if !name.ends_with(".service") { return false; }
-                if load_state == "not-found" { return false; }
+                if !name.ends_with(".service") {
+                    return false;
+                }
+                if load_state == "not-found" {
+                    return false;
+                }
                 if !include_system {
                     for prefix in &system_prefixes {
-                        if name.starts_with(prefix) { return false; }
+                        if name.starts_with(prefix) {
+                            return false;
+                        }
                     }
                 }
                 true
             })
-            .map(|(name, description, load_state, active_state, sub_state, _, _, _, _, _)| {
-                ServiceInfo { name, description, load_state, active_state, sub_state }
-            })
+            .map(
+                |(name, description, load_state, active_state, sub_state, _, _, _, _, _)| {
+                    ServiceInfo {
+                        name,
+                        description,
+                        load_state,
+                        active_state,
+                        sub_state,
+                    }
+                },
+            )
             .collect();
 
         services.sort_by(|a, b| a.name.cmp(&b.name));
@@ -309,7 +361,10 @@ impl SystemdController {
     }
 
     /// List all available service unit files
-    pub async fn list_service_files(&self, include_system: bool) -> SystemdResult<Vec<ServiceFileInfo>> {
+    pub async fn list_service_files(
+        &self,
+        include_system: bool,
+    ) -> SystemdResult<Vec<ServiceFileInfo>> {
         let manager = self.manager().await?;
         let unit_files = manager
             .list_unit_files()
@@ -317,26 +372,46 @@ impl SystemdController {
             .map_err(|e| SystemdError::DBus(format!("Failed to list unit files: {}", e)))?;
 
         let system_prefixes = [
-            "systemd-", "dbus", "user@", "getty@", "serial-getty@", "autovt@",
-            "console-getty", "container-getty@", "emergency", "rescue", "initrd-",
-            "kmod-static-nodes", "ldconfig", "modprobe@", "quotaon",
+            "systemd-",
+            "dbus",
+            "user@",
+            "getty@",
+            "serial-getty@",
+            "autovt@",
+            "console-getty",
+            "container-getty@",
+            "emergency",
+            "rescue",
+            "initrd-",
+            "kmod-static-nodes",
+            "ldconfig",
+            "modprobe@",
+            "quotaon",
         ];
 
         let mut services: Vec<ServiceFileInfo> = unit_files
             .into_iter()
             .filter(|(path, _)| {
-                if !path.ends_with(".service") { return false; }
+                if !path.ends_with(".service") {
+                    return false;
+                }
                 let filename = path.rsplit('/').next().unwrap_or(path);
                 if !include_system {
                     for prefix in &system_prefixes {
-                        if filename.starts_with(prefix) { return false; }
+                        if filename.starts_with(prefix) {
+                            return false;
+                        }
                     }
                 }
                 true
             })
             .map(|(path, state)| {
                 let name = path.rsplit('/').next().unwrap_or(&path).to_string();
-                ServiceFileInfo { name, path, enabled_state: state }
+                ServiceFileInfo {
+                    name,
+                    path,
+                    enabled_state: state,
+                }
             })
             .collect();
 
