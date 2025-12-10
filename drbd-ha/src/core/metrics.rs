@@ -5,9 +5,7 @@
 
 use prometheus::{
     Histogram, HistogramVec, HistogramOpts, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry,
-    TextEncoder, Encoder, register_gauge_vec, 
-    register_histogram_vec, register_int_counter_vec, register_int_gauge_vec,
-    register_int_counter, register_int_gauge, register_histogram, GaugeVec,
+    TextEncoder, Encoder, GaugeVec,
 };
 use std::sync::Arc;
 use once_cell::sync::Lazy;
@@ -431,7 +429,7 @@ macro_rules! record_api_request {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use prometheus::{Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry};
+    use prometheus::Registry;
     
     #[test]
     fn test_metrics_collector_creation() {

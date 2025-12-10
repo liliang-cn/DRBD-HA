@@ -1,0 +1,12 @@
+[package]
+name = "shell-cmd"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["process", "io-util", "macros", "rt-multi-thread"] }
+tracing = "0.1"
+thiserror = "2"
+
+[dev-dependencies]
+serial_test = "3"

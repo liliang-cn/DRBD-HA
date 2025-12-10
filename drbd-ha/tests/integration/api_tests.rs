@@ -12,7 +12,6 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 use drbd_ha::{
-    api,
     config::{AppConfig, DatabaseConfig},
     state::AppState,
     core::Database,

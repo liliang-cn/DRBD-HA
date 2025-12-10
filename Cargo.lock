@@ -709,10 +709,12 @@ dependencies = [
  "axum-prometheus",
  "base64",
  "chrono",
+ "drbd-utils",
  "futures",
  "gethostname",
  "home",
  "local-ip-address",
+ "lvm-utils",
  "mime_guess",
  "once_cell",
  "prometheus",
@@ -722,6 +724,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "shell-cmd",
+ "ssh-cmd",
  "tera",
  "thiserror 2.0.17",
  "tokio",
@@ -738,6 +742,17 @@ dependencies = [
  "utoipa-swagger-ui",
  "uuid",
  "zbus",
+]
+
+[[package]]
+name = "drbd-utils"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1470,6 +1485,20 @@ name = "log"
 version = "0.4.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
+
+[[package]]
+name = "lvm-utils"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "ssh-cmd",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "matchers"
@@ -2304,6 +2333,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "shell-cmd"
+version = "0.1.0"
+dependencies = [
+ "serial_test",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2366,6 +2405,20 @@ checksum = "17129e116933cf371d018bb80ae557e889637989d8638274fb25622827b03881"
 dependencies = [
  "libc",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "ssh-cmd"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

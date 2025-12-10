@@ -172,8 +172,6 @@ impl ClusterSync {
                 None => continue,
             };
 
-            let mut any_error = false;
-
             // Build remove commands
             let mut files_to_remove = Vec::new();
 
@@ -190,7 +188,6 @@ impl ClusterSync {
                     .await
                 {
                     tracing::warn!("Failed to delete override {} on {}: {}", path, node.hostname, e);
-                    any_error = true;
                 }
                 
                 // Also remove the runtime reactor.conf if it exists

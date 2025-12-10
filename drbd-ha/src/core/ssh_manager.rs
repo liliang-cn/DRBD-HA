@@ -1,39 +1,35 @@
 //! SSH connection manager
 //!
 //! Provides SSH connection management for executing commands on remote nodes.
-//! Uses system `ssh` command for simplicity.
+//! Wrapper around ssh-cmd crate.
 
 use crate::config::SshConfig;
 use crate::core::shell_cmd::CommandOutput;
 use crate::error::{AppError, AppResult};
-use std::process::Stdio;
-use tokio::process::Command;
-
-/// SSH connection credentials
-/// (Kept for API compatibility, but ignored in the current implementation)
-#[derive(Debug, Clone)]
-pub enum SshCredential {
-    /// SSH private key (PEM format)
-    PrivateKey(String),
-    /// SSH password
-    Password(String),
-}
+pub use ssh_cmd::SshCredential;
 
 /// SSH connection manager
 pub struct SshManager {
-    config: SshConfig,
+    inner: ssh_cmd::SshManager,
 }
 
 impl SshManager {
     /// Create a new SSH manager with the given configuration
     pub fn new(config: SshConfig) -> Self {
-        Self { config }
+        Self {
+            inner: ssh_cmd::SshManager::new(config),
+        }
     }
 
     /// Get the session key for a host (reserved for connection pooling)
     #[allow(dead_code)]
-    fn session_key(host: &str, port: u16, user: &str) -> String {
-        format!("{}@{}:{}", user, host, port)
+    pub fn session_key(host: &str, port: u16, user: &str) -> String {
+        ssh_cmd::SshManager::session_key(host, port, user)
+    }
+
+    /// Convert to inner SshManager (creates a new instance with same config)
+    pub fn to_inner(&self) -> ssh_cmd::SshManager {
+        ssh_cmd::SshManager::new(self.inner.config().clone())
     }
 
     /// Execute a command on a remote host
@@ -42,118 +38,18 @@ impl SshManager {
         host: &str,
         port: u16,
         user: &str,
-        _credential: &SshCredential,
+        credential: &SshCredential,
         command: &str,
     ) -> AppResult<CommandOutput> {
-        // We use the system ssh command.
-        // Assumes keys are set up in the environment (e.g. ssh-agent or default keys).
-        // Ignores credential.
-
-        let target = format!("{}@{}", user, host);
-
-        // For non-root users, wrap privileged commands with sudo
-        let final_command = if user != "root" && Self::needs_sudo(command) {
-            format!("sudo -n {}", command)
-        } else {
-            command.to_string()
-        };
-
-        tracing::info!(
-            "SSH execute: host={}, port={}, user={}, command='{}'",
-            host,
-            port,
-            user,
-            final_command
-        );
-
-        // Build the command
-        // ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes <target> <command>
-        let mut cmd = Command::new("ssh");
-        cmd.arg("-p")
-            .arg(port.to_string())
-            .arg("-o")
-            .arg("StrictHostKeyChecking=no")
-            .arg("-o")
-            .arg("UserKnownHostsFile=/dev/null")
-            .arg("-o")
-            .arg("BatchMode=yes")
-            .arg("-o")
-            .arg("ConnectTimeout=5")
-            .arg(&target)
-            .arg(&final_command);
-
-        // Set timeout from config if needed, but here we use a flag or tokio timeout
-        // Using tokio timeout for the whole operation
-
-        let child = cmd
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| AppError::Ssh(format!("Failed to spawn ssh command: {}", e)))?;
-
-        let output =
-            tokio::time::timeout(self.config.connection_timeout(), child.wait_with_output())
-                .await
-                .map_err(|_| AppError::Ssh(format!("Connection timeout to {}", host)))?
-                .map_err(|e| AppError::Ssh(format!("Failed to execute ssh command: {}", e)))?;
-
-        tracing::debug!(
-            "SSH result: host={}, exit_code={}, stdout_len={}, stderr_len={}",
-            host,
-            output.status.code().unwrap_or(-1),
-            output.stdout.len(),
-            output.stderr.len()
-        );
+        let output = self.inner
+            .execute(host, port, user, credential, command)
+            .await
+            .map_err(|e| AppError::Ssh(e.to_string()))?;
 
         Ok(CommandOutput {
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            exit_code: output.status.code().unwrap_or(-1),
-        })
-    }
-
-    /// Check if a command needs sudo privileges
-    fn needs_sudo(command: &str) -> bool {
-        // Commands that typically need root/sudo privileges
-        const PRIVILEGED_COMMANDS: &[&str] = &[
-            "lsblk",
-            "pvs",
-            "vgs",
-            "lvs",
-            "pvcreate",
-            "vgcreate",
-            "lvcreate",
-            "pvremove",
-            "vgremove",
-            "lvremove",
-            "lvextend",
-            "lvreduce",
-            "drbdadm",
-            "drbdsetup",
-            "drbdmeta",
-            "systemctl",
-            "journalctl",
-            "tee",
-            "dd",
-            "mkfs",
-            "mount",
-            "umount",
-            "ip",
-            "iptables",
-            "ufw",
-            "targetcli",
-            "nvme",
-            "mv",    // Moving files in /etc requires sudo
-            "cp",    // Copying files in /etc requires sudo
-            "rm",    // Removing files in /etc requires sudo
-            "chown", // Changing ownership requires sudo
-            "chmod", // Changing permissions requires sudo
-        ];
-
-        // Check if command starts with any privileged command
-        let cmd_lower = command.trim().to_lowercase();
-        PRIVILEGED_COMMANDS.iter().any(|&priv_cmd| {
-            cmd_lower.starts_with(priv_cmd) || cmd_lower.contains(&format!(" {}", priv_cmd))
+            stdout: output.stdout,
+            stderr: output.stderr,
+            exit_code: output.exit_code,
         })
     }
 
@@ -166,25 +62,13 @@ impl SshManager {
         credential: &SshCredential,
         command: &str,
     ) -> AppResult<T> {
-        let output = self.execute(host, port, user, credential, command).await?;
-
-        if !output.success() {
-            return Err(AppError::Ssh(format!(
-                "Command failed with exit code {}: {}",
-                output.exit_code, output.stderr
-            )));
-        }
-
-        serde_json::from_str(&output.stdout).map_err(|e| {
-            AppError::Ssh(format!(
-                "Failed to parse JSON output: {}, stdout: {}",
-                e, output.stdout
-            ))
-        })
+        self.inner
+            .execute_json(host, port, user, credential, command)
+            .await
+            .map_err(|e| AppError::Ssh(e.to_string()))
     }
 
-    /// Write content to a file on a remote host via SFTP-like mechanism
-    /// Uses a simple approach: echo content through SSH
+    /// Write content to a file on a remote host
     pub async fn write_file(
         &self,
         host: &str,
@@ -194,79 +78,12 @@ impl SshManager {
         path: &str,
         content: &str,
     ) -> AppResult<()> {
-        // For sensitive paths like /etc/drbd.d/, we need sudo even for root
-        // Use a multi-step approach:
-        // 1. Write to temp file
-        // 2. Move to target with sudo
-
-        let temp_path = format!("/tmp/drbd-ha-{}.tmp", uuid::Uuid::new_v4());
-
-        // Step 1: Write content to temp file (doesn't need special privileges)
-        let encoded = base64_encode(content);
-        let write_cmd = format!(
-            "printf '%s' '{}' | base64 -d > '{}'",
-            encoded.replace('\'', "'\\''"),
-            temp_path.replace('\'', "'\\''")
-        );
-
-        tracing::debug!(
-            "write_file step 1: host={}, temp_path={}, content_len={}",
-            host,
-            temp_path,
-            content.len()
-        );
-
-        let output = self
-            .execute(host, port, user, credential, &write_cmd)
-            .await?;
-        if !output.success() {
-            return Err(AppError::Ssh(format!(
-                "Failed to write temp file {} (exit_code={}): stderr='{}'",
-                temp_path,
-                output.exit_code,
-                output.stderr.trim()
-            )));
-        }
-
-        // Step 2: Move temp file to target location with sudo
-        let move_cmd = format!(
-            "mv '{}' '{}'",
-            temp_path.replace('\'', "'\\''"),
-            path.replace('\'', "'\\''")
-        );
-
-        tracing::debug!(
-            "write_file step 2: host={}, from={}, to={}",
-            host,
-            temp_path,
-            path
-        );
-
-        let output = self
-            .execute(host, port, user, credential, &move_cmd)
-            .await?;
-        if !output.success() {
-            // Cleanup temp file on error
-            let _ = self
-                .execute(
-                    host,
-                    port,
-                    user,
-                    credential,
-                    &format!("rm -f '{}'", temp_path.replace('\'', "'\\''")),
-                )
-                .await;
-
-            return Err(AppError::Ssh(format!(
-                "Failed to move file to {} (exit_code={}): stderr='{}'",
-                path,
-                output.exit_code,
-                output.stderr.trim()
-            )));
-        }
-
-        Ok(())
+        self.inner
+            .write_file(host, port, user, credential, path, content)
+            .await
+            .map_err(|e| AppError::Ssh(e.to_string()))
     }
+
     /// Read a file from a remote host
     pub async fn read_file(
         &self,
@@ -276,17 +93,10 @@ impl SshManager {
         credential: &SshCredential,
         path: &str,
     ) -> AppResult<String> {
-        let command = format!("cat '{}'", path.replace('\'', "'\\''"));
-        let output = self.execute(host, port, user, credential, &command).await?;
-
-        if !output.success() {
-            return Err(AppError::Ssh(format!(
-                "Failed to read file {}: {}",
-                path, output.stderr
-            )));
-        }
-
-        Ok(output.stdout)
+        self.inner
+            .read_file(host, port, user, credential, path)
+            .await
+            .map_err(|e| AppError::Ssh(e.to_string()))
     }
 
     /// Check if a file exists on a remote host
@@ -298,10 +108,10 @@ impl SshManager {
         credential: &SshCredential,
         path: &str,
     ) -> AppResult<bool> {
-        let command = format!("test -e '{}' && echo 'exists'", path.replace('\'', "'\\''"));
-        let output = self.execute(host, port, user, credential, &command).await?;
-
-        Ok(output.stdout.trim() == "exists")
+        self.inner
+            .file_exists(host, port, user, credential, path)
+            .await
+            .map_err(|e| AppError::Ssh(e.to_string()))
     }
 
     /// Delete a file on a remote host
@@ -313,53 +123,9 @@ impl SshManager {
         credential: &SshCredential,
         path: &str,
     ) -> AppResult<()> {
-        let command = format!("rm -f '{}'", path.replace('\'', "'\\''"));
-        let output = self.execute(host, port, user, credential, &command).await?;
-
-        if !output.success() {
-            return Err(AppError::Ssh(format!(
-                "Failed to delete file {}: {}",
-                path, output.stderr
-            )));
-        }
-
-        Ok(())
-    }
-}
-
-/// Simple base64 encoding
-fn base64_encode(input: &str) -> String {
-    use std::io::Write;
-    let mut encoder =
-        base64::write::EncoderStringWriter::new(&base64::engine::general_purpose::STANDARD);
-    encoder.write_all(input.as_bytes()).unwrap();
-    encoder.into_inner()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_command_output_success() {
-        let output = CommandOutput {
-            stdout: "hello".to_string(),
-            stderr: String::new(),
-            exit_code: 0,
-        };
-        assert!(output.success());
-
-        let failed = CommandOutput {
-            stdout: String::new(),
-            stderr: "error".to_string(),
-            exit_code: 1,
-        };
-        assert!(!failed.success());
-    }
-
-    #[test]
-    fn test_session_key() {
-        let key = SshManager::session_key("192.168.1.1", 22, "root");
-        assert_eq!(key, "root@192.168.1.1:22");
+        self.inner
+            .delete_file(host, port, user, credential, path)
+            .await
+            .map_err(|e| AppError::Ssh(e.to_string()))
     }
 }
