@@ -9,7 +9,7 @@ use crate::models::{
     cluster::*,
     dashboard::*,
     drbd::{Path as DrbdPath, *},
-    ha::{DataMigrationOptions, *}, 
+    ha::{DataMigrationOptions, *},
     storage::*,
 };
 
@@ -17,8 +17,8 @@ use crate::models::{
 use crate::api::{
     cluster::{self as cluster_api, HealthResponse, NodeStatusResponse},
     dashboard as dashboard_api,
-    storage as storage_api,
     ha::{self as ha_api, ImportProfilesRequest, ImportProfilesResponse}, // Import DTOs here
+    storage as storage_api,
 };
 
 #[derive(OpenApi)]
@@ -33,10 +33,10 @@ use crate::api::{
         cluster_api::list_node_disks,
         cluster_api::list_available_disks,
         cluster_api::check_node_status,
-        
+
         // Dashboard
         dashboard_api::get_summary,
-        
+
         // Storage Pools
         storage_api::list_pools,
         storage_api::create_pool,
@@ -50,18 +50,18 @@ use crate::api::{
         schemas(
             // Cluster
             Node, AddNodeRequest, NodeStatus, BlockDevice, LsblkOutput, HealthResponse, NodeStatusResponse,
-            
+
             // Dashboard
             DashboardSummary, NodeStats, ResourceStats, StorageStats, HaServiceStats, ClusterHealth,
-            
+
             // DRBD
             Resource, Device, Connection, BackingDevice, PeerDevice, DrbdPath,
             Role, DiskState, ConnectionState, ReplicationState,
-            CreateResourceRequest, CreateFilesystemRequest, MountRequest, 
+            CreateResourceRequest, CreateFilesystemRequest, MountRequest,
             ResourceAction, ResourceActionRequest,
-            
+
             // HA
-            HaProfile, CreateHaProfileRequest, 
+            HaProfile, CreateHaProfileRequest,
             HaProfileStatus, HaType, PromoterSettings, GeneratedUnits,
             VipConfig, NfsConfig, IscsiConfig, NvmeOfConfig, DataMigrationOptions,
             ServiceOverride, PromoterConfig, PromoterResources,

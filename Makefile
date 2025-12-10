@@ -1,4 +1,4 @@
-.PHONY: all build build-ui build-rust clean release dev check test build-linux
+.PHONY: all build build-ui build-rust clean release dev check test build-linux format
 
 # Default target: build everything
 all: build
@@ -57,3 +57,9 @@ check:
 test:
 	@echo "Running all tests in the workspace..."
 	cargo test --workspace
+
+# Format all Rust code in the workspace
+format:
+	@echo "Formatting all Rust code in the workspace..."
+	cargo fmt --all
+	@echo "Rust code formatting complete."
