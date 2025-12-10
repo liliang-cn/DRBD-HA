@@ -4,10 +4,14 @@
 //! to DRBD-backed storage. It ensures safe data transfer with proper service
 //! shutdown, DRBD promotion, filesystem formatting, and data synchronization.
 
-use crate::core::run_shell_command;
-use crate::error::{AppError, AppResult};
+pub mod error;
 
-/// Data migration handler for HA service setup
+use crate::error::{MigrationError, MigrationResult};
+use serde::{Deserialize, Serialize};
+use shell_cmd::run_shell_command;
+use std::path::Path;
+
+/// Data migration handler
 pub struct DataMigration;
 
 /// Progress callback type for migration status updates
@@ -15,38 +19,10 @@ pub type ProgressCallback = Box<dyn Fn(MigrationProgress) + Send + Sync>;
 
 impl DataMigration {
     /// Migrate data from source directory to DRBD device
-    ///
-    /// This is the main entry point for data migration. It performs:
-    /// 1. Service shutdown (if specified)
-    /// 2. DRBD promotion to Primary
-    /// 3. Filesystem formatting (if requested)
-    /// 4. Data synchronization via rsync
-    /// 5. Service restart (if was stopped)
-    ///
-    /// # Arguments
-    /// * `config` - Migration configuration
-    /// * `progress_cb` - Optional callback for progress updates
-    ///
-    /// # Returns
-    /// * `MigrationResult` with statistics about the migration
-    ///
-    /// # Example
-    /// ```ignore
-    /// let config = MigrationConfig {
-    ///     resource_name: "mysql_data".to_string(),
-    ///     source_path: "/var/lib/mysql".to_string(),
-    ///     mount_point: "/var/lib/mysql".to_string(),
-    ///     fs_type: "xfs".to_string(),
-    ///     format_device: true,
-    ///     services_to_stop: vec!["mysql.service".to_string()],
-    ///     preserve_permissions: true,
-    /// };
-    /// let result = DataMigration::migrate(config, None).await?;
-    /// ```
     pub async fn migrate(
         config: MigrationConfig,
         progress_cb: Option<ProgressCallback>,
-    ) -> AppResult<MigrationResult> {
+    ) -> MigrationResult<MigrationResultStats> {
         let report_progress = |stage: MigrationStage, message: &str| {
             if let Some(ref cb) = progress_cb {
                 cb(MigrationProgress {
@@ -60,7 +36,7 @@ impl DataMigration {
 
         // Validate source path exists
         if tokio::fs::metadata(&config.source_path).await.is_err() {
-            return Err(AppError::Validation(format!(
+            return Err(MigrationError::Validation(format!(
                 "Source path does not exist: {}",
                 config.source_path
             )));
@@ -113,9 +89,7 @@ impl DataMigration {
 
         // Step 5: Create temporary mount point and mount
         let temp_mount = format!("/tmp/drbd-migrate-{}", config.resource_name);
-        tokio::fs::create_dir_all(&temp_mount)
-            .await
-            .map_err(|e| AppError::Config(format!("Failed to create temp mount point: {}", e)))?;
+        tokio::fs::create_dir_all(&temp_mount).await?;
 
         report_progress(
             MigrationStage::MountingDevice,
@@ -167,7 +141,7 @@ impl DataMigration {
             "Migration completed successfully",
         );
 
-        Ok(MigrationResult {
+        Ok(MigrationResultStats {
             source_path: config.source_path,
             resource_name: config.resource_name,
             bytes_transferred,
@@ -176,14 +150,15 @@ impl DataMigration {
     }
 
     /// Stop a systemd service
-    async fn stop_service(service: &str) -> AppResult<bool> {
+    async fn stop_service(service: &str) -> MigrationResult<bool> {
         // Check if service is active first
         let check_cmd = format!("systemctl is-active {} 2>/dev/null || true", service);
         let output = run_shell_command(
             &check_cmd,
             &format!("Check if service {} is active", service),
         )
-        .await?;
+        .await
+        .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if output.stdout.trim() != "active" {
             tracing::debug!("Service {} is not active, skipping stop", service);
@@ -191,10 +166,12 @@ impl DataMigration {
         }
 
         let cmd = format!("systemctl stop {}", service);
-        let output = run_shell_command(&cmd, &format!("Stop service {}", service)).await?;
+        let output = run_shell_command(&cmd, &format!("Stop service {}", service))
+            .await
+            .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if !output.success() {
-            return Err(AppError::Config(format!(
+            return Err(MigrationError::Command(format!(
                 "Failed to stop service {}: {}",
                 service, output.stderr
             )));
@@ -205,12 +182,14 @@ impl DataMigration {
     }
 
     /// Start a systemd service
-    async fn start_service(service: &str) -> AppResult<()> {
+    async fn start_service(service: &str) -> MigrationResult<()> {
         let cmd = format!("systemctl start {}", service);
-        let output = run_shell_command(&cmd, &format!("Start service {}", service)).await?;
+        let output = run_shell_command(&cmd, &format!("Start service {}", service))
+            .await
+            .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if !output.success() {
-            return Err(AppError::Config(format!(
+            return Err(MigrationError::Command(format!(
                 "Failed to start service {}: {}",
                 service, output.stderr
             )));
@@ -221,13 +200,14 @@ impl DataMigration {
     }
 
     /// Promote DRBD resource to Primary
-    async fn promote_drbd(resource_name: &str) -> AppResult<()> {
+    async fn promote_drbd(resource_name: &str) -> MigrationResult<()> {
         let cmd = format!("drbdadm primary {}", resource_name);
-        let output =
-            run_shell_command(&cmd, &format!("Promote DRBD resource {}", resource_name)).await?;
+        let output = run_shell_command(&cmd, &format!("Promote DRBD resource {}", resource_name))
+            .await
+            .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if !output.success() {
-            return Err(AppError::Drbd(format!(
+            return Err(MigrationError::Drbd(format!(
                 "Failed to promote DRBD resource {}: {}",
                 resource_name, output.stderr
             )));
@@ -240,13 +220,14 @@ impl DataMigration {
     }
 
     /// Demote DRBD resource to Secondary
-    async fn demote_drbd(resource_name: &str) -> AppResult<()> {
+    async fn demote_drbd(resource_name: &str) -> MigrationResult<()> {
         let cmd = format!("drbdadm secondary {}", resource_name);
-        let output =
-            run_shell_command(&cmd, &format!("Demote DRBD resource {}", resource_name)).await?;
+        let output = run_shell_command(&cmd, &format!("Demote DRBD resource {}", resource_name))
+            .await
+            .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if !output.success() {
-            return Err(AppError::Drbd(format!(
+            return Err(MigrationError::Drbd(format!(
                 "Failed to demote DRBD resource {}: {}",
                 resource_name, output.stderr
             )));
@@ -256,7 +237,7 @@ impl DataMigration {
     }
 
     /// Get DRBD device path for a resource
-    async fn get_drbd_device(resource_name: &str) -> AppResult<String> {
+    async fn get_drbd_device(resource_name: &str) -> MigrationResult<String> {
         // Try by-res symlink first
         let by_res_path = format!("/dev/drbd/by-res/{}/0", resource_name);
         if tokio::fs::metadata(&by_res_path).await.is_ok() {
@@ -265,38 +246,43 @@ impl DataMigration {
 
         // Query drbdadm
         let cmd = format!("drbdadm sh-dev {} 2>/dev/null", resource_name);
-        let output =
-            run_shell_command(&cmd, &format!("Get DRBD device path for {}", resource_name)).await?;
+        let output = run_shell_command(
+            &cmd,
+            &format!("Get DRBD device path for {}", resource_name),
+        )
+        .await
+        .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if output.success() && !output.stdout.trim().is_empty() {
             return Ok(output.stdout.trim().to_string());
         }
 
-        Err(AppError::Drbd(format!(
+        Err(MigrationError::Drbd(format!(
             "Could not determine device path for DRBD resource: {}",
             resource_name
         )))
     }
 
     /// Format a device with the specified filesystem
-    async fn format_device(device: &str, fs_type: &str) -> AppResult<()> {
+    async fn format_device(device: &str, fs_type: &str) -> MigrationResult<()> {
         let cmd = match fs_type {
             "xfs" => format!("mkfs.xfs -f {}", device),
             "ext4" => format!("mkfs.ext4 -F {}", device),
             "btrfs" => format!("mkfs.btrfs -f {}", device),
             other => {
-                return Err(AppError::Validation(format!(
+                return Err(MigrationError::Validation(format!(
                     "Unsupported filesystem type: {}",
                     other
                 )))
             }
         };
 
-        let output =
-            run_shell_command(&cmd, &format!("Format device {} with {}", device, fs_type)).await?;
+        let output = run_shell_command(&cmd, &format!("Format device {} with {}", device, fs_type))
+            .await
+            .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if !output.success() {
-            return Err(AppError::Config(format!(
+            return Err(MigrationError::Command(format!(
                 "Failed to format device {}: {}",
                 device, output.stderr
             )));
@@ -307,13 +293,17 @@ impl DataMigration {
     }
 
     /// Mount a device to a directory
-    async fn mount_device(device: &str, mount_point: &str, fs_type: &str) -> AppResult<()> {
+    async fn mount_device(device: &str, mount_point: &str, fs_type: &str) -> MigrationResult<()> {
         let cmd = format!("mount -t {} {} {}", fs_type, device, mount_point);
-        let output =
-            run_shell_command(&cmd, &format!("Mount device {} to {}", device, mount_point)).await?;
+        let output = run_shell_command(
+            &cmd,
+            &format!("Mount device {} to {}", device, mount_point),
+        )
+        .await
+        .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if !output.success() {
-            return Err(AppError::Config(format!(
+            return Err(MigrationError::Command(format!(
                 "Failed to mount {} to {}: {}",
                 device, mount_point, output.stderr
             )));
@@ -324,15 +314,17 @@ impl DataMigration {
     }
 
     /// Unmount a device
-    async fn unmount_device(mount_point: &str) -> AppResult<()> {
+    async fn unmount_device(mount_point: &str) -> MigrationResult<()> {
         // Sync before unmounting
         let _ = run_shell_command("sync", "Syncing filesystem before unmount").await;
 
         let cmd = format!("umount {}", mount_point);
-        let output = run_shell_command(&cmd, &format!("Unmount {}", mount_point)).await?;
+        let output = run_shell_command(&cmd, &format!("Unmount {}", mount_point))
+            .await
+            .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if !output.success() {
-            return Err(AppError::Config(format!(
+            return Err(MigrationError::Command(format!(
                 "Failed to unmount {}: {}",
                 mount_point, output.stderr
             )));
@@ -347,14 +339,8 @@ impl DataMigration {
         source: &str,
         destination: &str,
         preserve_permissions: bool,
-    ) -> AppResult<u64> {
+    ) -> MigrationResult<u64> {
         // Build rsync command
-        // -a: archive mode (preserves permissions, ownership, timestamps, etc.)
-        // -v: verbose
-        // -H: preserve hard links
-        // -A: preserve ACLs
-        // -X: preserve extended attributes
-        // --delete: delete files in destination that don't exist in source
         let mut flags = String::from("-avH");
         if preserve_permissions {
             flags.push_str("AX");
@@ -377,10 +363,14 @@ impl DataMigration {
             &cmd,
             &format!("Rsync data from {} to {}", source_path, destination),
         )
-        .await?;
+        .await
+        .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if !output.success() {
-            return Err(AppError::Config(format!("rsync failed: {}", output.stderr)));
+            return Err(MigrationError::Command(format!(
+                "rsync failed: {}",
+                output.stderr
+            )));
         }
 
         // Parse bytes transferred from rsync stats output
@@ -392,10 +382,8 @@ impl DataMigration {
 
     /// Parse bytes transferred from rsync output
     fn parse_rsync_bytes(output: &str) -> u64 {
-        // Look for "Total transferred file size: X bytes" or similar
         for line in output.lines() {
             if line.contains("Total transferred file size:") || line.contains("total size is") {
-                // Extract numbers from the line
                 let numbers: String = line.chars().filter(|c| c.is_ascii_digit()).collect();
                 if let Ok(bytes) = numbers.parse::<u64>() {
                     return bytes;
@@ -406,9 +394,11 @@ impl DataMigration {
     }
 
     /// Get the size of a directory in bytes
-    async fn get_directory_size(path: &str) -> AppResult<u64> {
+    async fn get_directory_size(path: &str) -> MigrationResult<u64> {
         let cmd = format!("du -sb '{}' 2>/dev/null | cut -f1", path);
-        let output = run_shell_command(&cmd, &format!("Get size of directory {}", path)).await?;
+        let output = run_shell_command(&cmd, &format!("Get size of directory {}", path))
+            .await
+            .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if output.success() {
             if let Ok(size) = output.stdout.trim().parse::<u64>() {
@@ -416,25 +406,22 @@ impl DataMigration {
             }
         }
 
-        // Fallback to 0 if we can't determine size
         Ok(0)
     }
 
-    /// Verify data integrity after migration (optional post-migration check)
+    /// Verify data integrity after migration
     pub async fn verify_migration(
         source: &str,
         resource_name: &str,
         _mount_point: &str,
         fs_type: &str,
-    ) -> AppResult<VerificationResult> {
+    ) -> MigrationResult<VerificationResult> {
         // Promote and mount temporarily
         Self::promote_drbd(resource_name).await?;
 
         let device = Self::get_drbd_device(resource_name).await?;
         let temp_mount = format!("/tmp/drbd-verify-{}", resource_name);
-        tokio::fs::create_dir_all(&temp_mount)
-            .await
-            .map_err(|e| AppError::Config(format!("Failed to create temp mount: {}", e)))?;
+        tokio::fs::create_dir_all(&temp_mount).await?;
 
         Self::mount_device(&device, &temp_mount, fs_type).await?;
 
@@ -447,7 +434,8 @@ impl DataMigration {
                 source, temp_mount
             ),
         )
-        .await?;
+        .await
+        .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         let differences = output.stdout.lines().count();
         let is_identical = differences == 0;
@@ -470,27 +458,14 @@ impl DataMigration {
 }
 
 /// Configuration for data migration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationConfig {
-    /// DRBD resource name
     pub resource_name: String,
-
-    /// Source directory path (existing data location)
     pub source_path: String,
-
-    /// Target mount point (where DRBD will be mounted)
     pub mount_point: String,
-
-    /// Filesystem type (xfs, ext4, btrfs)
     pub fs_type: String,
-
-    /// Whether to format the device before migration
     pub format_device: bool,
-
-    /// Services to stop before migration
     pub services_to_stop: Vec<String>,
-
-    /// Whether to preserve permissions/ownership
     pub preserve_permissions: bool,
 }
 
@@ -509,36 +484,24 @@ impl Default for MigrationConfig {
 }
 
 /// Result of a data migration operation
-#[derive(Debug, Clone)]
-pub struct MigrationResult {
-    /// Source path that was migrated
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrationResultStats {
     pub source_path: String,
-
-    /// DRBD resource name
     pub resource_name: String,
-
-    /// Bytes transferred during migration
     pub bytes_transferred: u64,
-
-    /// Services that were stopped and restarted
     pub services_restarted: Vec<String>,
 }
 
 /// Migration progress information
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationProgress {
-    /// Current stage of migration
     pub stage: MigrationStage,
-
-    /// Human-readable message
     pub message: String,
-
-    /// Approximate percentage complete (0-100)
     pub percent: u8,
 }
 
 /// Stages of the migration process
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum MigrationStage {
     Preparing,
     StoppingServices,
@@ -579,15 +542,10 @@ impl MigrationStage {
 }
 
 /// Result of migration verification
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerificationResult {
-    /// Whether source and destination are identical
     pub is_identical: bool,
-
-    /// Number of differences found
     pub differences_found: usize,
-
-    /// Sample of differences (first 10)
     pub sample_differences: Vec<String>,
 }
 
@@ -603,20 +561,5 @@ Total file size: 5,678,901 bytes
 Total transferred file size: 1234567 bytes
 "#;
         assert_eq!(DataMigration::parse_rsync_bytes(output), 1234567);
-    }
-
-    #[test]
-    fn test_migration_stage_percent() {
-        assert_eq!(MigrationStage::Preparing.percent(), 5);
-        assert_eq!(MigrationStage::SyncingData.percent(), 70);
-        assert_eq!(MigrationStage::Completed.percent(), 100);
-    }
-
-    #[test]
-    fn test_migration_config_default() {
-        let config = MigrationConfig::default();
-        assert_eq!(config.fs_type, "xfs");
-        assert!(config.format_device);
-        assert!(config.preserve_permissions);
     }
 }

@@ -47,7 +47,7 @@ pub enum AppError {
     Transaction(String),
 
     /// Internal server error
-    #[error("Internal error: {0}")]
+    #[error("Internal server error: {0}")]
     Internal(String),
 
     /// Systemd D-Bus error
@@ -73,7 +73,17 @@ pub enum AppError {
     /// TOML parsing error
     #[error("TOML error: {0}")]
     Toml(String),
+
+    #[error("Migration error: {0}")]
+    Migration(String),
 }
+
+impl From<drbd_migration::error::MigrationError> for AppError {
+    fn from(err: drbd_migration::error::MigrationError) -> Self {
+        AppError::Migration(err.to_string())
+    }
+}
+
 
 /// Error response body for API
 #[derive(Serialize)]
@@ -122,6 +132,11 @@ impl IntoResponse for AppError {
             AppError::Io(e) => (StatusCode::INTERNAL_SERVER_ERROR, "io_error", e.to_string()),
             AppError::Json(e) => (StatusCode::BAD_REQUEST, "json_error", e.to_string()),
             AppError::Toml(msg) => (StatusCode::BAD_REQUEST, "toml_error", msg.clone()),
+            AppError::Migration(msg) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "migration_error",
+                msg.clone(),
+            ),
         };
 
         let body = ErrorResponse {

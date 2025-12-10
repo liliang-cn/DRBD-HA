@@ -2,7 +2,6 @@
 
 pub mod cluster_sync;
 pub mod config_gen;
-pub mod data_migration;
 pub mod db;
 pub mod discovery;
 pub mod drbd_cmd;
@@ -24,9 +23,6 @@ pub mod transaction;
 pub mod validator;
 
 pub use cluster_sync::{ClusterSync, HaSyncConfig};
-pub use data_migration::{
-    DataMigration, MigrationConfig, MigrationProgress, MigrationResult, MigrationStage,
-};
 pub use db::Database;
 pub use discovery::ReactorDiscovery;
 pub use iscsi::IscsiGenerator;

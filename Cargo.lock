@@ -719,6 +719,7 @@ dependencies = [
  "base64",
  "chrono",
  "config-gen",
+ "drbd-migration",
  "drbd-utils",
  "futures",
  "gethostname",
@@ -753,6 +754,19 @@ dependencies = [
  "utoipa-swagger-ui",
  "uuid",
  "zbus",
+]
+
+[[package]]
+name = "drbd-migration"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "shell-cmd",
+ "systemd-utils",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

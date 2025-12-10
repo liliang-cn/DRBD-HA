@@ -12,7 +12,6 @@ use utoipa::ToSchema;
 use crate::core::{
     cluster_sync::{ClusterSync, HaSyncConfig},
     config_gen::{ConfigGenerator, ConfigPaths, NodeConfig, ResourceConfig},
-    data_migration::{DataMigration, MigrationConfig},
     mount_unit::MountUnitGenerator,
     run_shell_command,
     service_override::ServiceOverrideGenerator,
@@ -20,6 +19,7 @@ use crate::core::{
     validator, IscsiGenerator, LvmProvider, NfsGenerator, NvmeOfGenerator, ReactorDiscovery,
     ServiceInitFactory, StorageProvider,
 };
+use drbd_migration::{DataMigration, MigrationConfig};
 use crate::error::{AppError, AppResult};
 use crate::models::{
     CreateHaProfileRequest, GeneratedUnits, HaProfile, HaProfileStatus, HaType, Node,

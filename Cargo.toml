@@ -3,4 +3,5 @@ resolver = "2"
 members = [
     "drbd-ha", "config-gen", "drbd-utils", "lvm-utils",
     "ra-params", "shell-cmd", "ssh-cmd", "systemd-utils",
+    "drbd-migration",
 ]
