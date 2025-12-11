@@ -183,7 +183,7 @@ async fn get_ha_service_details(
         run_shell_command("drbd-reactorctl status", "Get drbd-reactor status").await;
 
     let active_node_map = match reactor_output {
-        Ok(result) if result.success() => parse_reactor_active_nodes(&result.stdout),
+        Ok(result) if result.success() => parse_reactor_active_nodes(&result.stdout, hostname),
         _ => HashMap::new(),
     };
 
@@ -245,7 +245,7 @@ async fn get_ha_service_details(
     Ok(details)
 }
 
-fn parse_reactor_active_nodes(output: &str) -> HashMap<String, String> {
+fn parse_reactor_active_nodes(output: &str, hostname: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
     let mut current_service: Option<String> = None;
 
@@ -261,14 +261,39 @@ fn parse_reactor_active_nodes(output: &str) -> HashMap<String, String> {
         }
 
         // Match lines like "Promoter: Currently active on node 'gui02'"
-        if line.contains("Promoter: Currently active on node") {
+        // or "Promoter: Currently active on this node"
+        if line.contains("Promoter: Currently active on") {
             if let Some(service_name) = &current_service {
-                if let Some(start) = line.find('`') {
-                    if let Some(end) = line.rfind('`') {
-                        if end > start {
-                            let node_name = &line[start + 1..end];
-                            map.insert(service_name.clone(), node_name.to_string());
+                if line.contains("on this node") {
+                    map.insert(service_name.clone(), hostname.to_string());
+                } else {
+                    // Check for single quotes first (standard output), then backticks (fallback)
+                    let node_name = if let Some(start) = line.find('\'') {
+                        if let Some(end) = line.rfind('\'') {
+                            if end > start {
+                                Some(&line[start + 1..end])
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
                         }
+                    } else if let Some(start) = line.find('`') {
+                        if let Some(end) = line.rfind('`') {
+                            if end > start {
+                                Some(&line[start + 1..end])
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(name) = node_name {
+                        map.insert(service_name.clone(), name.to_string());
                     }
                 }
             }
@@ -290,15 +315,10 @@ Promoter: Currently active on node 'gui02'
 /etc/drbd-reactor.d/mysql-ha.toml:
 Promoter: Currently active on node 'gui03'
 /etc/drbd-reactor.d/redis-ha.toml:
-Promoter: Currently active on node 'gui03'
+Promoter: Currently active on this node
 "#;
-        let mut db_services = std::collections::HashSet::new();
-        db_services.insert("linstor_controller".to_string());
-        db_services.insert("mongodb-ha".to_string());
-        db_services.insert("mysql-ha".to_string());
-        db_services.insert("redis-ha".to_string());
-
-        let map = parse_reactor_active_nodes(output);
+        let hostname = "gui03";
+        let map = parse_reactor_active_nodes(output, hostname);
         assert_eq!(map.len(), 4);
         assert_eq!(map.get("linstor_controller"), Some(&"gui02".to_string()));
         assert_eq!(map.get("redis-ha"), Some(&"gui03".to_string()));

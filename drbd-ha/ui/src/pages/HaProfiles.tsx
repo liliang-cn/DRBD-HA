@@ -335,35 +335,20 @@ export function HaProfiles() {
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-semibold">HA Profiles</h2>
         <Space>
-          <Button onClick={handleReloadReactor}>Reload drbd-reactor</Button>
+          {/* <Button onClick={handleReloadReactor}>Reload drbd-reactor</Button>
           <Button
             icon={<SearchOutlined />}
             onClick={() => setImportModalOpen(true)}
           >
             Discover / Import
-          </Button>
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'service',
-                  label: 'Service HA',
-                  icon: <AppstoreOutlined />,
-                  onClick: () => navigate('/service-ha/create'),
-                },
-                {
-                  key: 'storage',
-                  label: 'Storage Sharing',
-                  icon: <CloudServerOutlined />,
-                  onClick: () => navigate('/storage-sharing/create'),
-                },
-              ],
-            }}
+          </Button> */}
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/service-ha/create')}
           >
-            <Button type="primary" icon={<PlusOutlined />}>
-              Create <DownOutlined />
-            </Button>
-          </Dropdown>
+            Create Service HA
+          </Button>
         </Space>
       </div>
 

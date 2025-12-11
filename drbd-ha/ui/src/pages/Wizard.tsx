@@ -420,7 +420,7 @@ export function Wizard() {
           {step < 4 && activationStatus !== 'success' && (
             <Button
               icon={<ArrowLeftOutlined />}
-              onClick={step === 0 ? () => navigate('/dashboard') : handlePrev}
+              onClick={step === 0 ? () => navigate('/') : handlePrev}
             >
               {step === 0 ? 'Cancel' : 'Previous'}
             </Button>

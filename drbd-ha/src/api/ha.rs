@@ -1661,7 +1661,7 @@ pub async fn get_profile_status(
             .unwrap_or(trimmed);
 
             // Remove leading symbol and tree characters to get service name
-            let mut service_line = without_symbol.to_string(); // Work with owned string
+            let mut service_line = without_symbol.trim().to_string(); // Work with owned string, trimmed
 
             // Strip tree prefixes
             if let Some(s) = service_line.strip_prefix("├─") {
