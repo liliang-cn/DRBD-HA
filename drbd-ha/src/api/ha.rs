@@ -1017,7 +1017,7 @@ pub async fn create_profile(
     );
 
     // --- Step 4: Create HA Profile Object ---
-    let profile = HaProfile {
+    let mut profile = HaProfile {
         id: profile_id.clone(),
         name: req.name.clone(),
         ha_type: req.ha_type.clone(),
@@ -1035,6 +1035,7 @@ pub async fn create_profile(
         nfs: req.nfs.clone(),
         iscsi: req.iscsi.clone(),
         nvmeof: req.nvmeof.clone(),
+        generated_config: None, // Will be set after generation
     };
 
     // --- Step 5: Generate Promoter Config ---
@@ -1046,6 +1047,10 @@ pub async fn create_profile(
 
     let promoter_config = ConfigGenerator::promoter_from_profile(&profile_for_gen);
     let config_content = config_gen.generate_promoter(&promoter_config)?;
+    
+    // Update profile with generated config
+    profile.generated_config = Some(config_content.clone());
+    
     let config_path = ConfigPaths::promoter_path(&req.name);
 
     // Ensure config directory exists
@@ -1134,11 +1139,11 @@ pub async fn create_profile(
         }
     }
 
-    // Step 7: Reload systemd daemon to recognize new unit files
+    // Step 7: Reload systemd daemon to recognize new unit files and restart reactor
     let systemd_reload =
-        run_shell_command("systemctl daemon-reload", "Reload systemd daemon").await;
+        run_shell_command("systemctl daemon-reload && systemctl restart drbd-reactor", "Reload systemd and restart reactor").await;
     if systemd_reload.is_err() || !systemd_reload.unwrap().success() {
-        tracing::warn!("Failed to reload systemd daemon");
+        tracing::warn!("Failed to reload systemd/restart reactor");
     }
 
     state.send_progress(
@@ -1655,11 +1660,21 @@ pub async fn get_profile_status(
             }
             .unwrap_or(trimmed);
 
-            // Remove tree drawing characters and whitespace
-            let name = without_symbol
-                .trim_start_matches('├')
-                .trim_start_matches('└')
-                .trim_start_matches('─')
+            // Remove leading symbol and tree characters to get service name
+            let mut service_line = without_symbol.to_string(); // Work with owned string
+
+            // Strip tree prefixes
+            if let Some(s) = service_line.strip_prefix("├─") {
+                service_line = s.to_string();
+            } else if let Some(s) = service_line.strip_prefix("└─") {
+                service_line = s.to_string();
+            } else if let Some(s) = service_line.strip_prefix("─") {
+                service_line = s.to_string();
+            }
+
+            // Get the first word after stripping prefixes, which should be the service name
+            let name = service_line
+                .trim() // Trim any whitespace after stripping prefixes
                 .split_whitespace()
                 .next()
                 .unwrap_or("");

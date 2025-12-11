@@ -71,6 +71,9 @@ pub struct HaProfile {
     pub nfs: Option<NfsConfig>,
     pub iscsi: Option<IscsiConfig>,
     pub nvmeof: Option<NvmeOfConfig>,
+    /// The generated drbd-reactor TOML configuration content
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated_config: Option<String>,
 }
 
 /// Promoter settings for drbd-reactor

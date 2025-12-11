@@ -23,7 +23,6 @@ export const router = createBrowserRouter([
       { path: 'ha-profiles', element: <HaProfiles /> },
       { path: 'logs', element: <Logs /> },
       { path: 'service-ha/create', element: <ServiceHaWizard /> },
-      { path: 'storage-sharing/create', element: <StorageSharingWizard /> },
     ],
   },
 ]);

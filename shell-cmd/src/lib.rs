@@ -2,7 +2,7 @@ pub mod error;
 
 use crate::error::{ShellError, ShellResult};
 use tokio::process::Command;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 /// Command execution output
 #[derive(Debug, Clone)]
@@ -25,7 +25,10 @@ impl CommandOutput {
 /// * `cmd_str` - The command string to execute.
 /// * `description` - A brief description of the command's purpose for logging.
 pub async fn run_shell_command(cmd_str: &str, description: &str) -> ShellResult<CommandOutput> {
-    info!("Executing command: '{}' ({})", cmd_str, description);
+    // Only log if there's a description (to avoid SSE polling noise)
+    if !description.is_empty() {
+        debug!("Executing command: '{}' ({})", cmd_str, description);
+    }
 
     let output = Command::new("sh")
         .arg("-c")
@@ -40,15 +43,11 @@ pub async fn run_shell_command(cmd_str: &str, description: &str) -> ShellResult<
         exit_code: output.status.code().unwrap_or(-1),
     };
 
-    if cmd_output.success() {
-        debug!(
-            "Command '{}' succeeded. Stdout: '{}', Stderr: '{}'",
-            cmd_str, cmd_output.stdout, cmd_output.stderr
-        );
-    } else {
+    if !cmd_output.success() {
+        // Only log errors, not successful status checks
         error!(
-            "Command '{}' failed with exit code {}. Stdout: '{}', Stderr: '{}'",
-            cmd_str, cmd_output.exit_code, cmd_output.stdout, cmd_output.stderr
+            "Command '{}' failed with exit code {}. Stderr: '{}'",
+            cmd_str, cmd_output.exit_code, cmd_output.stderr
         );
     }
 

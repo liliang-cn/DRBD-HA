@@ -181,7 +181,7 @@ const PROMOTER_TEMPLATE: &str = r#"# drbd-reactor promoter configuration
 
 [[promoter]]
 [promoter.resources.{{ promoter.resource }}]
-start = [{% if promoter.mount_unit %}"{{ promoter.mount_unit }}", {% endif %}{% if promoter.vip %}"ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip cidr_netmask={{ promoter.vip.netmask }} ip={{ promoter.vip.address }}", {% endif %}{% for service in promoter.start %}"{{ service }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+start = [{% if promoter.mount_unit %}"{{ promoter.mount_unit }}", {% endif %}{% if promoter.vip %}"ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }} nic={{ promoter.vip.interface }}", {% endif %}{% for service in promoter.start %}"{{ service }}"{% if not loop.last %}, {% endif %}{% endfor %}]
 runner = "systemd"
 stop-services-on-exit = {{ promoter.stop_services_on_exit }}
 on-drbd-demote-failure = "{{ promoter.on_drbd_demote_failure }}"
@@ -294,8 +294,8 @@ mod tests {
         assert!(output.contains("[promoter.resources.r0]"));
         assert!(output.contains("app.service"));
         assert!(output.contains("web.service"));
-        // VIP should be in OCF format inside start list (cidr_netmask before ip)
-        assert!(output.contains("ocf:heartbeat:IPaddr2 r0_vip cidr_netmask=24 ip=192.168.1.100"));
+        // VIP should be in OCF format inside start list (instance name, ip, cidr_netmask, nic)
+        assert!(output.contains("ocf:heartbeat:IPaddr2 r0_vip ip=192.168.1.100 cidr_netmask=24 nic=eth0"));
         assert!(output.contains("runner = \"systemd\""));
     }
 

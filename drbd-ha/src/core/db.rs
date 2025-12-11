@@ -126,6 +126,8 @@ impl Database {
 
                         nvmeof_config TEXT,
 
+                        generated_config TEXT,
+
                         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
                         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -244,6 +246,18 @@ impl Database {
             .execute_batch(
                 r#"
             ALTER TABLE ha_profiles ADD COLUMN iscsi_config TEXT;
+            "#,
+            )
+            .is_err()
+        {
+            // Column likely already exists, ignore error
+        }
+
+        // Migration 4: Add generated_config column if it doesn't exist
+        if conn
+            .execute_batch(
+                r#"
+            ALTER TABLE ha_profiles ADD COLUMN generated_config TEXT;
             "#,
             )
             .is_err()
@@ -472,9 +486,9 @@ impl Database {
             r#"INSERT INTO ha_profiles (
                 id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface, 
                 services, stop_on_demote, on_demote_failure, status, generated_units,
-                ha_type, nfs_config, iscsi_config, nvmeof_config
+                ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
             "#,
             params![
                 profile.id,
@@ -494,6 +508,7 @@ impl Database {
                 nfs_config,
                 iscsi_config,
                 nvmeof_config,
+                profile.generated_config,
             ],
         )
         .map_err(|e| AppError::Config(format!("Failed to insert HA profile: {}", e)))?;
@@ -508,7 +523,7 @@ impl Database {
             r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config
             FROM ha_profiles WHERE id = ?1
             "#,
             params![id],
@@ -526,7 +541,7 @@ impl Database {
             r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config
             FROM ha_profiles WHERE name = ?1
             "#,
             params![name],
@@ -545,7 +560,7 @@ impl Database {
                 r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config
             FROM ha_profiles
             "#,
             )
@@ -630,8 +645,9 @@ impl Database {
                 nfs_config = ?14,
                 iscsi_config = ?15,
                 nvmeof_config = ?16,
+                generated_config = ?17,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?17
+            WHERE id = ?18
             "#,
             params![
                 profile.name,
@@ -650,6 +666,7 @@ impl Database {
                 nfs_config,
                 iscsi_config,
                 nvmeof_config,
+                profile.generated_config,
                 profile.id,
             ],
         )
@@ -910,6 +927,7 @@ fn row_to_ha_profile(row: &rusqlite::Row) -> AppResult<HaProfile> {
     // 5: vip_address, 6: vip_netmask, 7: vip_interface
     // 8: services, 9: stop_on_demote, 10: on_demote_failure, 11: status, 12: generated_units
     // 13: ha_type, 14: nfs_config, 15: iscsi_config, 16: nvmeof_config
+    // 17: generated_config
 
     let services_json: String = row.get(8).map_err(|e| AppError::Config(e.to_string()))?;
     let services: Vec<String> = serde_json::from_str(&services_json)
@@ -960,6 +978,8 @@ fn row_to_ha_profile(row: &rusqlite::Row) -> AppResult<HaProfile> {
         .flatten()
         .and_then(|j| serde_json::from_str::<NvmeOfConfig>(&j).ok());
 
+    let generated_config = row.get::<_, Option<String>>(17).ok().flatten();
+
     Ok(HaProfile {
         id: row.get(0).map_err(|e| AppError::Config(e.to_string()))?,
         name: row.get(1).map_err(|e| AppError::Config(e.to_string()))?,
@@ -983,6 +1003,7 @@ fn row_to_ha_profile(row: &rusqlite::Row) -> AppResult<HaProfile> {
         nfs,
         iscsi,
         nvmeof,
+        generated_config,
     })
 }
 
@@ -1061,6 +1082,7 @@ mod tests {
             nfs: None,
             iscsi: None,
             nvmeof: None,
+            generated_config: None,
         };
 
         // Insert

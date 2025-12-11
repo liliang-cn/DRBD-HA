@@ -14,15 +14,12 @@ const { Header, Sider, Content } = Layout;
 
 const menuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: 'HA Status' },
-  { key: '/nodes', icon: <ClusterOutlined />, label: 'Nodes' },
-  { key: '/storage', icon: <DatabaseOutlined />, label: 'Storage' },
   // { key: '/resources', icon: <DatabaseOutlined />, label: 'Resources' },
   {
     key: '/ha-profiles',
     icon: <SafetyCertificateOutlined />,
     label: 'HA Profiles',
   },
-  { key: '/logs', icon: <FileTextOutlined />, label: 'Logs' },
   { key: 'api-docs', icon: <FileTextOutlined />, label: 'API Docs' },
 ];
 

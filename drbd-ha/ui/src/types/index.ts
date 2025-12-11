@@ -314,6 +314,10 @@ export interface HaServiceDetail {
   name: string;
   active_node: string | null;
   status: string;
+  service_type?: string;
+  vip?: string | null;
+  export_path?: string | null;
+  nodes?: string[];
 }
 
 export interface DashboardSummary {

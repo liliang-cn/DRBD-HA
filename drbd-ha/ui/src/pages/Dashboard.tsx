@@ -5,11 +5,10 @@ import {
   Col,
   Statistic,
   Tag,
-  List,
+  Table,
   Typography,
   Spin,
   Alert,
-  Badge,
 } from 'antd';
 import {
   ClusterOutlined,
@@ -21,16 +20,13 @@ import {
   SyncOutlined,
 } from '@ant-design/icons';
 import { dashboardApi } from '@/api';
-import { useNotificationsStore } from '@/stores/notifications';
-import type { DashboardSummary, NotificationEvent } from '@/types';
+import type { DashboardSummary, HaServiceDetail } from '@/types';
 
 const { Text } = Typography;
 
 export function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  // Live events from SSE; store key is `notifications`, not `events`
-  const notifications = useNotificationsStore((s) => s.notifications);
 
   const fetchSummary = async () => {
     try {
@@ -59,7 +55,7 @@ export function Dashboard() {
 
   if (!summary) return null;
 
-  // [F01] Cluster Health Traffic Light
+  // Cluster Health Status
   const healthStatus = {
     healthy: {
       color: 'success',
@@ -81,9 +77,90 @@ export function Dashboard() {
     },
   }[summary.health];
 
+  // Table Columns
+  const columns = [
+    {
+      title: 'Service Name',
+      dataIndex: 'name',
+      key: 'name',
+      render: (text: string) => <span className="font-semibold">{text}</span>,
+    },
+    {
+      title: 'Type',
+      dataIndex: 'service_type',
+      key: 'service_type',
+      render: (type: string) => (
+        <Tag color="blue">{type || 'Unknown'}</Tag>
+      ),
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status: string) => {
+        const color =
+          status === 'active'
+            ? 'green'
+            : status === 'standby'
+            ? 'cyan'
+            : 'default';
+        return <Tag color={color}>{status.toUpperCase()}</Tag>;
+      },
+    },
+    {
+      title: 'Current Node',
+      dataIndex: 'active_node',
+      key: 'active_node',
+      render: (node: string) =>
+        node ? (
+          <Tag icon={<CheckCircleOutlined />} color="success">
+            {node}
+          </Tag>
+        ) : (
+          <Text type="secondary">-</Text>
+        ),
+    },
+    {
+      title: 'Cluster Nodes',
+      dataIndex: 'nodes',
+      key: 'nodes',
+      render: (nodes: string[]) => (
+        <div className="flex flex-wrap gap-1">
+          {nodes && nodes.length > 0 ? (
+            nodes.map((n) => <Tag key={n}>{n}</Tag>)
+          ) : (
+            <Text type="secondary">-</Text>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: 'VIP',
+      dataIndex: 'vip',
+      key: 'vip',
+      render: (vip: string) =>
+        vip ? <Text copyable>{vip}</Text> : <Text type="secondary">-</Text>,
+    },
+    {
+      title: 'Export / Info',
+      key: 'info',
+      render: (_: unknown, record: HaServiceDetail) => {
+        if (record.export_path) {
+          return (
+            <div>
+              <span className="text-gray-500 text-xs mr-1">Export:</span>
+              <Text copyable>{record.export_path}</Text>
+            </div>
+          );
+        }
+        return <Text type="secondary">-</Text>;
+      },
+    },
+  ];
+
   return (
     <div className="space-y-6">
-      {/* [F01] Health Status Bar */}
+      {/* Health Status Bar */}
       <Alert
         message={
           <div className="flex items-center gap-2 text-lg">
@@ -99,7 +176,7 @@ export function Dashboard() {
         className="border-l-4"
       />
 
-      {/* [F03] Key Metrics Cards */}
+      {/* Key Metrics Cards */}
       <Row gutter={16}>
         <Col span={6}>
           <Card>
@@ -147,8 +224,7 @@ export function Dashboard() {
               }}
             />
             <div className="text-xs text-gray-500 mt-2">
-              {summary.ha_services.standby} Standby,{' '}
-              {summary.ha_services.stopped} Stopped
+              {summary.ha_services.standby} Standby
             </div>
           </Card>
         </Col>
@@ -172,168 +248,16 @@ export function Dashboard() {
         </Col>
       </Row>
 
-      <Row gutter={16}>
-        {/* [F02] Topology Map (Simplified Visualization) */}
-        <Col span={16}>
-          <Card title="Cluster Topology" className="h-full min-h-[400px]">
-            <div className="flex flex-col items-center justify-center h-full space-y-8 p-4">
-              <div className="flex justify-center gap-16 w-full">
-                {/* Visualize Nodes */}
-                {Array.from({ length: summary.nodes.total }).map((_, i) => (
-                  <div key={i} className="relative group">
-                    <div
-                      className={`
-                      w-32 h-32 border-2 rounded-lg flex flex-col items-center justify-center bg-gray-50
-                      ${
-                        i < summary.nodes.online
-                          ? 'border-green-500 shadow-green-100'
-                          : 'border-red-500 bg-red-50'
-                      }
-                      transition-all hover:shadow-lg
-                    `}
-                    >
-                      <ClusterOutlined className="text-3xl mb-2 text-gray-600" />
-                      <div className="font-bold">Node {i + 1}</div>
-                      <Badge
-                        status={i < summary.nodes.online ? 'success' : 'error'}
-                        text={i < summary.nodes.online ? 'Online' : 'Offline'}
-                      />
-                    </div>
-
-                    {/* Resources linked to this node (Mockup visualization) */}
-                    <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 translate-y-full space-y-1">
-                      {i === 0 && summary.ha_services.active > 0 && (
-                        <Tag color="green">
-                          Active Services: {summary.ha_services.active}
-                        </Tag>
-                      )}
-                      {i === 1 && summary.ha_services.standby > 0 && (
-                        <Tag color="blue">
-                          Standby: {summary.ha_services.standby}
-                        </Tag>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Sync Line */}
-              <div className="w-2/3 h-1 bg-gray-200 relative rounded">
-                {summary.resources.degraded > 0 ? (
-                  <div
-                    className="absolute inset-0 bg-yellow-400 animate-pulse rounded"
-                    style={{ width: '100%' }}
-                  ></div>
-                ) : (
-                  <div
-                    className="absolute inset-0 bg-green-400 rounded"
-                    style={{ width: '100%' }}
-                  ></div>
-                )}
-                <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-white px-2 text-xs text-gray-500">
-                  DRBD Replication (
-                  {summary.resources.degraded > 0
-                    ? 'Syncing/Degraded'
-                    : 'Healthy'}
-                  )
-                </div>
-              </div>
-            </div>
-          </Card>
-        </Col>
-
-        {/* [F04] Live Event Log */}
-        <Col span={8}>
-          <Card
-            title="Live Events"
-            className="h-full min-h-[400px]"
-            bodyStyle={{ padding: 0 }}
-          >
-            <div className="h-[350px] overflow-y-auto p-4">
-              <List
-                dataSource={[...notifications].reverse()} // Show newest first
-                renderItem={(item: NotificationEvent) => (
-                  <List.Item className="border-b border-gray-100 last:border-0">
-                    <List.Item.Meta
-                      avatar={
-                        item.level === 'error' ? (
-                          <CloseCircleOutlined className="text-red-500" />
-                        ) : item.level === 'warning' ? (
-                          <WarningOutlined className="text-yellow-500" />
-                        ) : (
-                          <CheckCircleOutlined className="text-blue-500" />
-                        )
-                      }
-                      title={<Text className="text-sm">{item.message}</Text>}
-                      description={
-                        <div className="flex justify-between text-xs text-gray-400">
-                          <span>{item.source}</span>
-                          <span>
-                            {new Date(
-                              item.timestamp * 1000,
-                            ).toLocaleTimeString()}
-                          </span>
-                        </div>
-                      }
-                    />
-                  </List.Item>
-                )}
-                locale={{ emptyText: 'No recent events' }}
-              />
-            </div>
-          </Card>
-        </Col>
-      </Row>
-
-      {/* HA Services Status Row */}
-      <Row gutter={16}>
-        <Col span={24}>
-          <Card title="High Availability Services Status">
-            <div className="space-y-3">
-              {summary.ha_service_details &&
-              summary.ha_service_details.length > 0 ? (
-                summary.ha_service_details.map((service) => (
-                  <div
-                    key={service.name}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition"
-                  >
-                    <div className="flex items-center gap-3 flex-1">
-                      <div
-                        className="w-2 h-2 rounded-full"
-                        style={{
-                          backgroundColor: service.active_node
-                            ? '#52c41a'
-                            : '#bfbfbf',
-                        }}
-                      ></div>
-                      <div className="flex-1">
-                        <div className="font-semibold text-sm">
-                          {service.name}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {service.active_node
-                            ? `Active on ${service.active_node}`
-                            : 'Not active'}
-                        </div>
-                      </div>
-                    </div>
-                    <Tag
-                      color={service.active_node ? 'green' : 'default'}
-                      className="text-xs"
-                    >
-                      {service.status}
-                    </Tag>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-gray-400">
-                  No HA services configured
-                </div>
-              )}
-            </div>
-          </Card>
-        </Col>
-      </Row>
+      {/* HA Clusters Table */}
+      <Card title="HA Clusters / Services" className="w-full">
+        <Table
+          dataSource={summary.ha_service_details}
+          columns={columns}
+          rowKey="name"
+          pagination={false}
+          locale={{ emptyText: 'No HA Services configured' }}
+        />
+      </Card>
     </div>
   );
 }

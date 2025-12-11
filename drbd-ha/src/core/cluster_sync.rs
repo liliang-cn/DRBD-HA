@@ -49,29 +49,51 @@ impl ClusterSync {
     /// to all nodes in the cluster (except the local node).
     pub async fn sync_ha_config(&self, config: &HaSyncConfig) -> AppResult<Vec<String>> {
         let nodes = self.db.get_all_nodes()?;
+        let remote_nodes: Vec<_> = nodes.iter().filter(|n| !n.is_local).collect();
+
+        tracing::info!(
+            "Starting HA config sync to {} remote node(s)",
+            remote_nodes.len()
+        );
+
         let mut synced_nodes = Vec::new();
         let mut errors = Vec::new();
 
         for node in nodes {
             // Skip local node
             if node.is_local {
+                tracing::debug!("Skipping local node {}", node.hostname);
                 continue;
             }
+
+            tracing::info!(
+                "Syncing HA config to node {} ({}:{})",
+                node.hostname,
+                node.ip,
+                node.ssh_port
+            );
 
             // Get credential (dummy)
             let credential = match self.get_credential(&node).await? {
                 Some(c) => c,
-                None => continue,
+                None => {
+                    tracing::warn!("No credential available for node {}", node.hostname);
+                    continue;
+                }
             };
 
             // Sync files to this node
             match self.sync_to_node(&node, &credential, config).await {
                 Ok(_) => {
-                    tracing::info!("Synced HA config to node {}", node.hostname);
+                    tracing::info!("✓ Successfully synced HA config to node {}", node.hostname);
                     synced_nodes.push(node.hostname.clone());
                 }
                 Err(e) => {
-                    tracing::error!("Failed to sync HA config to node {}: {}", node.hostname, e);
+                    tracing::error!(
+                        "✗ Failed to sync HA config to node {}: {}",
+                        node.hostname,
+                        e
+                    );
                     errors.push(format!("{}: {}", node.hostname, e));
                 }
             }
@@ -80,6 +102,12 @@ impl ClusterSync {
         if !errors.is_empty() {
             tracing::warn!("Some nodes failed to sync: {:?}", errors);
         }
+
+        tracing::info!(
+            "HA config sync completed: {} succeeded, {} failed",
+            synced_nodes.len(),
+            errors.len()
+        );
 
         Ok(synced_nodes)
     }
@@ -124,12 +152,83 @@ impl ClusterSync {
 
         // Sync promoter config
         let (path, content) = &config.promoter_config;
-        self.write_remote_file(node, credential, path, content)
-            .await?;
+
+        tracing::info!(
+            "Syncing promoter config to node {}: path={}, content_len={}",
+            node.hostname,
+            path,
+            content.len()
+        );
+
+        // Ensure directory exists for promoter config
+        let dir = std::path::Path::new(path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        if !dir.is_empty() {
+            tracing::debug!("Creating directory {} on node {}", dir, node.hostname);
+            let mkdir_cmd = format!("mkdir -p '{}'", dir);
+            let mkdir_result = self
+                .ssh_manager
+                .execute(
+                    &node.ip,
+                    node.ssh_port,
+                    &node.ssh_user,
+                    credential,
+                    &mkdir_cmd,
+                )
+                .await;
+
+            if let Err(e) = mkdir_result {
+                tracing::error!(
+                    "Failed to create directory {} on {}: {}",
+                    dir,
+                    node.hostname,
+                    e
+                );
+                return Err(e);
+            }
+            tracing::debug!(
+                "Successfully created directory {} on {}",
+                dir,
+                node.hostname
+            );
+        }
+
+        tracing::info!(
+            "Writing promoter config file {} to node {}",
+            path,
+            node.hostname
+        );
+        let write_result = self
+            .write_remote_file(node, credential, path, content)
+            .await;
+
+        if let Err(e) = write_result {
+            tracing::error!(
+                "Failed to write promoter config {} to node {}: {}",
+                path,
+                node.hostname,
+                e
+            );
+            return Err(e);
+        }
+
+        tracing::info!(
+            "Successfully wrote promoter config {} to node {}",
+            path,
+            node.hostname
+        );
 
         // Reload systemd daemon on remote node
-        let reload_cmd = "systemctl daemon-reload";
-        self.ssh_manager
+        tracing::info!(
+            "Reloading systemd and restarting drbd-reactor on node {}",
+            node.hostname
+        );
+        let reload_cmd = "systemctl daemon-reload && systemctl restart drbd-reactor";
+        let reload_result = self
+            .ssh_manager
             .execute(
                 &node.ip,
                 node.ssh_port,
@@ -137,7 +236,18 @@ impl ClusterSync {
                 credential,
                 reload_cmd,
             )
-            .await?;
+            .await;
+
+        if let Err(e) = reload_result {
+            tracing::error!(
+                "Failed to reload systemd/restart drbd-reactor on {}: {}",
+                node.hostname,
+                e
+            );
+            return Err(e);
+        }
+
+        tracing::info!("Successfully synced all configs to node {}", node.hostname);
 
         Ok(())
     }
@@ -150,7 +260,15 @@ impl ClusterSync {
         path: &str,
         content: &str,
     ) -> AppResult<()> {
-        self.ssh_manager
+        tracing::debug!(
+            "Writing file to remote node {}: path={}, size={} bytes",
+            node.hostname,
+            path,
+            content.len()
+        );
+
+        let result = self
+            .ssh_manager
             .write_file(
                 &node.ip,
                 node.ssh_port,
@@ -159,13 +277,30 @@ impl ClusterSync {
                 path,
                 content,
             )
-            .await
-            .map_err(|e| {
-                AppError::Ssh(format!(
-                    "Failed to write {} on {}: {}",
-                    path, node.hostname, e
-                ))
-            })
+            .await;
+
+        match &result {
+            Ok(_) => {
+                tracing::debug!("Successfully wrote file {} to node {}", path, node.hostname);
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to write {} on {} ({}:{}): {}",
+                    path,
+                    node.hostname,
+                    node.ip,
+                    node.ssh_port,
+                    e
+                );
+            }
+        }
+
+        result.map_err(|e| {
+            AppError::Ssh(format!(
+                "Failed to write {} on {}: {}",
+                path, node.hostname, e
+            ))
+        })
     }
 
     /// Remove HA configuration from all remote nodes

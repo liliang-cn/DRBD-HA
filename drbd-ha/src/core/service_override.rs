@@ -117,18 +117,10 @@ impl ServiceOverrideGenerator {
 # DO NOT EDIT - Changes will be overwritten
 
 [Unit]
-# Force dependency on the mount unit - service stops if mount fails
-BindsTo={mount}
+# Dependency on the mount unit
+Requires={mount}
 # Ensure start after mount is ready
 After={mount}
-
-# Disable default dependencies to prevent automatic startup on boot
-# The service is managed by drbd-reactor
-DefaultDependencies=no
-
-[Service]
-# Fail immediately if mount point is not available (safety check)
-ExecCondition=/usr/bin/test -d %h
 "#,
             profile = profile_name,
             mount = mount_unit,
@@ -243,9 +235,9 @@ mod tests {
     fn test_render_override() {
         let content = ServiceOverrideGenerator::render_override("var-lib-mysql.mount", "mysql-ha");
 
-        assert!(content.contains("BindsTo=var-lib-mysql.mount"));
+        assert!(content.contains("Requires=var-lib-mysql.mount"));
         assert!(content.contains("After=var-lib-mysql.mount"));
-        assert!(content.contains("DefaultDependencies=no"));
+        assert!(!content.contains("DefaultDependencies=no"));
         assert!(content.contains("HA Profile: mysql-ha"));
     }
 

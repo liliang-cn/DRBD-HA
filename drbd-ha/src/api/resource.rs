@@ -123,7 +123,7 @@ pub async fn create_resource(
     }
 
     // Get node information from database
-    let creds = state.credentials.read().await;
+    // Removed unused creds variable
 
     // Build node configs and collect targets for safety checks
     let mut node_configs: Vec<NodeConfig> = Vec::new();
@@ -167,8 +167,6 @@ pub async fn create_resource(
             local_disks.push(disk.clone());
         }
     }
-
-    drop(creds);
 
     // Safety checks: Create checker
     let safety_checker = SafetyChecker::new(state.ssh_manager.clone());
@@ -214,16 +212,24 @@ pub async fn create_resource(
         info!("Running safety checks on local device {}", disk);
         let check = safety_checker.check_device_for_drbd(disk).await?;
         if let Some(err) = check.to_error() {
-            state.send_progress(
-                &operation_id,
-                "create_resource",
-                Some(&req.name),
-                20,
-                &format!("Safety check failed: {}", err),
-                true,
-                Some(false),
-            );
-            return Err(err);
+            if req.force {
+                tracing::warn!(
+                    "Safety check failed for local device {}, but proceeding due to force flag: {}",
+                    disk,
+                    err
+                );
+            } else {
+                state.send_progress(
+                    &operation_id,
+                    "create_resource",
+                    Some(&req.name),
+                    20,
+                    &format!("Safety check failed: {}", err),
+                    true,
+                    Some(false),
+                );
+                return Err(err);
+            }
         }
         for warning in &check.warnings {
             tracing::warn!("Local device {}: {}", disk, warning);
@@ -250,16 +256,25 @@ pub async fn create_resource(
             .check_remote_device_for_drbd(host, *port, user, credential, disk)
             .await?;
         if let Some(err) = check.to_error() {
-            state.send_progress(
-                &operation_id,
-                "create_resource",
-                Some(&req.name),
-                40,
-                &format!("Safety check failed: {}", err),
-                true,
-                Some(false),
-            );
-            return Err(err);
+            if req.force {
+                tracing::warn!(
+                    "Safety check failed for remote device {} on {}, but proceeding due to force flag: {}",
+                    disk,
+                    host,
+                    err
+                );
+            } else {
+                state.send_progress(
+                    &operation_id,
+                    "create_resource",
+                    Some(&req.name),
+                    40,
+                    &format!("Safety check failed: {}", err),
+                    true,
+                    Some(false),
+                );
+                return Err(err);
+            }
         }
         for warning in &check.warnings {
             tracing::warn!("Remote device {} on {}: {}", disk, host, warning);
@@ -285,6 +300,7 @@ pub async fn create_resource(
         minor: req.minor,
         device: format!("/dev/drbd{}", req.minor),
         nodes: node_configs,
+        auto_promote: false, // Hardcoded as requested
         ..Default::default()
     };
 
@@ -334,12 +350,7 @@ pub async fn create_resource(
 
     let mut written_hosts: Vec<(String, u16, String, crate::core::SshCredential)> = Vec::new();
 
-    // Re-acquire credentials for syncing
-    let creds = state.credentials.read().await;
-    info!(
-        "create_resource: Credentials available for {} nodes",
-        creds.len()
-    );
+    // Removed unused creds acquisition
 
     for node in &remote_nodes {
         info!(
@@ -647,11 +658,7 @@ pub async fn init_resource(
     let total_nodes = remote_nodes.len() + 1;
     let progress_per_node = 30 / total_nodes.max(1);
 
-    let creds = state.credentials.read().await;
-    info!(
-        "init_resource: Credentials available for {} nodes",
-        creds.len()
-    );
+    // Removed unused creds acquisition
 
     // Check config exists on all remote nodes, sync only if missing
     for node in &remote_nodes {
@@ -826,7 +833,6 @@ pub async fn init_resource(
             }
         }
     }
-    drop(creds);
 
     state.send_progress(
         &operation_id,
@@ -1425,7 +1431,7 @@ pub async fn get_resource_logs(
 /// DELETE /api/v1/resources/:name
 /// Delete a DRBD resource
 pub async fn delete_resource(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
 ) -> AppResult<StatusCode> {
     validator::validate_resource_name(&name)?;
@@ -1434,12 +1440,35 @@ pub async fn delete_resource(
     let down_cmd = DrbdCmd::down_cmd(&name)?;
     let _ = run_shell_command(&down_cmd, &format!("Bring down DRBD resource {}", name)).await;
 
-    // Delete configuration file
+    // Delete configuration file locally
     let config_path = ConfigPaths::drbd_resource_path(&name);
     if tokio::fs::metadata(&config_path).await.is_ok() {
         tokio::fs::remove_file(&config_path)
             .await
             .map_err(|e| AppError::Config(format!("Failed to delete config: {}", e)))?;
+    }
+
+    // Delete configuration file from all remote nodes
+    if let Ok(nodes) = state.db.get_all_nodes() {
+        let remote_nodes: Vec<_> = nodes.iter().filter(|n| !n.is_local).collect();
+
+        
+        for node in remote_nodes {
+            // Get credential (dummy for now)
+            let credential = crate::core::SshCredential::Password("ignored".to_string());
+            
+            let rm_cmd = format!("rm -f '{}'", config_path);
+            let _ = state
+                .ssh_manager
+                .execute(
+                    &node.ip,
+                    node.ssh_port,
+                    &node.ssh_user,
+                    &credential,
+                    &rm_cmd,
+                )
+                .await;
+        }
     }
 
     Ok(StatusCode::NO_CONTENT)

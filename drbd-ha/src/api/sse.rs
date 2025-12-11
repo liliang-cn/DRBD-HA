@@ -368,10 +368,11 @@ pub async fn all_events_stream(
     )
 }
 
-/// Helper to get DRBD status
+/// Helper to get DRBD status (called frequently by SSE, minimal logging)
 async fn get_drbd_status() -> Result<Vec<ResourceStatus>, String> {
     let cmd = DrbdCmd::status_cmd();
-    let output = run_shell_command(&cmd, "Get DRBD status")
+    // Use empty description to avoid log spam from periodic checks
+    let output = run_shell_command(&cmd, "")
         .await
         .map_err(|e| e.to_string())?;
 

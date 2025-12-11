@@ -513,6 +513,9 @@ pub struct CreateResourceRequest {
     /// Set to false for resources managed by drbd-reactor
     #[serde(default = "default_auto_promote")]
     pub auto_promote: bool,
+    /// Whether to force creation despite safety checks
+    #[serde(default)]
+    pub force: bool,
 }
 
 fn default_auto_promote() -> bool {

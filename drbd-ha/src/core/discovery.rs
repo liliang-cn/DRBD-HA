@@ -136,6 +136,7 @@ impl ReactorDiscovery {
                             nfs: nfs_config,
                             iscsi: iscsi_config,
                             nvmeof: nvmeof_config,
+                            generated_config: None,
                         };
                         discovered.push(profile);
                     }

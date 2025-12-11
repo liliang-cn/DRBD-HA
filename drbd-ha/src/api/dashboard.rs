@@ -1,13 +1,15 @@
 //! Dashboard API handlers
 
 use axum::{extract::State, Json};
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::core::drbd_cmd::{parse_drbd_status, ResourceStatus};
 use crate::core::run_shell_command;
 use crate::error::AppResult;
 use crate::models::{
-    ClusterHealth, DashboardSummary, HaProfileStatus, HaServiceDetail, HaServiceStats, NodeStats,
-    NodeStatus, ResourceStats, StorageStats,
+    ClusterHealth, DashboardSummary, HaProfile, HaProfileStatus, HaServiceDetail, HaServiceStats,
+    HaType, NodeStats, NodeStatus, ResourceStats, StorageStats,
 };
 use crate::state::AppState;
 
@@ -21,7 +23,7 @@ use crate::state::AppState;
     )
 )]
 pub async fn get_summary(State(state): State<Arc<AppState>>) -> AppResult<Json<DashboardSummary>> {
-    // ...
+    // 1. Node Stats
     let nodes = state.db.get_all_nodes()?;
     let total_nodes = nodes.len();
     let online_nodes = nodes
@@ -47,10 +49,7 @@ pub async fn get_summary(State(state): State<Arc<AppState>>) -> AppResult<Json<D
         pool_count: pools.len(),
     };
 
-    // 3. HA Service Stats (from DB, might be stale status but acceptable for summary,
-    // real-time updates come via SSE)
-    // Ideally we should have a background task updating DB statuses.
-    // For now, we count based on what's in DB.
+    // 3. HA Service Stats (from DB)
     let profiles = state.db.get_all_ha_profiles()?;
     let active = profiles
         .iter()
@@ -77,40 +76,36 @@ pub async fn get_summary(State(state): State<Arc<AppState>>) -> AppResult<Json<D
         error,
     };
 
-    // 4. Resource Stats (DRBD) - Check live status via drbdadm status
-    // This gives a quick overview of all resources
-    // Output format:
-    // resource-name role:Primary disk:UpToDate ...
-    let drbd_output = run_shell_command("drbdadm status", "Get all DRBD status").await;
+    // 4. Resource Stats (DRBD) - Check live status via drbdadm status --json
+    let drbd_output = run_shell_command("drbdadm status --json", "Get all DRBD status").await;
 
-    let (total_res, healthy_res, degraded_res) = if let Ok(output) = drbd_output {
+    let resource_statuses = if let Ok(output) = drbd_output {
         if output.success() {
-            parse_drbd_summary(&output.stdout)
+            parse_drbd_status(&output.stdout).unwrap_or_default()
         } else {
-            (0, 0, 0)
+            Vec::new()
         }
     } else {
-        (0, 0, 0)
+        Vec::new()
     };
 
-    let resource_stats = ResourceStats {
-        total: total_res,
-        healthy: healthy_res,
-        degraded: degraded_res,
+    let resource_stats = calculate_resource_stats(&resource_statuses);
+
+    // 4.5 Get HA Service Details (Enriched)
+    // We need the local hostname to identify "this node" in the list of nodes
+    let hostname_output = run_shell_command("uname -n", "Get hostname").await;
+    let hostname = if let Ok(output) = hostname_output {
+        output.stdout.trim().to_string()
+    } else {
+        "localhost".to_string()
     };
 
-    // 4.5 Get HA Service Details from drbd-reactorctl
-    let db_profiles = state.db.get_all_ha_profiles()?;
-    let db_service_names: std::collections::HashSet<String> =
-        db_profiles.iter().map(|p| p.name.clone()).collect();
-    let ha_service_details = get_ha_service_details(&db_service_names)
-        .await
-        .unwrap_or_default();
+    let ha_service_details = 
+        get_ha_service_details(&profiles, &resource_statuses, &hostname).await?;
 
     // 5. Determine Cluster Health
-    let health = if offline_nodes > 0 || error > 0 || degraded_res > 0 {
+    let health = if offline_nodes > 0 || error > 0 || resource_stats.degraded > 0 {
         if offline_nodes > total_nodes / 2 {
-            // Simple quorum check approximation
             ClusterHealth::Critical
         } else {
             ClusterHealth::Warning
@@ -129,206 +124,134 @@ pub async fn get_summary(State(state): State<Arc<AppState>>) -> AppResult<Json<D
     }))
 }
 
-fn parse_drbd_summary(output: &str) -> (usize, usize, usize) {
-    let mut total = 0;
-
+fn calculate_resource_stats(statuses: &[ResourceStatus]) -> ResourceStats {
+    let total = statuses.len();
     let mut healthy = 0;
-
     let mut degraded = 0;
 
-    let lines: Vec<&str> = output.lines().collect();
+    for res in statuses {
+        let mut is_healthy = true;
 
-    let mut i = 0;
-
-    while i < lines.len() {
-        let line = lines[i];
-
-        if !line.starts_with(' ') && !line.is_empty() {
-            // Resource header line
-
-            total += 1;
-
-            let mut is_resource_healthy = true;
-
-            // Check local disk status (line i + 1)
-
-            if i + 1 < lines.len() {
-                let local_disk_line = lines[i + 1];
-
-                if local_disk_line.contains("disk:Inconsistent")
-                    || local_disk_line.contains("disk:Failed")
-                    || local_disk_line.contains("disk:Diskless")
-                {
-                    is_resource_healthy = false;
+        // Check local disk
+        for dev in &res.devices {
+            if dev.disk_state != "UpToDate" && dev.disk_state != "Diskless" {
+                // Diskless is okay if it's intentional, but usually implies some degradation if not primary?
+                // Actually, if it's UpToDate, it's fine.
+                // If it is inconsistent or failed, it's bad.
+                if dev.disk_state == "Inconsistent" || dev.disk_state == "Failed" {
+                    is_healthy = false;
                 }
-            }
-
-            // Check peer connections and disk status
-
-            let mut j = i + 2; // Start checking from peer lines
-
-            while j < lines.len() {
-                let sub_line = lines[j];
-
-                if !sub_line.starts_with(' ') {
-                    break; // End of this resource block
-                }
-
-                // Check connection state
-
-                if sub_line.contains("connection:Connecting")
-                    || sub_line.contains("connection:StandAlone")
-                {
-                    is_resource_healthy = false;
-                }
-
-                // Check peer-disk state
-
-                if sub_line.contains("peer-disk:Inconsistent")
-                    || sub_line.contains("peer-disk:Failed")
-                    || sub_line.contains("peer-disk:Diskless")
-                {
-                    is_resource_healthy = false;
-                }
-
-                j += 1;
-            }
-
-            if is_resource_healthy {
-                healthy += 1;
-            } else {
-                degraded += 1;
             }
         }
 
-        i += 1;
+        // Check connections
+        for conn in &res.connections {
+            if conn.connection_state != "Connected" {
+                is_healthy = false;
+            }
+            for peer_dev in &conn.peer_devices {
+                if peer_dev.peer_disk_state == "Inconsistent"
+                    || peer_dev.peer_disk_state == "Failed"
+                {
+                    is_healthy = false;
+                }
+            }
+        }
+
+        if is_healthy {
+            healthy += 1;
+        } else {
+            degraded += 1;
+        }
     }
 
-    (total, healthy, degraded)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_drbd_summary_empty() {
-        let output = "";
-        let (total, healthy, degraded) = parse_drbd_summary(output);
-        assert_eq!(total, 0);
-        assert_eq!(healthy, 0);
-        assert_eq!(degraded, 0);
-    }
-
-    #[test]
-    fn test_parse_drbd_summary_healthy() {
-        let output = r#"
-r0 role:Primary
-  disk:UpToDate
-  peer-0 role:Secondary
-    connection:Connected peer-disk:UpToDate
-r1 role:Secondary
-  disk:UpToDate
-  peer-0 role:Primary
-    connection:Connected peer-disk:UpToDate
-"#;
-        let (total, healthy, degraded) = parse_drbd_summary(output);
-        assert_eq!(total, 2);
-        assert_eq!(healthy, 2);
-        assert_eq!(degraded, 0);
-    }
-
-    #[test]
-    fn test_parse_drbd_summary_degraded() {
-        let output = r#"
-r0 role:Primary
-  disk:UpToDate
-  peer-0 role:Secondary
-    connection:Connecting peer-disk:UpToDate
-r1 role:Secondary
-  disk:Inconsistent
-  peer-0 role:Primary
-    connection:Connected peer-disk:UpToDate
-r2 role:Primary
-  disk:UpToDate
-  peer-0 role:Secondary
-    connection:Connected peer-disk:Inconsistent
-r3 role:Secondary
-  disk:Diskless
-  peer-0 role:Primary
-    connection:Connected peer-disk:UpToDate
-"#;
-        let (total, healthy, degraded) = parse_drbd_summary(output);
-        assert_eq!(total, 4);
-        assert_eq!(healthy, 0); // All have some form of degradation
-        assert_eq!(degraded, 4);
-    }
-
-    #[test]
-    fn test_parse_drbd_summary_mixed() {
-        let output = r#"
-r0 role:Primary
-  disk:UpToDate
-  peer-0 role:Secondary
-    connection:Connected peer-disk:UpToDate
-r1 role:Secondary
-  disk:UpToDate
-  peer-0 role:Primary
-    connection:Connecting peer-disk:UpToDate
-r2 role:Secondary
-  disk:Inconsistent
-  peer-0 role:Primary
-    connection:Connected peer-disk:UpToDate
-"#;
-        let (total, healthy, degraded) = parse_drbd_summary(output);
-        assert_eq!(total, 3);
-        assert_eq!(healthy, 1); // Only r0 is healthy
-        assert_eq!(degraded, 2);
+    ResourceStats {
+        total,
+        healthy,
+        degraded,
     }
 }
 
-// Parse drbd-reactorctl status to extract HA service details
+// Parse drbd-reactorctl status to extract HA service details and combine with profile info
 async fn get_ha_service_details(
-    db_service_names: &std::collections::HashSet<String>,
+    profiles: &[HaProfile],
+    resource_statuses: &[ResourceStatus],
+    hostname: &str,
 ) -> AppResult<Vec<HaServiceDetail>> {
-    let output = run_shell_command("drbd-reactorctl status", "Get drbd-reactor status").await;
+    // Get active nodes from reactor
+    let reactor_output =
+        run_shell_command("drbd-reactorctl status", "Get drbd-reactor status").await;
 
-    match output {
-        Ok(result) if result.success() => {
-            Ok(parse_ha_service_details(&result.stdout, db_service_names))
+    let active_node_map = match reactor_output {
+        Ok(result) if result.success() => parse_reactor_active_nodes(&result.stdout),
+        _ => HashMap::new(),
+    };
+
+    // Build resource map for quick lookup
+    let resource_map: HashMap<&str, &ResourceStatus> = resource_statuses
+        .iter()
+        .map(|r| (r.name.as_str(), r))
+        .collect();
+
+    let mut details = Vec::new();
+
+    for profile in profiles {
+        let active_node = active_node_map.get(&profile.name).cloned();
+        let status = if active_node.is_some() {
+            "active"
+        } else {
+            "standby" // simplistic status, ideally check if it's really standby or stopped
         }
-        _ => {
-            // If command fails, return empty list
-            Ok(Vec::new())
+        .to_string();
+
+        // Nodes involved
+        let mut nodes = Vec::new();
+        if let Some(res_status) = resource_map.get(profile.resource_name.as_str()) {
+            // Add local node
+            nodes.push(hostname.to_string());
+            // Add peer nodes
+            for conn in &res_status.connections {
+                nodes.push(conn.name.clone());
+            }
         }
+        nodes.sort();
+        nodes.dedup();
+
+        // VIP info
+        let vip = profile.vip.as_ref().map(|v| v.cidr());
+
+        // Service Type & Export Path
+        let (service_type, export_path) = match profile.ha_type {
+            HaType::Nfs => (
+                "NFS".to_string(),
+                profile.nfs.as_ref().map(|n| n.export_path.clone()),
+            ),
+            HaType::Iscsi => ("iSCSI".to_string(), None),
+            HaType::NvmeOf => ("NVMe-oF".to_string(), None),
+            HaType::Generic => ("Generic".to_string(), None),
+        };
+
+        details.push(HaServiceDetail {
+            name: profile.name.clone(),
+            active_node,
+            status,
+            service_type,
+            vip,
+            export_path,
+            nodes,
+        });
     }
+
+    Ok(details)
 }
 
-fn parse_ha_service_details(
-    output: &str,
-    db_service_names: &std::collections::HashSet<String>,
-) -> Vec<HaServiceDetail> {
-    let mut services = Vec::new();
+fn parse_reactor_active_nodes(output: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
     let mut current_service: Option<String> = None;
-    let mut current_active_node: Option<String> = None;
 
     for line in output.lines() {
         // Match profile file paths: "/etc/drbd-reactor.d/mongodb-ha.toml:"
         if line.contains("/etc/drbd-reactor.d/") && line.ends_with(':') {
-            // If we have a previous service, save it (only if in database)
-            if let Some(service_name) = current_service.take() {
-                if db_service_names.contains(&service_name) {
-                    let has_active_node = current_active_node.is_some();
-                    services.push(HaServiceDetail {
-                        name: service_name,
-                        active_node: current_active_node.take(),
-                        status: if has_active_node { "active" } else { "standby" }.to_string(),
-                    });
-                } else {
-                    current_active_node.take(); // Clear it even if not saving
-                }
-            }
-
             // Extract service name from path
             if let Some(filename) = line.rsplit('/').next() {
                 if let Some(name) = filename.strip_suffix(".toml:") {
@@ -339,37 +262,27 @@ fn parse_ha_service_details(
 
         // Match lines like "Promoter: Currently active on node 'gui02'"
         if line.contains("Promoter: Currently active on node") {
-            if let Some(start) = line.find('\'') {
-                if let Some(end) = line.rfind('\'') {
-                    if end > start {
-                        let node_name = &line[start + 1..end];
-                        current_active_node = Some(node_name.to_string());
+            if let Some(service_name) = &current_service {
+                if let Some(start) = line.find('`') {
+                    if let Some(end) = line.rfind('`') {
+                        if end > start {
+                            let node_name = &line[start + 1..end];
+                            map.insert(service_name.clone(), node_name.to_string());
+                        }
                     }
                 }
             }
         }
     }
-
-    // Don't forget the last service (only if in database)
-    if let Some(service_name) = current_service {
-        if db_service_names.contains(&service_name) {
-            let has_active_node = current_active_node.is_some();
-            services.push(HaServiceDetail {
-                name: service_name,
-                active_node: current_active_node,
-                status: if has_active_node { "active" } else { "standby" }.to_string(),
-            });
-        }
-    }
-
-    services
+    map
 }
+
 #[cfg(test)]
-mod ha_service_tests {
+mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_ha_service_details() {
+    fn test_parse_reactor_active_nodes() {
         let output = r#"/etc/drbd-reactor.d/linstor_controller.toml:
 Promoter: Currently active on node 'gui02'
 /etc/drbd-reactor.d/mongodb-ha.toml:
@@ -378,8 +291,6 @@ Promoter: Currently active on node 'gui02'
 Promoter: Currently active on node 'gui03'
 /etc/drbd-reactor.d/redis-ha.toml:
 Promoter: Currently active on node 'gui03'
-/etc/drbd-reactor.d/prometheus.toml:
-Prometheus: listening on 0.0.0.0:9942
 "#;
         let mut db_services = std::collections::HashSet::new();
         db_services.insert("linstor_controller".to_string());
@@ -387,11 +298,9 @@ Prometheus: listening on 0.0.0.0:9942
         db_services.insert("mysql-ha".to_string());
         db_services.insert("redis-ha".to_string());
 
-        let details = parse_ha_service_details(output, &db_services);
-        assert_eq!(details.len(), 4); // prometheus should be filtered out
-        assert_eq!(details[0].name, "linstor_controller");
-        assert_eq!(details[0].active_node, Some("gui02".to_string()));
-        assert_eq!(details[3].name, "redis-ha");
-        assert_eq!(details[3].active_node, Some("gui03".to_string()));
+        let map = parse_reactor_active_nodes(output);
+        assert_eq!(map.len(), 4);
+        assert_eq!(map.get("linstor_controller"), Some(&"gui02".to_string()));
+        assert_eq!(map.get("redis-ha"), Some(&"gui03".to_string()));
     }
 }

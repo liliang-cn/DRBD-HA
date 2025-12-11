@@ -26,6 +26,15 @@ pub struct HaServiceDetail {
     pub name: String,
     pub active_node: Option<String>,
     pub status: String,
+    // Expanded fields for detailed view
+    #[serde(default)]
+    pub service_type: String,
+    #[serde(default)]
+    pub vip: Option<String>,
+    #[serde(default)]
+    pub export_path: Option<String>,
+    #[serde(default)]
+    pub nodes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
