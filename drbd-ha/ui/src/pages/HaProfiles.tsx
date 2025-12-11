@@ -1,37 +1,32 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
-  Table,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  DeleteOutlined,
+  ExclamationCircleOutlined,
+  EyeOutlined,
+  LoadingOutlined,
+  PlusOutlined,
+} from '@ant-design/icons';
+import {
   Button,
-  Tag,
-  Modal,
+  Card,
+  Checkbox,
+  Descriptions,
   Form,
   Input,
   InputNumber,
+  Modal,
   message,
   Space,
-  Card,
-  Descriptions,
-  Dropdown,
-  Checkbox,
+  Table,
+  Tag,
 } from 'antd';
-import {
-  PlusOutlined,
-  DeleteOutlined,
-  DownOutlined,
-  EyeOutlined,
-  LoadingOutlined,
-  ExclamationCircleOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  SearchOutlined,
-  AppstoreOutlined,
-  CloudServerOutlined,
-} from '@ant-design/icons';
-import { useHaProfilesStore } from '@/stores/ha-profiles';
-import { useResourcesStore } from '@/stores/resources';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { haProfilesApi } from '@/api';
 import { ImportProfilesModal } from '@/components/ha/ImportProfilesModal';
+import { useHaProfilesStore } from '@/stores/ha-profiles';
+import { useResourcesStore } from '@/stores/resources';
 import type { HaProfile, HaProfileStatus, VipConfig } from '@/types';
 
 const statusColor: Record<string, string> = {
@@ -181,72 +176,6 @@ export function HaProfiles() {
     }
   };
 
-  const getActionItems = (record: HaProfile) => {
-    const items: Array<{
-      key?: string;
-      label?: string;
-      icon?: React.ReactNode;
-      onClick?: () => void;
-      type?: 'divider';
-      danger?: boolean;
-    }> = [
-      {
-        key: 'status',
-        label: 'View Status',
-        icon: <EyeOutlined />,
-        onClick: () => handleViewStatus(record),
-      },
-    ];
-
-    const isActive = record.status === 'active';
-    const hasVip = !!record.vip;
-
-    // Show Activate only when not active
-    if (!isActive) {
-      items.push({ type: 'divider' as const });
-      items.push({
-        key: 'activate',
-        label: 'Activate',
-        onClick: () => handleActivate(record.id),
-      });
-    }
-
-    // Show Deactivate only when active
-    if (isActive) {
-      items.push({ type: 'divider' as const });
-      items.push({
-        key: 'deactivate',
-        label: 'Deactivate',
-        onClick: () => handleDeactivate(record.id),
-      });
-      items.push({
-        key: 'evict',
-        label: 'Evict (Failover)',
-        danger: true,
-        onClick: () => handleEvict(record.id),
-      });
-    }
-
-    // VIP management
-    items.push({ type: 'divider' as const });
-    if (hasVip) {
-      items.push({
-        key: 'remove-vip',
-        label: 'Remove VIP',
-        danger: true,
-        onClick: () => handleRemoveVip(record),
-      });
-    } else {
-      items.push({
-        key: 'add-vip',
-        label: 'Add VIP',
-        onClick: () => openAddVipModal(record),
-      });
-    }
-
-    return items;
-  };
-
   const columns = [
     { title: 'Name', dataIndex: 'name', key: 'name' },
     {
@@ -312,21 +241,69 @@ export function HaProfiles() {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_: unknown, record: HaProfile) => (
-        <Space>
-          <Dropdown menu={{ items: getActionItems(record) }}>
-            <Button size="small">
-              Actions <DownOutlined />
+      render: (_: unknown, record: HaProfile) => {
+        const isActive = record.status === 'active';
+        const hasVip = !!record.vip;
+
+        return (
+          <Space wrap>
+            <Button
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => handleViewStatus(record)}
+            >
+              Status
             </Button>
-          </Dropdown>
-          <Button
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => openDeleteModal(record)}
-          />
-        </Space>
-      ),
+
+            {!isActive && (
+              <Button size="small" onClick={() => handleActivate(record.id)}>
+                Activate
+              </Button>
+            )}
+
+            {isActive && (
+              <>
+                <Button
+                  size="small"
+                  onClick={() => handleDeactivate(record.id)}
+                >
+                  Deactivate
+                </Button>
+                <Button
+                  size="small"
+                  danger
+                  onClick={() => handleEvict(record.id)}
+                >
+                  Evict
+                </Button>
+              </>
+            )}
+
+            {hasVip ? (
+              <Button
+                size="small"
+                danger
+                onClick={() => handleRemoveVip(record)}
+              >
+                Del VIP
+              </Button>
+            ) : (
+              <Button size="small" onClick={() => openAddVipModal(record)}>
+                Add VIP
+              </Button>
+            )}
+
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => openDeleteModal(record)}
+            >
+              Delete
+            </Button>
+          </Space>
+        );
+      },
     },
   ];
 

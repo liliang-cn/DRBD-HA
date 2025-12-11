@@ -1,5 +1,5 @@
-import { Card, Result, Button, Space, Spin, Progress } from 'antd';
-import { LoadingOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Button, Card, Progress, Result, Space, Spin } from 'antd';
 
 interface ActivationStepProps {
   activationStatus:

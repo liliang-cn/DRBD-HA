@@ -1,7 +1,8 @@
-import React, { useEffect } from "react";
-import { Form, Input, InputNumber, Switch, Tooltip, Typography } from "antd";
-import { QuestionCircleOutlined, InfoCircleOutlined } from "@ant-design/icons";
-import type { ResourceAgent, Parameter } from "./generated-agents/all_agents";
+import { InfoCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { Form, Input, InputNumber, Switch, Tooltip, Typography } from 'antd';
+import type React from 'react';
+import { useEffect } from 'react';
+import type { Parameter, ResourceAgent } from './generated-agents/all_agents';
 
 const { Text } = Typography;
 
@@ -28,20 +29,20 @@ const AgentParamsEditor: React.FC<AgentParamsEditorProps> = ({
       // Set defaults if no values provided
       const defaults: Record<string, any> = {};
       agent.parameters.forEach((p) => {
-        if (p.default !== undefined && p.default !== "" && p.default !== null) {
+        if (p.default !== undefined && p.default !== '' && p.default !== null) {
           // Handle types for defaults
-          if (p.type === "integer") {
+          if (p.type === 'integer') {
             const parsed = parseInt(p.default, 10);
             if (!isNaN(parsed)) {
               defaults[p.name] = parsed;
             }
-          } else if (p.type === "boolean") {
+          } else if (p.type === 'boolean') {
             const lower = String(p.default).toLowerCase();
             defaults[p.name] =
-              lower === "true" ||
-              lower === "1" ||
-              lower === "yes" ||
-              lower === "on";
+              lower === 'true' ||
+              lower === '1' ||
+              lower === 'yes' ||
+              lower === 'on';
           } else {
             defaults[p.name] = p.default;
           }
@@ -59,14 +60,14 @@ const AgentParamsEditor: React.FC<AgentParamsEditorProps> = ({
     const disabled = readOnly;
 
     switch (param.type) {
-      case "integer":
-        return <InputNumber style={{ width: "100%" }} disabled={disabled} />;
-      case "boolean":
+      case 'integer':
+        return <InputNumber style={{ width: '100%' }} disabled={disabled} />;
+      case 'boolean':
         return <Switch disabled={disabled} />;
-      case "select":
+      case 'select':
         // Fallback to Input as we don't have options structure yet
         return <Input disabled={disabled} placeholder="Select value..." />;
-      case "string":
+      case 'string':
       default:
         // Check if longdesc implies it's a file path or something specific?
         // For now just Text Input
@@ -122,7 +123,7 @@ const AgentParamsEditor: React.FC<AgentParamsEditorProps> = ({
                   }
                 : undefined
             }
-            valuePropName={param.type === "boolean" ? "checked" : "value"}
+            valuePropName={param.type === 'boolean' ? 'checked' : 'value'}
             rules={[
               {
                 required: param.required,

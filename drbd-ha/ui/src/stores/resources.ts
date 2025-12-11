@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { DrbdResource, ResourceStatusEvent } from '@/types';
 import { resourcesApi } from '@/api';
+import type { DrbdResource, ResourceStatusEvent } from '@/types';
 
 interface ResourcesState {
   resources: DrbdResource[];

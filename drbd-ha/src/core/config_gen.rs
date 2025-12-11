@@ -16,8 +16,8 @@ pub struct ConfigGenerator {
 impl ConfigGenerator {
     /// Create a new configuration generator
     pub fn new() -> AppResult<Self> {
-        let inner = config_gen::ConfigGenerator::new()
-            .map_err(|e| AppError::Config(e.to_string()))?;
+        let inner =
+            config_gen::ConfigGenerator::new().map_err(|e| AppError::Config(e.to_string()))?;
         Ok(Self { inner })
     }
 

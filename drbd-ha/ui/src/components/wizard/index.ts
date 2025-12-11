@@ -1,6 +1,6 @@
-export { NodesVerificationStep } from './NodesVerificationStep';
-export { StorageConfigStep } from './StorageConfigStep';
-export { HaConfigStep } from './HaConfigStep';
-export { PreviewConfigStep } from './PreviewConfigStep';
 export { ActivationStep } from './ActivationStep';
-export type { WizardSharedState, StepProps } from './types';
+export { HaConfigStep } from './HaConfigStep';
+export { NodesVerificationStep } from './NodesVerificationStep';
+export { PreviewConfigStep } from './PreviewConfigStep';
+export { StorageConfigStep } from './StorageConfigStep';
+export type { StepProps, WizardSharedState } from './types';

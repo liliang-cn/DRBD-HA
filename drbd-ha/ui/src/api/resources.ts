@@ -1,9 +1,9 @@
-import { api } from './client';
 import type {
-  DrbdResource,
   CreateResourceRequest,
+  DrbdResource,
   ResourceAction,
 } from '@/types';
+import { api } from './client';
 
 export const resourcesApi = {
   list: () => api.get<{ resources: DrbdResource[] }>('/resources'),

@@ -1,26 +1,26 @@
-import { useState } from 'react';
 import {
-  Card,
-  Table,
-  Tag,
+  DeleteOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
+import {
   Alert,
   Button,
-  Modal,
+  Card,
   Form,
   Input,
   InputNumber,
-  Space,
+  Modal,
   message,
   Popconfirm,
+  Space,
+  Table,
+  Tag,
 } from 'antd';
-import {
-  PlusOutlined,
-  ReloadOutlined,
-  DeleteOutlined,
-} from '@ant-design/icons';
-import { useNodesStore } from '@/stores/nodes';
+import { useState } from 'react';
 import { nodesApi } from '@/api';
-import type { Node, AddNodeRequest } from '@/types';
+import { useNodesStore } from '@/stores/nodes';
+import type { AddNodeRequest, Node } from '@/types';
 
 const statusColor: Record<string, string> = {
   online: 'green',

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { Node } from '@/types';
 import { nodesApi } from '@/api';
+import type { Node } from '@/types';
 
 interface NodesState {
   nodes: Node[];

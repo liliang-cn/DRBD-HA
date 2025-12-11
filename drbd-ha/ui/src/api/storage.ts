@@ -1,12 +1,12 @@
-import { api } from './client';
 import type {
-  StoragePool,
   CreateStoragePoolRequest,
   CreateStoragePoolResponse,
   CreateVolumeRequest,
   CreateVolumeResponse,
+  StoragePool,
   Volume,
 } from '@/types';
+import { api } from './client';
 
 export const storageApi = {
   listPools: () => api.get<{ pools: StoragePool[] }>('/pools'),

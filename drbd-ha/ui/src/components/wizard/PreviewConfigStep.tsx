@@ -21,7 +21,8 @@ export function PreviewConfigStep({ configContent }: PreviewConfigStepProps) {
         style={{ fontFamily: 'monospace' }}
       />
       <Paragraph type="secondary" className="mt-4">
-        This file will be deployed to <code>/etc/drbd-reactor.d/</code> on all cluster nodes.
+        This file will be deployed to <code>/etc/drbd-reactor.d/</code> on all
+        cluster nodes.
       </Paragraph>
     </Card>
   );

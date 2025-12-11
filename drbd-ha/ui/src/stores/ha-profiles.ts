@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { HaProfile } from '@/types';
 import { haProfilesApi } from '@/api';
+import type { HaProfile } from '@/types';
 
 interface HaProfilesState {
   profiles: HaProfile[];

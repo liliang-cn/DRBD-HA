@@ -1,7 +1,7 @@
 export { api } from './client';
+export { dashboardApi } from './dashboard';
+export { haProfilesApi } from './ha-profiles';
 export { nodesApi } from './nodes';
 export { resourcesApi } from './resources';
-export { haProfilesApi } from './ha-profiles';
 export { servicesApi } from './services';
 export { storageApi } from './storage';
-export { dashboardApi } from './dashboard';

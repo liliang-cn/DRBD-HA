@@ -10,7 +10,6 @@ use crate::error::{MigrationError, MigrationResult};
 use serde::{Deserialize, Serialize};
 use shell_cmd::run_shell_command;
 
-
 /// Data migration handler
 pub struct DataMigration;
 
@@ -246,12 +245,10 @@ impl DataMigration {
 
         // Query drbdadm
         let cmd = format!("drbdadm sh-dev {} 2>/dev/null", resource_name);
-        let output = run_shell_command(
-            &cmd,
-            &format!("Get DRBD device path for {}", resource_name),
-        )
-        .await
-        .map_err(|e| MigrationError::Command(e.to_string()))?;
+        let output =
+            run_shell_command(&cmd, &format!("Get DRBD device path for {}", resource_name))
+                .await
+                .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if output.success() && !output.stdout.trim().is_empty() {
             return Ok(output.stdout.trim().to_string());
@@ -295,12 +292,10 @@ impl DataMigration {
     /// Mount a device to a directory
     async fn mount_device(device: &str, mount_point: &str, fs_type: &str) -> MigrationResult<()> {
         let cmd = format!("mount -t {} {} {}", fs_type, device, mount_point);
-        let output = run_shell_command(
-            &cmd,
-            &format!("Mount device {} to {}", device, mount_point),
-        )
-        .await
-        .map_err(|e| MigrationError::Command(e.to_string()))?;
+        let output =
+            run_shell_command(&cmd, &format!("Mount device {} to {}", device, mount_point))
+                .await
+                .map_err(|e| MigrationError::Command(e.to_string()))?;
 
         if !output.success() {
             return Err(MigrationError::Command(format!(

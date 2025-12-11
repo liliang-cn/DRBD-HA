@@ -1,9 +1,9 @@
-import { api } from './client';
 import type {
-  HaProfile,
   CreateHaProfileRequest,
+  HaProfile,
   HaProfileStatus,
 } from '@/types';
+import { api } from './client';
 
 export const haProfilesApi = {
   list: () => api.get<{ profiles: HaProfile[] }>('/ha/profiles'),

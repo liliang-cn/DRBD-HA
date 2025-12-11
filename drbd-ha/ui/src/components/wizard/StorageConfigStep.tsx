@@ -1,16 +1,16 @@
+import type { FormInstance } from 'antd';
 import {
   Card,
-  Form,
+  Checkbox,
+  Col,
   Divider,
+  Form,
   Input,
   InputNumber,
   Row,
-  Col,
   Select,
-  Checkbox,
 } from 'antd';
-import type { FormInstance } from 'antd';
-import type { Node, BlockDevice, StoragePool } from '@/types';
+import type { BlockDevice, Node, StoragePool } from '@/types';
 
 interface StorageConfigStepProps {
   form: FormInstance;

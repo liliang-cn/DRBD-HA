@@ -1,33 +1,28 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Button, message, Steps, Form } from 'antd';
 import {
   ArrowLeftOutlined,
   ArrowRightOutlined,
   RocketOutlined,
 } from '@ant-design/icons';
-import { useNodesStore } from '@/stores/nodes';
-import { useResourcesStore } from '@/stores/resources';
-import { useNotificationsStore } from '@/stores/notifications';
-import { useHaProfilesStore } from '@/stores/ha-profiles';
+import { Button, Form, message, Steps } from 'antd';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { haProfilesApi, nodesApi, resourcesApi, servicesApi } from '@/api';
 import {
-  haProfilesApi,
-  resourcesApi,
-  nodesApi,
-  servicesApi,
-} from '@/api';
+  ActivationStep,
+  HaConfigStep,
+  NodesVerificationStep,
+  PreviewConfigStep,
+  StorageConfigStep,
+} from '@/components/wizard';
+import { useHaProfilesStore } from '@/stores/ha-profiles';
+import { useNodesStore } from '@/stores/nodes';
+import { useNotificationsStore } from '@/stores/notifications';
+import { useResourcesStore } from '@/stores/resources';
 import type {
   BlockDevice,
-  ServiceFileInfo,
   CreateHaProfileRequest,
+  ServiceFileInfo,
 } from '@/types';
-import {
-  NodesVerificationStep,
-  StorageConfigStep,
-  HaConfigStep,
-  PreviewConfigStep,
-  ActivationStep,
-} from '@/components/wizard';
 
 export function Wizard() {
   const navigate = useNavigate();
@@ -86,12 +81,14 @@ export function Wizard() {
       });
 
       // Auto-calculate next available port and minor
-      const usedMinors = resources.flatMap((r) => r.devices.map((d) => d.minor));
+      const usedMinors = resources.flatMap((r) =>
+        r.devices.map((d) => d.minor),
+      );
       const maxMinor = usedMinors.length > 0 ? Math.max(...usedMinors) : -1;
       const nextMinor = maxMinor + 1;
       // Random port between 7000-8000 as requested
       const nextPort = Math.floor(Math.random() * (8000 - 7000 + 1)) + 7000;
-      
+
       resourceForm.setFieldsValue({ port: nextPort, minor: nextMinor });
     }
     if (step === 2) {
@@ -99,7 +96,14 @@ export function Wizard() {
       fetchResources();
       loadServices();
     }
-  }, [step, nodes, resources.length, fetchResources, loadServices, resourceForm]);
+  }, [
+    step,
+    nodes,
+    resources.length,
+    fetchResources,
+    loadServices,
+    resourceForm,
+  ]);
 
   // Cleanup on unmount
   useEffect(() => {

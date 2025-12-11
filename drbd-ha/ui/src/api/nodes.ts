@@ -1,5 +1,5 @@
+import type { AddNodeRequest, BlockDevice, Node } from '@/types';
 import { api } from './client';
-import type { Node, AddNodeRequest, BlockDevice } from '@/types';
 
 export const nodesApi = {
   list: () => api.get<Node[]>('/nodes'),

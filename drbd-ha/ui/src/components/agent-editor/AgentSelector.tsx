@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from "react";
-import { List, Input } from "antd";
-import { SearchOutlined } from "@ant-design/icons";
-import type { ResourceAgent } from "./generated-agents/all_agents";
+import { SearchOutlined } from '@ant-design/icons';
+import { Input, List } from 'antd';
+import type React from 'react';
+import { useMemo, useState } from 'react';
+import type { ResourceAgent } from './generated-agents/all_agents';
 
 interface AgentSelectorProps {
   agents: ResourceAgent[];
@@ -16,7 +17,7 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
   selectedAgentName,
   className,
 }) => {
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState('');
 
   const filteredAgents = useMemo(() => {
     if (!searchTerm) return agents;
@@ -25,12 +26,12 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
       (a) =>
         a.name.toLowerCase().includes(lower) ||
         (a.shortdesc && a.shortdesc.toLowerCase().includes(lower)) ||
-        (a.longdesc && a.longdesc.toLowerCase().includes(lower))
+        (a.longdesc && a.longdesc.toLowerCase().includes(lower)),
     );
   }, [agents, searchTerm]);
 
   return (
-    <div className={`agent-selector ${className || ""} flex flex-col h-full`}>
+    <div className={`agent-selector ${className || ''} flex flex-col h-full`}>
       <div className="mb-4">
         <Input
           prefix={<SearchOutlined />}
@@ -49,8 +50,8 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
             <List.Item
               className={`cursor-pointer hover:bg-gray-50 px-4 py-3 transition-colors ${
                 selectedAgentName === agent.name
-                  ? "bg-blue-50 border-l-4 border-blue-500"
-                  : ""
+                  ? 'bg-blue-50 border-l-4 border-blue-500'
+                  : ''
               }`}
               onClick={() => onSelect(agent)}
             >
@@ -62,7 +63,7 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
                 }
                 description={
                   <div className="text-xs text-gray-500 line-clamp-2">
-                    {agent.shortdesc || "No description"}
+                    {agent.shortdesc || 'No description'}
                   </div>
                 }
               />

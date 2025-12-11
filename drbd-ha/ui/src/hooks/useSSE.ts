@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNodesStore } from '@/stores/nodes';
-import { useResourcesStore } from '@/stores/resources';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useResourcesStore } from '@/stores/resources';
 
 export function useSSE() {
   const [connected, setConnected] = useState(false);

@@ -100,7 +100,7 @@ pub async fn get_summary(State(state): State<Arc<AppState>>) -> AppResult<Json<D
         "localhost".to_string()
     };
 
-    let ha_service_details = 
+    let ha_service_details =
         get_ha_service_details(&profiles, &resource_statuses, &hostname).await?;
 
     // 5. Determine Cluster Health

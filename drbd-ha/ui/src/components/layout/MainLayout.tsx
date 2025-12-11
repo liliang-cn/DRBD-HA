@@ -1,6 +1,6 @@
-import { Outlet, Link } from "react-router-dom";
-import { Layout, Badge, theme, Button, Tooltip } from "antd";
-import { FileTextOutlined } from "@ant-design/icons";
+import { FileTextOutlined } from '@ant-design/icons';
+import { Badge, Button, Layout, Tooltip, theme } from 'antd';
+import { Link, Outlet } from 'react-router-dom';
 
 const { Header, Content } = Layout;
 
@@ -9,7 +9,7 @@ export function MainLayout() {
 
   return (
     <Layout className="min-h-screen">
-      <Layout style={{ background: "#f5f5f5" }}>
+      <Layout style={{ background: '#f5f5f5' }}>
         <Header
           className="flex items-center justify-between px-6"
           style={{ background: token.colorBgContainer }}
@@ -23,15 +23,15 @@ export function MainLayout() {
             <Tooltip title="API Documentation">
               <Button
                 type="text"
-                icon={<FileTextOutlined style={{ fontSize: "18px" }} />}
-                onClick={() => window.open("/swagger-ui/", "_blank")}
+                icon={<FileTextOutlined style={{ fontSize: '18px' }} />}
+                onClick={() => window.open('/swagger-ui/', '_blank')}
               />
             </Tooltip>
           </div>
         </Header>
         <Content
           className="m-3 p-6 bg-white rounded-lg"
-          style={{ minHeight: "calc(100vh - 64px - 24px)" }}
+          style={{ minHeight: 'calc(100vh - 64px - 24px)' }}
         >
           <Outlet />
         </Content>

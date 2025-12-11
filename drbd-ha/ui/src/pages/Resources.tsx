@@ -1,23 +1,23 @@
-import { useEffect, useState } from 'react';
+import { DeleteOutlined, DownOutlined, PlusOutlined } from '@ant-design/icons';
 import {
-  Table,
   Button,
-  Tag,
-  Modal,
+  Dropdown,
   Form,
   Input,
   InputNumber,
-  Select,
+  Modal,
   message,
   Popconfirm,
+  Select,
   Space,
-  Dropdown,
+  Table,
+  Tag,
 } from 'antd';
-import { PlusOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons';
-import { useResourcesStore } from '@/stores/resources';
+import { useEffect, useState } from 'react';
+import { nodesApi, resourcesApi } from '@/api';
 import { useNodesStore } from '@/stores/nodes';
-import { resourcesApi, nodesApi } from '@/api';
-import type { DrbdResource, CreateResourceRequest, BlockDevice } from '@/types';
+import { useResourcesStore } from '@/stores/resources';
+import type { BlockDevice, CreateResourceRequest, DrbdResource } from '@/types';
 
 const roleColor: Record<string, string> = {
   Primary: 'green',

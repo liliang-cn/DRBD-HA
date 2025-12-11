@@ -1452,11 +1452,10 @@ pub async fn delete_resource(
     if let Ok(nodes) = state.db.get_all_nodes() {
         let remote_nodes: Vec<_> = nodes.iter().filter(|n| !n.is_local).collect();
 
-        
         for node in remote_nodes {
             // Get credential (dummy for now)
             let credential = crate::core::SshCredential::Password("ignored".to_string());
-            
+
             let rm_cmd = format!("rm -f '{}'", config_path);
             let _ = state
                 .ssh_manager

@@ -19,7 +19,6 @@ use crate::core::{
     validator, IscsiGenerator, LvmProvider, NfsGenerator, NvmeOfGenerator, ReactorDiscovery,
     ServiceInitFactory, StorageProvider,
 };
-use drbd_migration::{DataMigration, MigrationConfig};
 use crate::error::{AppError, AppResult};
 use crate::models::{
     CreateHaProfileRequest, GeneratedUnits, HaProfile, HaProfileStatus, HaType, Node,
@@ -27,6 +26,7 @@ use crate::models::{
 };
 use crate::state::{AppState, NotificationLevel};
 use axum::extract::Query;
+use drbd_migration::{DataMigration, MigrationConfig};
 
 /// Get SSH credential for a node (Dummy) - copied from cluster.rs
 async fn get_node_credential(
@@ -1047,10 +1047,10 @@ pub async fn create_profile(
 
     let promoter_config = ConfigGenerator::promoter_from_profile(&profile_for_gen);
     let config_content = config_gen.generate_promoter(&promoter_config)?;
-    
+
     // Update profile with generated config
     profile.generated_config = Some(config_content.clone());
-    
+
     let config_path = ConfigPaths::promoter_path(&req.name);
 
     // Ensure config directory exists
@@ -1140,8 +1140,11 @@ pub async fn create_profile(
     }
 
     // Step 7: Reload systemd daemon to recognize new unit files and restart reactor
-    let systemd_reload =
-        run_shell_command("systemctl daemon-reload && systemctl restart drbd-reactor", "Reload systemd and restart reactor").await;
+    let systemd_reload = run_shell_command(
+        "systemctl daemon-reload && systemctl restart drbd-reactor",
+        "Reload systemd and restart reactor",
+    )
+    .await;
     if systemd_reload.is_err() || !systemd_reload.unwrap().success() {
         tracing::warn!("Failed to reload systemd/restart reactor");
     }
@@ -1673,11 +1676,7 @@ pub async fn get_profile_status(
             }
 
             // Get the first word after stripping prefixes, which should be the service name
-            let name = service_line
-                .trim() // Trim any whitespace after stripping prefixes
-                .split_whitespace()
-                .next()
-                .unwrap_or("");
+            let name = service_line.split_whitespace().next().unwrap_or("");
 
             // Skip internal drbd services and empty names
             if name.is_empty()

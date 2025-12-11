@@ -1,16 +1,16 @@
+import type { FormInstance } from 'antd';
 import {
   Card,
-  Form,
+  Checkbox,
+  Col,
   Divider,
+  Form,
   Input,
   InputNumber,
   Row,
-  Col,
   Select,
-  Checkbox,
   Space,
 } from 'antd';
-import type { FormInstance } from 'antd';
 import type { HaType, ServiceFileInfo } from '@/types';
 
 // Define Resource type locally

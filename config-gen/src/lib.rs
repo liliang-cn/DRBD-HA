@@ -295,7 +295,8 @@ mod tests {
         assert!(output.contains("app.service"));
         assert!(output.contains("web.service"));
         // VIP should be in OCF format inside start list (instance name, ip, cidr_netmask, nic)
-        assert!(output.contains("ocf:heartbeat:IPaddr2 r0_vip ip=192.168.1.100 cidr_netmask=24 nic=eth0"));
+        assert!(output
+            .contains("ocf:heartbeat:IPaddr2 r0_vip ip=192.168.1.100 cidr_netmask=24 nic=eth0"));
         assert!(output.contains("runner = \"systemd\""));
     }
 

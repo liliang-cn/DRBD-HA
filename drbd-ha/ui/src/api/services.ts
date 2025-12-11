@@ -1,5 +1,5 @@
+import type { ServiceFileInfo, ServiceInfo } from '@/types';
 import { api } from './client';
-import type { ServiceInfo, ServiceFileInfo } from '@/types';
 
 export const servicesApi = {
   list: (includeSystem = false) =>

@@ -1,9 +1,9 @@
 import type { FormInstance } from 'antd';
 import type {
-  HaType,
   BlockDevice,
-  StoragePool,
+  HaType,
   ServiceFileInfo,
+  StoragePool,
 } from '@/types';
 
 export interface WizardSharedState {

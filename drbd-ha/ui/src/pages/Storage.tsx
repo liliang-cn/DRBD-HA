@@ -1,22 +1,22 @@
-import { useState, useEffect } from 'react';
+import { HddOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
-  Table,
   Button,
-  Modal,
+  Card,
+  Checkbox,
+  Col,
   Form,
   Input,
+  Modal,
+  message,
+  Row,
   Select,
-  Card,
   Space,
   Statistic,
-  message,
-  Checkbox,
-  Row,
-  Col,
+  Table,
 } from 'antd';
-import { PlusOutlined, HddOutlined, ReloadOutlined } from '@ant-design/icons';
-import { storageApi, nodesApi } from '@/api';
-import type { StoragePool, BlockDevice, Node } from '@/types';
+import { useEffect, useState } from 'react';
+import { nodesApi, storageApi } from '@/api';
+import type { BlockDevice, Node, StoragePool } from '@/types';
 
 export function Storage() {
   const [pools, setPools] = useState<StoragePool[]>([]);

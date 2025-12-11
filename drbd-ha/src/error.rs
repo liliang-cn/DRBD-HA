@@ -84,7 +84,6 @@ impl From<drbd_migration::error::MigrationError> for AppError {
     }
 }
 
-
 /// Error response body for API
 #[derive(Serialize)]
 pub struct ErrorResponse {
