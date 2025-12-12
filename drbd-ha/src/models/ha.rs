@@ -63,6 +63,9 @@ pub struct HaProfile {
     /// Profile status
     #[serde(default)]
     pub status: HaProfileStatus,
+    /// Currently active node (runtime only, not persisted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_node: Option<String>,
     /// Generated systemd unit information
     #[serde(default)]
     pub generated_units: GeneratedUnits,

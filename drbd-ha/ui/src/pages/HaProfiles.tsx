@@ -225,6 +225,12 @@ export function HaProfiles() {
       },
     },
     {
+      title: 'Active Node',
+      dataIndex: 'active_node',
+      key: 'active_node',
+      render: (node: string | undefined) => node || '-',
+    },
+    {
       title: 'Services',
       key: 'services',
       render: (_: unknown, record: HaProfile) => (

@@ -992,6 +992,7 @@ fn row_to_ha_profile(row: &rusqlite::Row) -> AppResult<HaProfile> {
                         preferred_nodes_policy: row.get::<_, Option<String>>(22).unwrap_or_default().and_then(|s| serde_json::from_str(&s).ok()),
                         sleep_before_promote_factor: row.get::<_, Option<u32>>(23).unwrap_or_default(),
                     },        status: parse_ha_profile_status(&row.get::<_, String>(11).unwrap_or_default()),
+        active_node: None,
         generated_units,
         ha_type,
         nfs,

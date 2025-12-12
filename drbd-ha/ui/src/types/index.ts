@@ -142,6 +142,7 @@ export interface HaProfile {
     sleep_before_promote_factor?: number;
   };
   status: 'active' | 'standby' | 'stopped' | 'error' | 'unknown';
+  active_node?: string;
   generated_units: GeneratedUnits;
   nfs?: NfsConfig;
   iscsi?: IscsiConfig;

@@ -133,6 +133,7 @@ impl ReactorDiscovery {
                                 ..Default::default()
                             },
                             status: HaProfileStatus::Unknown,
+                            active_node: None,
                             generated_units: GeneratedUnits::default(),
                             nfs: nfs_config,
                             iscsi: iscsi_config,

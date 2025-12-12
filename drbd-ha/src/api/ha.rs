@@ -218,6 +218,40 @@ fn parse_mount_point_from_config(content: &str) -> Option<String> {
     None
 }
 
+/// Helper to get active node for a profile
+async fn get_active_node(profile_name: &str) -> Option<String> {
+    let output = run_shell_command(
+        &format!("drbd-reactorctl status {} 2>/dev/null", profile_name),
+        &format!("Get status for {}", profile_name),
+    )
+    .await
+    .ok()?;
+
+    if output.success() && !output.stdout.is_empty() {
+        output
+            .stdout
+            .lines()
+            .find(|line| line.contains("Currently active"))
+            .and_then(|line| {
+                if line.contains("Currently active on this node") {
+                    Some(gethostname::gethostname().to_string_lossy().to_string())
+                } else if line.contains("Currently active on node") {
+                    let start = line.find('\'')?;
+                    let end = line.rfind('\'')?;
+                    if start < end {
+                        Some(line[start + 1..end].to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+    } else {
+        None
+    }
+}
+
 /// GET /api/v1/ha/profiles
 /// List all HA profiles
 pub async fn list_profiles(
@@ -225,8 +259,11 @@ pub async fn list_profiles(
 ) -> AppResult<Json<HaProfileListResponse>> {
     let mut profiles = state.db.get_all_ha_profiles()?;
 
-    // Enrich profiles with VIP and mount_point info from config files if not in DB
+    // Enrich profiles with VIP, mount_point, and active_node info
     for profile in &mut profiles {
+        // Get active node
+        profile.active_node = get_active_node(&profile.name).await;
+
         let config_path = ConfigPaths::promoter_path(&profile.name);
         if let Ok(content) = tokio::fs::read_to_string(&config_path).await {
             if profile.vip.is_none() {
@@ -552,6 +589,13 @@ pub async fn create_profile(
         generated_units.mount_unit = Some(mount_info.unit_name.clone());
         generated_units.mount_unit_path = Some(mount_info.unit_path.clone());
         generated_units.drbd_device = Some(mount_info.device_path.clone());
+
+        // Reload systemd and ensure unit is disabled/stopped
+        // It must NOT be enabled as it is managed by drbd-reactor
+        let _ = run_shell_command("systemctl daemon-reload", "Reload systemd after mount unit generation").await;
+        let systemd = SystemdController::new().await?;
+        let _ = systemd.disable_and_stop(&mount_info.unit_name).await;
+
         messages.push(format!("Generated mount unit: {}", mount_info.unit_name));
     }
 
@@ -601,25 +645,55 @@ pub async fn create_profile(
                 );
 
                 // 1. Promote & Mkfs
-                run_shell_command(
+                let promote_out = run_shell_command(
                     &format!("drbdadm primary {}", req.resource_name),
                     "Promote for setup",
                 )
                 .await?;
+                if !promote_out.success() {
+                    return Err(AppError::Drbd(format!(
+                        "Failed to promote for setup: {}",
+                        promote_out.stderr
+                    )));
+                }
+
                 let mkfs_cmd = format!(
                     "mkfs.{} /dev/drbd{}",
                     req.fs_type,
                     req.drbd_minor.unwrap_or(0)
                 );
-                run_shell_command(&mkfs_cmd, "Create filesystem").await?;
+                let mkfs_out = run_shell_command(&mkfs_cmd, "Create filesystem").await?;
+                if !mkfs_out.success() {
+                    let _ = run_shell_command(
+                        &format!("drbdadm secondary {}", req.resource_name),
+                        "Cleanup secondary",
+                    )
+                    .await;
+                    return Err(AppError::Internal(format!(
+                        "Failed to create filesystem: {}",
+                        mkfs_out.stderr
+                    )));
+                }
 
                 // 2. Mount
-                run_shell_command(
+                let mkdir_out = run_shell_command(
                     &format!("mkdir -p {}", req.mount_point),
                     "Create mount point",
                 )
                 .await?;
-                run_shell_command(
+                if !mkdir_out.success() {
+                    let _ = run_shell_command(
+                        &format!("drbdadm secondary {}", req.resource_name),
+                        "Cleanup secondary",
+                    )
+                    .await;
+                    return Err(AppError::Internal(format!(
+                        "Failed to create mount point: {}",
+                        mkdir_out.stderr
+                    )));
+                }
+
+                let mount_out = run_shell_command(
                     &format!(
                         "mount /dev/drbd{} {}",
                         req.drbd_minor.unwrap_or(0),
@@ -628,6 +702,17 @@ pub async fn create_profile(
                     "Mount for setup",
                 )
                 .await?;
+                if !mount_out.success() {
+                    let _ = run_shell_command(
+                        &format!("drbdadm secondary {}", req.resource_name),
+                        "Cleanup secondary",
+                    )
+                    .await;
+                    return Err(AppError::Internal(format!(
+                        "Failed to mount for setup: {}",
+                        mount_out.stderr
+                    )));
+                }
 
                 // 3. Service Initialization (The "Silver Bullet")
                 if req.init_service {
@@ -725,11 +810,17 @@ pub async fn create_profile(
                 );
 
                 // Ensure Primary
-                run_shell_command(
+                let promote_out = run_shell_command(
                     &format!("drbdadm primary {}", req.resource_name),
                     "Promote for NFS setup",
                 )
                 .await?;
+                if !promote_out.success() {
+                    return Err(AppError::Drbd(format!(
+                        "Failed to promote for NFS setup: {}",
+                        promote_out.stderr
+                    )));
+                }
 
                 // Create FS if not exists (should have been done in Step 1 if lvm_pool_id set, but let's be safe)
                 let mkfs_cmd = format!(
@@ -737,15 +828,38 @@ pub async fn create_profile(
                     req.fs_type,
                     req.drbd_minor.unwrap_or(0)
                 );
-                run_shell_command(&mkfs_cmd, "Create filesystem for NFS state").await?;
+                let mkfs_out = run_shell_command(&mkfs_cmd, "Create filesystem for NFS state").await?;
+                if !mkfs_out.success() {
+                    let _ = run_shell_command(
+                        &format!("drbdadm secondary {}", req.resource_name),
+                        "Cleanup secondary",
+                    )
+                    .await;
+                    return Err(AppError::Internal(format!(
+                        "Failed to create filesystem for NFS: {}",
+                        mkfs_out.stderr
+                    )));
+                }
 
                 // Mount
-                run_shell_command(
+                let mkdir_out = run_shell_command(
                     &format!("mkdir -p {}", req.mount_point),
                     "Create mount point",
                 )
                 .await?;
-                run_shell_command(
+                if !mkdir_out.success() {
+                    let _ = run_shell_command(
+                        &format!("drbdadm secondary {}", req.resource_name),
+                        "Cleanup secondary",
+                    )
+                    .await;
+                    return Err(AppError::Internal(format!(
+                        "Failed to create mount point: {}",
+                        mkdir_out.stderr
+                    )));
+                }
+
+                let mount_out = run_shell_command(
                     &format!(
                         "mount /dev/drbd{} {}",
                         req.drbd_minor.unwrap_or(0),
@@ -754,6 +868,17 @@ pub async fn create_profile(
                     "Mount for NFS setup",
                 )
                 .await?;
+                if !mount_out.success() {
+                    let _ = run_shell_command(
+                        &format!("drbdadm secondary {}", req.resource_name),
+                        "Cleanup secondary",
+                    )
+                    .await;
+                    return Err(AppError::Internal(format!(
+                        "Failed to mount for NFS setup: {}",
+                        mount_out.stderr
+                    )));
+                }
 
                 // Setup State Dir
                 if let Err(e) = NfsGenerator::setup_nfs_state(&req.mount_point).await {
@@ -1045,6 +1170,7 @@ WantedBy=multi-user.target
             sleep_before_promote_factor: req.sleep_before_promote_factor,
         },
         status: HaProfileStatus::Unknown,
+        active_node: None,
         generated_units: generated_units.clone(),
         nfs: req.nfs.clone(),
         iscsi: req.iscsi.clone(),
@@ -3095,38 +3221,7 @@ pub async fn evict_profile(
             .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_id)))?
     } else {
         // Find the active node from drbd-reactorctl status
-        let status_cmd = format!("drbd-reactorctl status {} 2>/dev/null", profile.name);
-        let output = run_shell_command(
-            &status_cmd,
-            &format!("Get drbd-reactorctl status for profile {}", profile.name),
-        )
-        .await?;
-
-        let active_node_name = if output.success() && !output.stdout.is_empty() {
-            output
-                .stdout
-                .lines()
-                .find(|line| line.contains("Currently active"))
-                .and_then(|line| {
-                    if line.contains("Currently active on this node") {
-                        // Active on local node
-                        Some(gethostname::gethostname().to_string_lossy().to_string())
-                    } else if line.contains("Currently active on node") {
-                        // Extract node name between single quotes
-                        let start = line.find('?')?;
-                        let end = line.rfind('?')?;
-                        if start < end {
-                            Some(line[start + 1..end].to_string())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-        } else {
-            None
-        };
+        let active_node_name = get_active_node(&profile.name).await;
 
         if let Some(active_hostname) = active_node_name {
             // Find the node by hostname
@@ -3180,6 +3275,9 @@ pub async fn evict_profile(
         // Execute on remote node via SSH
         let credential = Some(crate::core::SshCredential::Password("ignored".to_string()));
 
+        // Prepend sudo for remote execution to ensure permissions for systemd operations
+        let remote_cmd = format!("sudo {}", evict_cmd);
+
         if let Some(cred) = credential {
             match state
                 .ssh_manager
@@ -3188,7 +3286,7 @@ pub async fn evict_profile(
                     target_node.ssh_port,
                     &target_node.ssh_user,
                     &cred,
-                    &evict_cmd,
+                    &remote_cmd,
                 )
                 .await
             {
