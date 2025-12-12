@@ -1,5 +1,5 @@
 import { ImportOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Button, Modal, message, Space, Table, Tag, Typography } from 'antd';
+import { Button, Modal, message, Table, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { haProfilesApi } from '@/api';
 import type { HaProfile } from '@/types';
@@ -25,7 +25,7 @@ export function ImportProfilesModal({
     try {
       const data = await haProfilesApi.getUnmanaged();
       setProfiles(data);
-    } catch (err) {
+    } catch (_err) {
       message.error('Failed to discover profiles');
     } finally {
       setLoading(false);
@@ -37,7 +37,7 @@ export function ImportProfilesModal({
       fetchUnmanaged();
       setSelectedRowKeys([]);
     }
-  }, [open]);
+  }, [open, fetchUnmanaged]);
 
   const handleImport = async () => {
     if (selectedRowKeys.length === 0) return;
@@ -58,7 +58,7 @@ export function ImportProfilesModal({
 
       onSuccess();
       onCancel();
-    } catch (err) {
+    } catch (_err) {
       message.error('Import failed');
     } finally {
       setImporting(false);

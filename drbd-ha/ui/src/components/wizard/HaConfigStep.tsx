@@ -90,7 +90,9 @@ export function HaConfigStep({
           label="Profile Name"
           rules={[{ required: true, message: 'Please enter a profile name' }]}
         >
-          <Input placeholder={isStorageMode ? 'my-storage-share' : 'my-service-ha'} />
+          <Input
+            placeholder={isStorageMode ? 'my-storage-share' : 'my-service-ha'}
+          />
         </Form.Item>
 
         <Form.Item
@@ -113,9 +115,15 @@ export function HaConfigStep({
             <Col span={12}>
               <Form.Item
                 name="mount_point"
-                label={haType === 'nfs' ? 'Export Path (Mount Point)' : 'Mount Point'}
+                label={
+                  haType === 'nfs' ? 'Export Path (Mount Point)' : 'Mount Point'
+                }
                 rules={[{ required: true, message: 'Mount point is required' }]}
-                help={haType === 'nfs' ? "The local path where the DRBD volume will be mounted and exported via NFS." : undefined}
+                help={
+                  haType === 'nfs'
+                    ? 'The local path where the DRBD volume will be mounted and exported via NFS.'
+                    : undefined
+                }
               >
                 <Input placeholder="/srv/nfs/share1" />
               </Form.Item>
@@ -139,7 +147,9 @@ export function HaConfigStep({
           <Form.Item
             name="services"
             label="Managed Services"
-            rules={[{ required: true, message: 'Please select at least one service' }]}
+            rules={[
+              { required: true, message: 'Please select at least one service' },
+            ]}
             help="Select systemd services to be managed by this HA profile. They will be started/stopped with the resource."
           >
             <Select
@@ -178,7 +188,9 @@ export function HaConfigStep({
         {/* --- iSCSI Specific Fields --- */}
         {haType === 'iscsi' && (
           <div className="bg-purple-50 p-4 rounded-md mb-4 border border-purple-100">
-            <h4 className="font-semibold mb-3 text-purple-800">iSCSI Target Settings</h4>
+            <h4 className="font-semibold mb-3 text-purple-800">
+              iSCSI Target Settings
+            </h4>
             <Form.Item
               name="iscsi_iqn"
               label="Target IQN"
@@ -192,7 +204,10 @@ export function HaConfigStep({
               label="Allowed Initiators (ACLs)"
               help="Comma separated list of Initiator IQNs. Leave empty to allow all (not recommended for production)."
             >
-              <Input.TextArea placeholder="iqn.1991-05.com.microsoft:host1, iqn.1994-05.com.redhat:host2" rows={2} />
+              <Input.TextArea
+                placeholder="iqn.1991-05.com.microsoft:host1, iqn.1994-05.com.redhat:host2"
+                rows={2}
+              />
             </Form.Item>
           </div>
         )}
@@ -200,7 +215,9 @@ export function HaConfigStep({
         {/* --- NVMe-oF Specific Fields --- */}
         {haType === 'nvmeof' && (
           <div className="bg-orange-50 p-4 rounded-md mb-4 border border-orange-100">
-            <h4 className="font-semibold mb-3 text-orange-800">NVMe-oF Target Settings</h4>
+            <h4 className="font-semibold mb-3 text-orange-800">
+              NVMe-oF Target Settings
+            </h4>
             <Row gutter={16}>
               <Col span={16}>
                 <Form.Item
@@ -242,7 +259,10 @@ export function HaConfigStep({
               label="Allowed Host NQNs"
               help="Comma separated list of Host NQNs. Leave empty to allow all."
             >
-              <Input.TextArea placeholder="nqn.2014-08.org.nvmexpress:uuid:client1..." rows={2} />
+              <Input.TextArea
+                placeholder="nqn.2014-08.org.nvmexpress:uuid:client1..."
+                rows={2}
+              />
             </Form.Item>
           </div>
         )}
@@ -260,7 +280,11 @@ export function HaConfigStep({
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="vip_netmask" label="Netmask (CIDR)" initialValue={24}>
+              <Form.Item
+                name="vip_netmask"
+                label="Netmask (CIDR)"
+                initialValue={24}
+              >
                 <InputNumber min={1} max={32} className="w-full" />
               </Form.Item>
             </Col>
@@ -310,13 +334,19 @@ export function HaConfigStep({
                 getFieldValue('migrate_data') ? (
                   <div className="bg-gray-50 p-4 rounded-md mb-4 border border-gray-200">
                     <Text type="secondary" className="block mb-4 text-xs">
-                      This will copy data from the source directory to the new DRBD volume.
-                      Services might need to be stopped during this process.
+                      This will copy data from the source directory to the new
+                      DRBD volume. Services might need to be stopped during this
+                      process.
                     </Text>
                     <Form.Item
                       name="source_path"
                       label="Source Directory"
-                      rules={[{ required: true, message: 'Source path is required for migration' }]}
+                      rules={[
+                        {
+                          required: true,
+                          message: 'Source path is required for migration',
+                        },
+                      ]}
                     >
                       <Input />
                     </Form.Item>

@@ -19,7 +19,7 @@ class ApiClient {
     };
 
     if (this.token) {
-      (headers as Record<string, string>)['Authorization'] =
+      (headers as Record<string, string>).Authorization =
         `Bearer ${this.token}`;
     }
 

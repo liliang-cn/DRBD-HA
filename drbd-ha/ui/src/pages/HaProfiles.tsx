@@ -134,7 +134,7 @@ export function HaProfiles() {
     }
   };
 
-  const handleReloadReactor = async () => {
+  const _handleReloadReactor = async () => {
     try {
       await haProfilesApi.reloadReactor();
       message.success('drbd-reactor reloaded');

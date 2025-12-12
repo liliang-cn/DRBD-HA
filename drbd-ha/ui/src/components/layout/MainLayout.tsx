@@ -1,5 +1,5 @@
 import { FileTextOutlined } from '@ant-design/icons';
-import { Badge, Button, Layout, Tooltip, theme } from 'antd';
+import { Button, Layout, Tooltip, theme } from 'antd';
 import { Link, Outlet } from 'react-router-dom';
 
 const { Header, Content } = Layout;

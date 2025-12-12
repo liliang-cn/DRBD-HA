@@ -108,10 +108,10 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   }, [
     step,
     nodes,
-    resources.length,
     fetchResources,
     loadServices,
     resourceForm,
+    resources.flatMap,
   ]);
 
   // Cleanup on unmount
@@ -277,21 +277,38 @@ export function Wizard({ mode = 'service' }: WizardProps) {
               }
             : undefined,
           // New Protocol Configs
-          nfs: haType === 'nfs' ? {
-            export_path: haValues.mount_point, // Usually same as mount point
-            allowed_networks: haValues.nfs_allowed_networks?.split(',').map((s: string) => s.trim()) || ['*'],
-            options: haValues.nfs_options || 'rw,sync,no_root_squash',
-          } : undefined,
-          iscsi: haType === 'iscsi' ? {
-            iqn: haValues.iscsi_iqn,
-            allowed_initiators: haValues.iscsi_allowed_initiators?.split(',').map((s: string) => s.trim()) || [],
-          } : undefined,
-          nvmeof: haType === 'nvmeof' ? {
-            nqn: haValues.nvmeof_nqn,
-            allowed_nqns: haValues.nvmeof_allowed_nqns?.split(',').map((s: string) => s.trim()) || [],
-            fabric_type: haValues.nvmeof_fabric_type || 'tcp',
-            trsvcid: haValues.nvmeof_port || '4420',
-          } : undefined,
+          nfs:
+            haType === 'nfs'
+              ? {
+                  export_path: haValues.mount_point, // Usually same as mount point
+                  allowed_networks: haValues.nfs_allowed_networks
+                    ?.split(',')
+                    .map((s: string) => s.trim()) || ['*'],
+                  options: haValues.nfs_options || 'rw,sync,no_root_squash',
+                }
+              : undefined,
+          iscsi:
+            haType === 'iscsi'
+              ? {
+                  iqn: haValues.iscsi_iqn,
+                  allowed_initiators:
+                    haValues.iscsi_allowed_initiators
+                      ?.split(',')
+                      .map((s: string) => s.trim()) || [],
+                }
+              : undefined,
+          nvmeof:
+            haType === 'nvmeof'
+              ? {
+                  nqn: haValues.nvmeof_nqn,
+                  allowed_nqns:
+                    haValues.nvmeof_allowed_nqns
+                      ?.split(',')
+                      .map((s: string) => s.trim()) || [],
+                  fabric_type: haValues.nvmeof_fabric_type || 'tcp',
+                  trsvcid: haValues.nvmeof_port || '4420',
+                }
+              : undefined,
         };
 
         const result = await haProfilesApi.create(request);
@@ -332,7 +349,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   };
 
   const handleDone = () => {
-    navigate('/dashboard');
+    navigate('/');
   };
 
   const handleRetry = async () => {
@@ -420,7 +437,9 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         <div className="text-center mb-8">
           <RocketOutlined className="text-4xl text-blue-500 mb-2" />
           <h1 className="text-2xl font-bold">
-            {mode === 'storage' ? 'Storage Sharing Wizard' : 'HA Service Wizard'}
+            {mode === 'storage'
+              ? 'Storage Sharing Wizard'
+              : 'HA Service Wizard'}
           </h1>
           <p className="text-gray-500">
             {mode === 'storage'
@@ -435,7 +454,11 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           items={[
             { title: 'Nodes', description: 'Configure cluster nodes' },
             { title: 'Storage', description: 'Configure DRBD storage' },
-            { title: 'HA', description: mode === 'storage' ? 'Configure Sharing' : 'Define HA services' },
+            {
+              title: 'HA',
+              description:
+                mode === 'storage' ? 'Configure Sharing' : 'Define HA services',
+            },
             { title: 'Preview', description: 'Review configuration' },
             { title: 'Activate', description: 'Deploy and start' },
           ]}

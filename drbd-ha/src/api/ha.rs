@@ -311,6 +311,41 @@ pub async fn get_profile(
     Ok(Json(profile))
 }
 
+/// Helper to ensure DRBD resource is Primary
+async fn ensure_primary(resource_name: &str) -> AppResult<()> {
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(30);
+
+    loop {
+        // Try to promote with force
+        let _ = run_shell_command(
+            &format!("drbdadm primary --force {}", resource_name),
+            "Promote for setup (attempt)",
+        )
+        .await;
+
+        // Check status
+        let status_out = run_shell_command(
+            &format!("drbdadm status {}", resource_name),
+            "Check status",
+        )
+        .await?;
+
+        if status_out.stdout.contains("role:Primary") {
+            return Ok(());
+        }
+
+        if start.elapsed() > timeout {
+            return Err(AppError::Drbd(format!(
+                "Timeout waiting for Primary role for resource {}",
+                resource_name
+            )));
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
+}
+
 /// POST /api/v1/ha/profiles
 /// Create a new HA profile
 pub async fn create_profile(
@@ -645,17 +680,7 @@ pub async fn create_profile(
                 );
 
                 // 1. Promote & Mkfs
-                let promote_out = run_shell_command(
-                    &format!("drbdadm primary {}", req.resource_name),
-                    "Promote for setup",
-                )
-                .await?;
-                if !promote_out.success() {
-                    return Err(AppError::Drbd(format!(
-                        "Failed to promote for setup: {}",
-                        promote_out.stderr
-                    )));
-                }
+                ensure_primary(&req.resource_name).await?;
 
                 let mkfs_cmd = format!(
                     "mkfs.{} /dev/drbd{}",
@@ -810,17 +835,7 @@ pub async fn create_profile(
                 );
 
                 // Ensure Primary
-                let promote_out = run_shell_command(
-                    &format!("drbdadm primary {}", req.resource_name),
-                    "Promote for NFS setup",
-                )
-                .await?;
-                if !promote_out.success() {
-                    return Err(AppError::Drbd(format!(
-                        "Failed to promote for NFS setup: {}",
-                        promote_out.stderr
-                    )));
-                }
+                ensure_primary(&req.resource_name).await?;
 
                 // Create FS if not exists (should have been done in Step 1 if lvm_pool_id set, but let's be safe)
                 let mkfs_cmd = format!(

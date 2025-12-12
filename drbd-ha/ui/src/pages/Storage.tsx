@@ -67,7 +67,7 @@ export function Storage() {
   useEffect(() => {
     fetchPools();
     fetchNodes();
-  }, []);
+  }, [fetchNodes, fetchPools]);
 
   const handleCreate = async (values: any) => {
     if (selectedNodes.length === 0) {
@@ -135,13 +135,13 @@ export function Storage() {
       title: 'Total Size',
       dataIndex: 'total_size',
       key: 'total_size',
-      render: (size: number) => (size / 1024 / 1024 / 1024).toFixed(2) + ' GB',
+      render: (size: number) => `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`,
     },
     {
       title: 'Free Size',
       dataIndex: 'free_size',
       key: 'free_size',
-      render: (size: number) => (size / 1024 / 1024 / 1024).toFixed(2) + ' GB',
+      render: (size: number) => `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`,
     },
   ];
 

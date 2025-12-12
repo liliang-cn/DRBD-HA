@@ -1,10 +1,7 @@
 import type {
-  CreateStoragePoolRequest,
-  CreateStoragePoolResponse,
   CreateVolumeRequest,
   CreateVolumeResponse,
   StoragePool,
-  Volume,
 } from '@/types';
 import { api } from './client';
 

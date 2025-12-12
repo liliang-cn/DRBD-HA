@@ -25,8 +25,8 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
     return agents.filter(
       (a) =>
         a.name.toLowerCase().includes(lower) ||
-        (a.shortdesc && a.shortdesc.toLowerCase().includes(lower)) ||
-        (a.longdesc && a.longdesc.toLowerCase().includes(lower)),
+        a.shortdesc?.toLowerCase().includes(lower) ||
+        a.longdesc?.toLowerCase().includes(lower),
     );
   }, [agents, searchTerm]);
 

@@ -33,7 +33,7 @@ const AgentParamsEditor: React.FC<AgentParamsEditorProps> = ({
           // Handle types for defaults
           if (p.type === 'integer') {
             const parsed = parseInt(p.default, 10);
-            if (!isNaN(parsed)) {
+            if (!Number.isNaN(parsed)) {
               defaults[p.name] = parsed;
             }
           } else if (p.type === 'boolean') {
@@ -67,7 +67,6 @@ const AgentParamsEditor: React.FC<AgentParamsEditorProps> = ({
       case 'select':
         // Fallback to Input as we don't have options structure yet
         return <Input disabled={disabled} placeholder="Select value..." />;
-      case 'string':
       default:
         // Check if longdesc implies it's a file path or something specific?
         // For now just Text Input
