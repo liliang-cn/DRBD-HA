@@ -253,7 +253,19 @@ impl Database {
             // Column likely already exists, ignore error
         }
 
-        // Migration 4: Add generated_config column if it doesn't exist
+        // Migration 5: Add nvmeof_config column if it doesn't exist (if it was missed in earlier migration)
+        if conn
+            .execute_batch(
+                r#"
+            ALTER TABLE ha_profiles ADD COLUMN nvmeof_config TEXT;
+            "#,
+            )
+            .is_err()
+        {
+            // Column likely already exists, ignore error
+        }
+
+        // Migration 6: Add generated_config column if it doesn't exist (if it was missed in earlier migration)
         if conn
             .execute_batch(
                 r#"
@@ -265,67 +277,22 @@ impl Database {
             // Column likely already exists, ignore error
         }
 
-        // Migration 5: Remove UNIQUE constraint from storage_pools.name to allow same VG name on multiple nodes
-        // We do this by recreating the table
-        // Check if we need to migrate (this is a heuristic, or we just run it if "migration_5_applied" flag is missing?
-        // We don't have a migrations table.
-        // We can try to insert a duplicate and see if it fails, but that's messy.
-        // Let's just try to run the migration logic safely.
-        // Actually, to be safe, we can check pragma index_list.
-
-        let _indices: Vec<String> = conn
-            .prepare("PRAGMA index_list(storage_pools)")
-            .map(|mut s| {
-                s.query_map([], |r| r.get::<_, String>(1))
-                    .unwrap()
-                    .collect::<Result<Vec<_>, _>>()
-                    .unwrap_or_default()
-            })
-            .unwrap_or_default();
-
-        // The original schema created `sqlite_autoindex_storage_pools_1` for the UNIQUE constraint on name?
-        // Or `name TEXT NOT NULL UNIQUE` creates an index.
-
-        // Simpler approach: Try to create the new table structure.
-        // If I change `init_schema` SQL, new installs are fine.
-        // For existing installs, I need a migration.
-
-        conn.execute_batch(
-            r#"
-            CREATE TABLE IF NOT EXISTS storage_pools_v2 (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL, -- Removed UNIQUE
-                node_id TEXT NOT NULL,
-                type TEXT NOT NULL,
-                device TEXT NOT NULL,
-                total_size INTEGER NOT NULL DEFAULT 0,
-                free_size INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(name, node_id) -- Name must be unique per node
-            );
+        // Migration 7: Add PromoterSettings advanced fields
+        if conn
+            .execute_batch(
+                r#"
+            ALTER TABLE ha_profiles ADD COLUMN dependencies_as TEXT;
+            ALTER TABLE ha_profiles ADD COLUMN target_as TEXT;
+            ALTER TABLE ha_profiles ADD COLUMN on_quorum_loss TEXT;
+            ALTER TABLE ha_profiles ADD COLUMN preferred_nodes TEXT;
+            ALTER TABLE ha_profiles ADD COLUMN preferred_nodes_policy TEXT;
+            ALTER TABLE ha_profiles ADD COLUMN sleep_before_promote_factor INTEGER;
             "#,
-        )
-        .ok();
-
-        // Check if we need to migrate data (if v2 is empty and v1 exists)
-        // ... this is getting complicated for a stateless migration function.
-
-        // Let's assume we just modify the `init_schema` for new deployments,
-        // and for existing ones, we accept that it might fail if they don't manually fix it
-        // OR we force the migration.
-
-        // I will update `init_schema` to NOT have UNIQUE.
-        // And add a migration block that:
-        // 1. Renames storage_pools to storage_pools_old
-        // 2. Creates storage_pools (new schema)
-        // 3. Copies data
-        // 4. Drops old
-        // But only if storage_pools has the wrong schema.
-
-        // Let's just do it:
-        // We can check if we can insert a duplicate. If not, we migrate.
-        // Or just run the migration unconditionally (idempotent if we check if temp table exists).
+            )
+            .is_err()
+        {
+            // Columns likely already exist, ignore error
+        }
 
         Ok(())
     }
@@ -486,9 +453,10 @@ impl Database {
             r#"INSERT INTO ha_profiles (
                 id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface, 
                 services, stop_on_demote, on_demote_failure, status, generated_units,
-                ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config
+                ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config,
+                dependencies_as, target_as, on_quorum_loss, preferred_nodes, preferred_nodes_policy, sleep_before_promote_factor
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
             "#,
             params![
                 profile.id,
@@ -509,6 +477,12 @@ impl Database {
                 iscsi_config,
                 nvmeof_config,
                 profile.generated_config,
+                profile.promoter.dependencies_as,
+                profile.promoter.target_as,
+                profile.promoter.on_quorum_loss,
+                profile.promoter.preferred_nodes.as_ref().and_then(|v| serde_json::to_string(v).ok()),
+                profile.promoter.preferred_nodes_policy,
+                profile.promoter.sleep_before_promote_factor.map(|v| v as i32),
             ],
         )
         .map_err(|e| AppError::Config(format!("Failed to insert HA profile: {}", e)))?;
@@ -523,7 +497,8 @@ impl Database {
             r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config,
+                   dependencies_as, target_as, on_quorum_loss, preferred_nodes, preferred_nodes_policy, sleep_before_promote_factor
             FROM ha_profiles WHERE id = ?1
             "#,
             params![id],
@@ -541,7 +516,8 @@ impl Database {
             r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config,
+                   dependencies_as, target_as, on_quorum_loss, preferred_nodes, preferred_nodes_policy, sleep_before_promote_factor
             FROM ha_profiles WHERE name = ?1
             "#,
             params![name],
@@ -560,7 +536,8 @@ impl Database {
                 r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, generated_config,
+                   dependencies_as, target_as, on_quorum_loss, preferred_nodes, preferred_nodes_policy, sleep_before_promote_factor
             FROM ha_profiles
             "#,
             )
@@ -646,8 +623,14 @@ impl Database {
                 iscsi_config = ?15,
                 nvmeof_config = ?16,
                 generated_config = ?17,
+                dependencies_as = ?18,
+                target_as = ?19,
+                on_quorum_loss = ?20,
+                preferred_nodes = ?21,
+                preferred_nodes_policy = ?22,
+                sleep_before_promote_factor = ?23,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?18
+            WHERE id = ?24
             "#,
             params![
                 profile.name,
@@ -667,6 +650,12 @@ impl Database {
                 iscsi_config,
                 nvmeof_config,
                 profile.generated_config,
+                profile.promoter.dependencies_as,
+                profile.promoter.target_as,
+                profile.promoter.on_quorum_loss,
+                profile.promoter.preferred_nodes.as_ref().and_then(|v| serde_json::to_string(v).ok()),
+                profile.promoter.preferred_nodes_policy,
+                profile.promoter.sleep_before_promote_factor.map(|v| v as i32),
                 profile.id,
             ],
         )
@@ -989,15 +978,20 @@ fn row_to_ha_profile(row: &rusqlite::Row) -> AppResult<HaProfile> {
             .get::<_, String>(4)
             .unwrap_or_else(|_| "xfs".to_string()),
         vip,
-        promoter: PromoterSettings {
-            services,
-            stop_on_demote: row
-                .get::<_, i32>(9)
-                .map_err(|e| AppError::Config(e.to_string()))?
-                != 0,
-            on_demote_failure: row.get(10).map_err(|e| AppError::Config(e.to_string()))?,
-        },
-        status: parse_ha_profile_status(&row.get::<_, String>(11).unwrap_or_default()),
+                    promoter: PromoterSettings {
+                        services,
+                        stop_on_demote: row
+                            .get::<_, i32>(9)
+                            .map_err(|e| AppError::Config(e.to_string()))?
+                            != 0,
+                        on_demote_failure: row.get(10).map_err(|e| AppError::Config(e.to_string()))?,
+                        dependencies_as: row.get::<_, Option<String>>(18).unwrap_or_default().and_then(|s| serde_json::from_str(&s).ok()),
+                        target_as: row.get::<_, Option<String>>(19).unwrap_or_default().and_then(|s| serde_json::from_str(&s).ok()),
+                        on_quorum_loss: row.get::<_, Option<String>>(20).unwrap_or_default().and_then(|s| serde_json::from_str(&s).ok()),
+                        preferred_nodes: row.get::<_, Option<String>>(21).unwrap_or_default().and_then(|s| serde_json::from_str(&s).ok()),
+                        preferred_nodes_policy: row.get::<_, Option<String>>(22).unwrap_or_default().and_then(|s| serde_json::from_str(&s).ok()),
+                        sleep_before_promote_factor: row.get::<_, Option<u32>>(23).unwrap_or_default(),
+                    },        status: parse_ha_profile_status(&row.get::<_, String>(11).unwrap_or_default()),
         generated_units,
         ha_type,
         nfs,

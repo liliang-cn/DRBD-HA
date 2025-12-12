@@ -46,7 +46,32 @@ impl NvmeOfGenerator {
         commands
     }
 
-    // Teardown commands...
+    /// Generate nvmetcli commands to tear down the NVMe-oF target
+    pub fn generate_teardown_commands(config: &NvmeOfConfig) -> Vec<String> {
+        let subsystem = &config.nqn;
+        let port_id = "1"; // Must match setup
+
+        let mut commands = Vec::new();
+
+        // 1. Delete Port (removes link)
+        commands.push(format!("delete port {}", port_id));
+
+        // 2. Delete Subsystem (removes namespaces implicitly in nvmetcli?
+        // nvmetcli usually requires removing namespaces first or has recursive delete?
+        // `delete` on subsystem usually works if unlinked.
+        // Let's be safe and remove namespaces first if possible, but we don't know IDs easily.
+        // Standard nvmetcli `delete` on subsystem often handles it or fails.
+        // `clear` removes all.
+        // Let's assume standard `delete` works or we use `delete` on namespace first.
+        // Actually, we know we created namespace 1.
+        commands.push(format!("delete subsystem {} namespace 1", subsystem));
+        commands.push(format!("delete subsystem {}", subsystem));
+
+        // 3. Save
+        commands.push("saveconfig".to_string());
+
+        commands
+    }
 }
 
 #[cfg(test)]

@@ -134,6 +134,12 @@ export interface HaProfile {
     services: string[];
     stop_on_demote: boolean;
     on_demote_failure: string;
+    dependencies_as?: string;
+    target_as?: string;
+    on_quorum_loss?: string;
+    preferred_nodes?: string[];
+    preferred_nodes_policy?: string;
+    sleep_before_promote_factor?: number;
   };
   status: 'active' | 'standby' | 'stopped' | 'error' | 'unknown';
   generated_units: GeneratedUnits;
@@ -197,6 +203,12 @@ export interface CreateHaProfileRequest {
   vip?: VipConfig;
   stop_on_demote?: boolean;
   on_demote_failure?: string;
+  dependencies_as?: string;
+  target_as?: string;
+  on_quorum_loss?: string;
+  preferred_nodes?: string[];
+  preferred_nodes_policy?: string;
+  sleep_before_promote_factor?: number;
   auto_disable_services?: boolean;
   lvm_pool_id?: string;
   lvm_volume_size_gb?: number;

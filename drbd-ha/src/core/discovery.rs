@@ -130,6 +130,7 @@ impl ReactorDiscovery {
                                 services,
                                 stop_on_demote,
                                 on_demote_failure,
+                                ..Default::default()
                             },
                             status: HaProfileStatus::Unknown,
                             generated_units: GeneratedUnits::default(),

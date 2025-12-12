@@ -77,6 +77,14 @@ pub struct PromoterPluginConfig {
     pub stop_services_on_exit: bool,
     pub on_drbd_demote_failure: String,
     pub vip: Option<VipPluginConfig>,
+    
+    // --- Advanced Options ---
+    pub dependencies_as: Option<String>,
+    pub target_as: Option<String>,
+    pub on_quorum_loss: Option<String>,
+    pub preferred_nodes: Option<Vec<String>>,
+    pub preferred_nodes_policy: Option<String>,
+    pub sleep_before_promote_factor: Option<u32>,
 }
 
 /// VIP configuration for drbd-reactor promoter
@@ -185,6 +193,12 @@ start = [{% if promoter.mount_unit %}"{{ promoter.mount_unit }}", {% endif %}{% 
 runner = "systemd"
 stop-services-on-exit = {{ promoter.stop_services_on_exit }}
 on-drbd-demote-failure = "{{ promoter.on_drbd_demote_failure }}"
+{% if promoter.dependencies_as %}dependencies-as = "{{ promoter.dependencies_as }}"{% endif %}
+{% if promoter.target_as %}target-as = "{{ promoter.target_as }}"{% endif %}
+{% if promoter.on_quorum_loss %}on-quorum-loss = "{{ promoter.on_quorum_loss }}"{% endif %}
+{% if promoter.preferred_nodes %}preferred-nodes = [{% for node in promoter.preferred_nodes %}"{{ node }}"{% if not loop.last %}, {% endif %}{% endfor %}]{% endif %}
+{% if promoter.preferred_nodes_policy %}preferred-nodes-policy = "{{ promoter.preferred_nodes_policy }}"{% endif %}
+{% if promoter.sleep_before_promote_factor %}sleep-before-promote-factor = {{ promoter.sleep_before_promote_factor }}{% endif %}
 "#;
 
 /// Paths for DRBD configuration files
@@ -288,6 +302,12 @@ mod tests {
                 netmask: 24,
                 interface: "eth0".to_string(),
             }),
+            dependencies_as: Some("Wants".to_string()),
+            target_as: Some("Requires".to_string()),
+            on_quorum_loss: Some("freeze".to_string()),
+            preferred_nodes: Some(vec!["node1".to_string(), "node2".to_string()]),
+            preferred_nodes_policy: Some("always".to_string()),
+            sleep_before_promote_factor: Some(2),
         };
 
         let output = gen.generate_promoter(&config).unwrap();
@@ -298,6 +318,14 @@ mod tests {
         assert!(output
             .contains("ocf:heartbeat:IPaddr2 r0_vip ip=192.168.1.100 cidr_netmask=24 nic=eth0"));
         assert!(output.contains("runner = \"systemd\""));
+        
+        // Check new fields
+        assert!(output.contains("dependencies-as = \"Wants\""));
+        assert!(output.contains("target-as = \"Requires\""));
+        assert!(output.contains("on-quorum-loss = \"freeze\""));
+        assert!(output.contains("preferred-nodes = [\"node1\", \"node2\"]"));
+        assert!(output.contains("preferred-nodes-policy = \"always\""));
+        assert!(output.contains("sleep-before-promote-factor = 2"));
     }
 
     #[test]

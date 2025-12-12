@@ -79,6 +79,12 @@ impl ConfigGenerator {
             stop_services_on_exit: profile.promoter.stop_on_demote,
             on_drbd_demote_failure: profile.promoter.on_demote_failure.clone(),
             vip,
+            dependencies_as: profile.promoter.dependencies_as.clone(),
+            target_as: profile.promoter.target_as.clone(),
+            on_quorum_loss: profile.promoter.on_quorum_loss.clone(),
+            preferred_nodes: profile.promoter.preferred_nodes.clone(),
+            preferred_nodes_policy: profile.promoter.preferred_nodes_policy.clone(),
+            sleep_before_promote_factor: profile.promoter.sleep_before_promote_factor,
         }
     }
 }

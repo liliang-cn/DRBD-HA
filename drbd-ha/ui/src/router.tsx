@@ -6,7 +6,7 @@ import { HaProfiles } from '@/pages/HaProfiles';
 import { Logs } from '@/pages/Logs';
 import { ServiceHaWizard } from '@/pages/ServiceHaWizard';
 import { Storage } from '@/pages/Storage';
-// import { StorageSharingWizard } from '@/pages/StorageSharingWizard';
+import { StorageSharingWizard } from '@/pages/StorageSharingWizard';
 
 export const router = createBrowserRouter([
   {
@@ -21,6 +21,7 @@ export const router = createBrowserRouter([
       // { path: 'ha-profiles', element: <HaProfiles /> },
       // { path: 'logs', element: <Logs /> },
       { path: 'service-ha/create', element: <ServiceHaWizard /> },
+      { path: 'storage-sharing/create', element: <StorageSharingWizard /> },
     ],
   },
 ]);

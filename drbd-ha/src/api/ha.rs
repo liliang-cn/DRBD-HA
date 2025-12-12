@@ -697,9 +697,18 @@ pub async fn create_profile(
                 .ok_or_else(|| AppError::Validation("NFS configuration missing".to_string()))?;
 
             // 1. Add services to promoter list
-            // Note: VIP is handled automatically by ConfigGenerator if profile.vip is set
-            // We use direct /etc/exports management instead of OCF resources
-            let services = vec!["nfs-server.service".to_string()];
+            // Use OCF agent for exports to manage them dynamically via drbd-reactor
+            let fsid = NfsGenerator::generate_fsid(&req.resource_name);
+            let ocf_resource = NfsGenerator::generate_ocf_exportfs(
+                &req.resource_name,
+                &req.mount_point,
+                nfs_config,
+                fsid,
+            );
+            
+            // We do NOT manage nfs-server.service here directly as it should run globally.
+            // The exportfs agent handles the export.
+            let services = vec![ocf_resource];
 
             // 4. Initialize NFS State Storage (Critical for HA)
             // We need to temporarily mount the device to set up the state directory
@@ -799,64 +808,7 @@ pub async fn create_profile(
                 }
             }
 
-            // 6. Generate /etc/exports configuration for all nodes
-            state.send_progress(
-                &operation_id,
-                "create_ha_profile",
-                Some(&req.name),
-                40,
-                "Configuring NFS exports...",
-                false,
-                None,
-            );
-
-            let exports_content = format!(
-                "{} {}({})\n",
-                req.mount_point,
-                nfs_config
-                    .allowed_networks
-                    .first()
-                    .unwrap_or(&"*".to_string()),
-                nfs_config.options
-            );
-
-            // Write to local /etc/exports
-            let mut current_exports = tokio::fs::read_to_string("/etc/exports")
-                .await
-                .unwrap_or_default();
-
-            // Remove any existing entry for this mount point
-            current_exports = current_exports
-                .lines()
-                .filter(|line| !line.starts_with(&format!("{} ", req.mount_point)))
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            if !current_exports.is_empty() && !current_exports.ends_with('\n') {
-                current_exports.push('\n');
-            }
-            current_exports.push_str(&exports_content);
-
-            tokio::fs::write("/etc/exports", current_exports.as_bytes())
-                .await
-                .map_err(|e| AppError::Config(format!("Failed to write /etc/exports: {}", e)))?;
-
-            // Sync to remote nodes
-            let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
-            for node in &remote_nodes {
-                let credential = crate::core::SshCredential::Password("ignored".to_string());
-                state
-                    .ssh_manager
-                    .write_file(
-                        &node.ip,
-                        node.ssh_port,
-                        &node.ssh_user,
-                        &credential,
-                        "/etc/exports",
-                        &current_exports,
-                    )
-                    .await?;
-            }
+            // 6. No longer generating /etc/exports - managed by OCF agent
 
             services
         }
@@ -921,6 +873,8 @@ pub async fn create_profile(
             );
             if let (Some(nvmeof_config), Some(vip)) = (&req.nvmeof, &req.vip) {
                 let drbd_dev = format!("/dev/drbd{}", req.drbd_minor.unwrap_or(0));
+                
+                // Generate Setup Commands (for ExecStart)
                 let setup_cmds = NvmeOfGenerator::generate_setup_commands(
                     &req.resource_name,
                     &drbd_dev,
@@ -928,14 +882,65 @@ pub async fn create_profile(
                     &vip.address,
                 );
 
-                // Execute on ALL nodes
+                // Generate Teardown Commands (for ExecStop)
+                let teardown_cmds = NvmeOfGenerator::generate_teardown_commands(nvmeof_config);
+
+                // Create a systemd unit content
+                // We use nvmetcli shell commands wrapped in a script or inline
+                // Since commands are a list, we can join them.
+                // Note: nvmetcli might need to be run as `nvmetcli <<EOF ...` or just invoked if they are shell commands?
+                // `NvmeOfGenerator` returns `nvmetcli` shell commands (e.g. `create subsystem ...`).
+                // Actually `NvmeOfGenerator` commands are meant for `nvmetcli` shell? 
+                // Let's check `NvmeOfGenerator`. It generates strings like "create subsystem ...".
+                // These are NOT bash commands. They are `nvmetcli` commands.
+                // So we need to pipe them to `nvmetcli`.
+                
+                let setup_script = setup_cmds.join("\n");
+                let teardown_script = teardown_cmds.join("\n");
+
+                let service_name = format!("drbd-ha-nvmeof-{}.service", req.resource_name);
+                let service_content = format!(
+r#"[Unit]
+Description=NVMe-oF Target for {}
+After=network.target drbd-reactor.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c "echo '{}' | nvmetcli"
+ExecStop=/bin/sh -c "echo '{}' | nvmetcli"
+
+[Install]
+WantedBy=multi-user.target
+"#,
+                    req.resource_name,
+                    setup_script,
+                    teardown_script
+                );
+
+                // Write service file to all nodes
                 let creds = state.credentials.read().await;
                 for node in &all_nodes {
-                    let cmd_str = setup_cmds.join(" && ");
+                    let service_path = format!("/etc/systemd/system/{}", service_name);
+                    
                     if node.is_local {
-                        run_shell_command(&cmd_str, "Setup NVMe-oF Target locally").await?;
+                        tokio::fs::write(&service_path, &service_content)
+                            .await
+                            .map_err(|e| AppError::Config(format!("Failed to write NVMe-oF service: {}", e)))?;
+                        run_shell_command("systemctl daemon-reload", "Reload systemd").await?;
                     } else {
                         let credential = get_node_credential(&state, node).await?.unwrap();
+                        state
+                            .ssh_manager
+                            .write_file(
+                                &node.ip,
+                                node.ssh_port,
+                                &node.ssh_user,
+                                &credential,
+                                &service_path,
+                                &service_content,
+                            )
+                            .await?;
                         state
                             .ssh_manager
                             .execute(
@@ -943,14 +948,17 @@ pub async fn create_profile(
                                 node.ssh_port,
                                 &node.ssh_user,
                                 &credential,
-                                &cmd_str,
+                                "systemctl daemon-reload",
                             )
                             .await?;
                     }
                 }
                 drop(creds);
-                messages.push("Configured NVMe-oF Target on all nodes".to_string());
-                vec![] // NVMe-oF currently manages itself via configfs, no extra service needed to start
+
+                messages.push("Configured NVMe-oF Target service on all nodes".to_string());
+                
+                // Return the service name to be started by drbd-reactor
+                vec![service_name]
             } else {
                 return Err(AppError::Validation(
                     "NVMe-oF configuration or VIP missing".to_string(),
@@ -1029,6 +1037,12 @@ pub async fn create_profile(
             services: req.services.clone(),
             stop_on_demote: req.stop_on_demote,
             on_demote_failure: req.on_demote_failure.clone(),
+            dependencies_as: req.dependencies_as.clone(),
+            target_as: req.target_as.clone(),
+            on_quorum_loss: req.on_quorum_loss.clone(),
+            preferred_nodes: req.preferred_nodes.clone(),
+            preferred_nodes_policy: req.preferred_nodes_policy.clone(),
+            sleep_before_promote_factor: req.sleep_before_promote_factor,
         },
         status: HaProfileStatus::Unknown,
         generated_units: generated_units.clone(),
