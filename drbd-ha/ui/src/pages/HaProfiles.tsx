@@ -39,7 +39,7 @@ const statusColor: Record<string, string> = {
 
 export function HaProfiles() {
   const navigate = useNavigate();
-  const { profiles, loading, statusLoading, fetch } = useHaProfilesStore();
+  const { profiles, loading, fetch } = useHaProfilesStore();
   const { fetch: fetchResources } = useResourcesStore();
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<HaProfileStatus | null>(
@@ -94,14 +94,7 @@ export function HaProfiles() {
   };
 
   const handleViewStatus = async (profile: HaProfile) => {
-    setSelectedProfile(profile);
-    try {
-      const status = await haProfilesApi.getStatus(profile.id);
-      setSelectedStatus(status);
-      setStatusModalOpen(true);
-    } catch (err) {
-      message.error((err as { message: string }).message);
-    }
+    navigate(`/ha-profiles/${profile.id}`);
   };
 
   const handleActivate = async (id: string) => {
@@ -184,7 +177,20 @@ export function HaProfiles() {
       key: 'ha_type',
       render: (t: string) => <Tag>{(t || 'generic').toUpperCase()}</Tag>,
     },
-    { title: 'Resource', dataIndex: 'resource_name', key: 'resource_name' },
+    {
+      title: 'Services',
+      key: 'services',
+      render: (_: unknown, record: HaProfile) => (
+        <Space>
+          {record.promoter.services.slice(0, 2).map((s) => (
+            <Tag key={s}>{s}</Tag>
+          ))}
+          {record.promoter.services.length > 2 && (
+            <Tag>+{record.promoter.services.length - 2} more</Tag>
+          )}
+        </Space>
+      ),
+    },
     { title: 'Mount Point', dataIndex: 'mount_point', key: 'mount_point' },
     {
       title: 'VIP',
@@ -208,15 +214,6 @@ export function HaProfiles() {
       dataIndex: 'status',
       key: 'status',
       render: (status: string, record: HaProfile) => {
-        const isLoading = statusLoading.has(record.id);
-        if (isLoading) {
-          return (
-            <Tag color="default">
-              <LoadingOutlined spin className="mr-1" />
-              Loading...
-            </Tag>
-          );
-        }
         return (
           <Tag color={statusColor[status] || 'default'}>
             {status.toUpperCase()}
@@ -228,7 +225,24 @@ export function HaProfiles() {
       title: 'Active Node',
       dataIndex: 'active_node',
       key: 'active_node',
-      render: (node: string | undefined) => node || '-',
+      render: (node: string | undefined, record: HaProfile) => {
+        const isActive = record.status === 'active';
+        return (
+          <Space>
+            {node || '-'}
+            {isActive && node && (
+              <Button
+                size="small"
+                danger
+                onClick={() => handleEvict(record.id)}
+                title="Evict"
+              >
+                Evict
+              </Button>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: 'Services',
@@ -255,58 +269,29 @@ export function HaProfiles() {
           <Space wrap>
             <Button
               size="small"
+              type="text" // Use text type for icon-only buttons
               icon={<EyeOutlined />}
               onClick={() => handleViewStatus(record)}
-            >
-              Status
-            </Button>
-
-            {!isActive && (
-              <Button size="small" onClick={() => handleActivate(record.id)}>
-                Activate
-              </Button>
-            )}
-
-            {isActive && (
-              <>
-                <Button
-                  size="small"
-                  onClick={() => handleDeactivate(record.id)}
-                >
-                  Deactivate
-                </Button>
-                <Button
-                  size="small"
-                  danger
-                  onClick={() => handleEvict(record.id)}
-                >
-                  Evict
-                </Button>
-              </>
-            )}
-
-            {hasVip ? (
+              title="View Status"
+            />
+            {!hasVip && (
               <Button
                 size="small"
-                danger
-                onClick={() => handleRemoveVip(record)}
+                onClick={() => openAddVipModal(record)}
+                title="Add VIP"
               >
-                Del VIP
-              </Button>
-            ) : (
-              <Button size="small" onClick={() => openAddVipModal(record)}>
                 Add VIP
               </Button>
             )}
 
             <Button
               size="small"
+              type="text" // Use text type for icon-only buttons
               danger
               icon={<DeleteOutlined />}
               onClick={() => openDeleteModal(record)}
-            >
-              Delete
-            </Button>
+              title="Delete"
+            />
           </Space>
         );
       },

@@ -277,6 +277,26 @@ pub async fn list_profiles(
                 }
             }
         }
+
+        // Determine basic status for list view
+        if profile.active_node.is_some() {
+            profile.status = HaProfileStatus::Active;
+        } else {
+            // Check local DRBD role to distinguish Standby (Secondary) from Stopped/Error
+            let status_cmd = format!("drbdadm status {} 2>/dev/null", profile.resource_name);
+            if let Ok(output) = run_shell_command(&status_cmd, "").await {
+                if output.stdout.contains("role:Primary") {
+                    // Primary but not managed/active via reactor? treat as Active (manually) or Error
+                    profile.status = HaProfileStatus::Active;
+                } else if output.stdout.contains("role:Secondary") {
+                    profile.status = HaProfileStatus::Standby;
+                } else {
+                    profile.status = HaProfileStatus::Stopped;
+                }
+            } else {
+                profile.status = HaProfileStatus::Stopped;
+            }
+        }
     }
 
     Ok(Json(HaProfileListResponse { profiles }))
@@ -1395,6 +1415,89 @@ WantedBy=multi-user.target
     state.db.insert_ha_profile(&profile)?;
 
     messages.push("Reload drbd-reactor to apply".to_string());
+
+    // Step 10: Restart drbd-reactor on remote nodes (Parallel execution)
+    state.send_progress(
+        &operation_id,
+        "create_ha_profile",
+        Some(&req.name),
+        98,
+        "Restarting drbd-reactor on remote nodes...",
+        false,
+        None,
+    );
+
+    let remote_nodes: Vec<_> = all_nodes.into_iter().filter(|n| !n.is_local).collect();
+    if !remote_nodes.is_empty() {
+        tracing::info!(
+            "Restarting drbd-reactor on {} remote nodes",
+            remote_nodes.len()
+        );
+
+        let mut futures = Vec::new();
+        // Capture ssh_manager for the closures
+        let ssh_manager = state.ssh_manager.clone();
+
+        for node in remote_nodes {
+            let ssh = ssh_manager.clone();
+            // Use dummy credential as per project convention (key-based auth assumed)
+            let credential = crate::core::SshCredential::Password("ignored".to_string());
+            let restart_cmd = "sudo systemctl restart drbd-reactor";
+            let hostname = node.hostname.clone();
+
+            futures.push(tokio::spawn(async move {
+                tracing::info!("Restarting reactor on {}", hostname);
+                match ssh
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        restart_cmd,
+                    )
+                    .await
+                {
+                    Ok(output) => {
+                        if output.success() {
+                            tracing::info!("Successfully restarted reactor on {}", hostname);
+                            Ok(())
+                        } else {
+                            tracing::warn!(
+                                "Failed to restart reactor on {}: {}",
+                                hostname,
+                                output.stderr
+                            );
+                            Err(format!("Failed on {}: {}", hostname, output.stderr))
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("SSH error restarting reactor on {}: {}", hostname, e);
+                        Err(format!("SSH error on {}: {}", hostname, e))
+                    }
+                }
+            }));
+        }
+
+        // Wait for all remote restarts to complete
+        let results = futures::future::join_all(futures).await;
+        let mut failed_count = 0;
+        for res in results {
+            if let Ok(Err(_)) = res {
+                failed_count += 1;
+            } else if res.is_err() {
+                failed_count += 1; // JoinError
+            }
+        }
+
+        if failed_count > 0 {
+            messages.push(format!(
+                "Warning: Failed to restart reactor on {} remote nodes",
+                failed_count
+            ));
+        } else {
+            messages.push("Restarted drbd-reactor on all remote nodes".to_string());
+        }
+    }
 
     state.send_progress(
         &operation_id,
@@ -3235,7 +3338,7 @@ pub async fn evict_profile(
             .find(|n| n.id == *node_id || n.hostname == *node_id)
             .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_id)))?
     } else {
-        // Find the active node from drbd-reactorctl status
+        // Find the active node from drbd-reactor status
         let active_node_name = get_active_node(&profile.name).await;
 
         if let Some(active_hostname) = active_node_name {
