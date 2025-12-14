@@ -52,6 +52,7 @@ mod tests {
                 peer_node_id: 1,
                 name: "node2".to_string(),
                 connection_state: "Connected".to_string(),
+                peer_role: Some("Secondary".to_string()),
                 peer_devices: vec![PeerDeviceStatus {
                     volume: 0,
                     replication_state: "Established".to_string(),

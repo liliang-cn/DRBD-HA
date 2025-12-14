@@ -37,6 +37,8 @@ pub struct ConnectionStatus {
     pub name: String,
     #[serde(rename = "connection-state")]
     pub connection_state: String,
+    #[serde(rename = "peer-role", default)]
+    pub peer_role: Option<String>,
     #[serde(default)]
     pub peer_devices: Vec<PeerDeviceStatus>,
 }

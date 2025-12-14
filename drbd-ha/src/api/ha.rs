@@ -15,8 +15,8 @@ use crate::core::{
     mount_unit::MountUnitGenerator,
     run_shell_command,
     service_override::ServiceOverrideGenerator,
-    systemd_ctrl::{ServiceFileInfo, ServiceInfo, SystemdController},
-    validator, IscsiGenerator, LvmProvider, NfsGenerator, NvmeOfGenerator, ReactorDiscovery,
+    systemd_ctrl::{RemoteSystemdController, ServiceFileInfo, ServiceInfo, SystemdController},
+    validator, drbd_cmd, IscsiGenerator, LvmProvider, NfsGenerator, NvmeOfGenerator, ReactorDiscovery,
     ServiceInitFactory, StorageProvider,
 };
 use crate::error::{AppError, AppResult};
@@ -63,6 +63,9 @@ pub struct HaProfileCreateResponse {
     /// Nodes that were synced with HA configuration
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub synced_nodes: Vec<String>,
+    /// Content of the generated promoter configuration file
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub promoter_config_content: Option<String>,
 }
 
 /// Summary of data migration result
@@ -218,40 +221,6 @@ fn parse_mount_point_from_config(content: &str) -> Option<String> {
     None
 }
 
-/// Helper to get active node for a profile
-async fn get_active_node(profile_name: &str) -> Option<String> {
-    let output = run_shell_command(
-        &format!("drbd-reactorctl status {} 2>/dev/null", profile_name),
-        &format!("Get status for {}", profile_name),
-    )
-    .await
-    .ok()?;
-
-    if output.success() && !output.stdout.is_empty() {
-        output
-            .stdout
-            .lines()
-            .find(|line| line.contains("Currently active"))
-            .and_then(|line| {
-                if line.contains("Currently active on this node") {
-                    Some(gethostname::gethostname().to_string_lossy().to_string())
-                } else if line.contains("Currently active on node") {
-                    let start = line.find('\'')?;
-                    let end = line.rfind('\'')?;
-                    if start < end {
-                        Some(line[start + 1..end].to_string())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-    } else {
-        None
-    }
-}
-
 /// GET /api/v1/ha/profiles
 /// List all HA profiles
 pub async fn list_profiles(
@@ -259,11 +228,9 @@ pub async fn list_profiles(
 ) -> AppResult<Json<HaProfileListResponse>> {
     let mut profiles = state.db.get_all_ha_profiles()?;
 
-    // Enrich profiles with VIP, mount_point, and active_node info
+    // Enrich profiles with VIP and mount_point info from config files if not in DB
+    // And update status from drbd-reactorctl
     for profile in &mut profiles {
-        // Get active node
-        profile.active_node = get_active_node(&profile.name).await;
-
         let config_path = ConfigPaths::promoter_path(&profile.name);
         if let Ok(content) = tokio::fs::read_to_string(&config_path).await {
             if profile.vip.is_none() {
@@ -278,23 +245,16 @@ pub async fn list_profiles(
             }
         }
 
-        // Determine basic status for list view
-        if profile.active_node.is_some() {
-            profile.status = HaProfileStatus::Active;
-        } else {
-            // Check local DRBD role to distinguish Standby (Secondary) from Stopped/Error
-            let status_cmd = format!("drbdadm status {} 2>/dev/null", profile.resource_name);
-            if let Ok(output) = run_shell_command(&status_cmd, "").await {
-                if output.stdout.contains("role:Primary") {
-                    // Primary but not managed/active via reactor? treat as Active (manually) or Error
+        // Check active status via drbd-reactorctl
+        let cmd = format!("drbd-reactorctl status {} 2>/dev/null", profile.name);
+        if let Ok(output) = run_shell_command(&cmd, &format!("Check status for {}", profile.name)).await {
+            if output.success() {
+                if output.stdout.contains("Currently active on node") || output.stdout.contains("Currently active on this node") {
                     profile.status = HaProfileStatus::Active;
-                } else if output.stdout.contains("role:Secondary") {
-                    profile.status = HaProfileStatus::Standby;
                 } else {
-                    profile.status = HaProfileStatus::Stopped;
+                    // Managed by reactor but not active -> Standby
+                    profile.status = HaProfileStatus::Standby;
                 }
-            } else {
-                profile.status = HaProfileStatus::Stopped;
             }
         }
     }
@@ -329,41 +289,6 @@ pub async fn get_profile(
     }
 
     Ok(Json(profile))
-}
-
-/// Helper to ensure DRBD resource is Primary
-async fn ensure_primary(resource_name: &str) -> AppResult<()> {
-    let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(30);
-
-    loop {
-        // Try to promote with force
-        let _ = run_shell_command(
-            &format!("drbdadm primary --force {}", resource_name),
-            "Promote for setup (attempt)",
-        )
-        .await;
-
-        // Check status
-        let status_out = run_shell_command(
-            &format!("drbdadm status {}", resource_name),
-            "Check status",
-        )
-        .await?;
-
-        if status_out.stdout.contains("role:Primary") {
-            return Ok(());
-        }
-
-        if start.elapsed() > timeout {
-            return Err(AppError::Drbd(format!(
-                "Timeout waiting for Primary role for resource {}",
-                resource_name
-            )));
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    }
 }
 
 /// POST /api/v1/ha/profiles
@@ -644,13 +569,6 @@ pub async fn create_profile(
         generated_units.mount_unit = Some(mount_info.unit_name.clone());
         generated_units.mount_unit_path = Some(mount_info.unit_path.clone());
         generated_units.drbd_device = Some(mount_info.device_path.clone());
-
-        // Reload systemd and ensure unit is disabled/stopped
-        // It must NOT be enabled as it is managed by drbd-reactor
-        let _ = run_shell_command("systemctl daemon-reload", "Reload systemd after mount unit generation").await;
-        let systemd = SystemdController::new().await?;
-        let _ = systemd.disable_and_stop(&mount_info.unit_name).await;
-
         messages.push(format!("Generated mount unit: {}", mount_info.unit_name));
     }
 
@@ -700,45 +618,25 @@ pub async fn create_profile(
                 );
 
                 // 1. Promote & Mkfs
-                ensure_primary(&req.resource_name).await?;
-
+                run_shell_command(
+                    &format!("drbdadm primary {}", req.resource_name),
+                    "Promote for setup",
+                )
+                .await?;
                 let mkfs_cmd = format!(
                     "mkfs.{} /dev/drbd{}",
                     req.fs_type,
                     req.drbd_minor.unwrap_or(0)
                 );
-                let mkfs_out = run_shell_command(&mkfs_cmd, "Create filesystem").await?;
-                if !mkfs_out.success() {
-                    let _ = run_shell_command(
-                        &format!("drbdadm secondary {}", req.resource_name),
-                        "Cleanup secondary",
-                    )
-                    .await;
-                    return Err(AppError::Internal(format!(
-                        "Failed to create filesystem: {}",
-                        mkfs_out.stderr
-                    )));
-                }
+                run_shell_command(&mkfs_cmd, "Create filesystem").await?;
 
                 // 2. Mount
-                let mkdir_out = run_shell_command(
+                run_shell_command(
                     &format!("mkdir -p {}", req.mount_point),
                     "Create mount point",
                 )
                 .await?;
-                if !mkdir_out.success() {
-                    let _ = run_shell_command(
-                        &format!("drbdadm secondary {}", req.resource_name),
-                        "Cleanup secondary",
-                    )
-                    .await;
-                    return Err(AppError::Internal(format!(
-                        "Failed to create mount point: {}",
-                        mkdir_out.stderr
-                    )));
-                }
-
-                let mount_out = run_shell_command(
+                run_shell_command(
                     &format!(
                         "mount /dev/drbd{} {}",
                         req.drbd_minor.unwrap_or(0),
@@ -747,17 +645,6 @@ pub async fn create_profile(
                     "Mount for setup",
                 )
                 .await?;
-                if !mount_out.success() {
-                    let _ = run_shell_command(
-                        &format!("drbdadm secondary {}", req.resource_name),
-                        "Cleanup secondary",
-                    )
-                    .await;
-                    return Err(AppError::Internal(format!(
-                        "Failed to mount for setup: {}",
-                        mount_out.stderr
-                    )));
-                }
 
                 // 3. Service Initialization (The "Silver Bullet")
                 if req.init_service {
@@ -827,18 +714,9 @@ pub async fn create_profile(
                 .ok_or_else(|| AppError::Validation("NFS configuration missing".to_string()))?;
 
             // 1. Add services to promoter list
-            // Use OCF agent for exports to manage them dynamically via drbd-reactor
-            let fsid = NfsGenerator::generate_fsid(&req.resource_name);
-            let ocf_resource = NfsGenerator::generate_ocf_exportfs(
-                &req.resource_name,
-                &req.mount_point,
-                nfs_config,
-                fsid,
-            );
-            
-            // We do NOT manage nfs-server.service here directly as it should run globally.
-            // The exportfs agent handles the export.
-            let services = vec![ocf_resource];
+            // Note: VIP is handled automatically by ConfigGenerator if profile.vip is set
+            // We use direct /etc/exports management instead of OCF resources
+            let services = vec!["nfs-server.service".to_string()];
 
             // 4. Initialize NFS State Storage (Critical for HA)
             // We need to temporarily mount the device to set up the state directory
@@ -855,7 +733,11 @@ pub async fn create_profile(
                 );
 
                 // Ensure Primary
-                ensure_primary(&req.resource_name).await?;
+                run_shell_command(
+                    &format!("drbdadm primary {}", req.resource_name),
+                    "Promote for NFS setup",
+                )
+                .await?;
 
                 // Create FS if not exists (should have been done in Step 1 if lvm_pool_id set, but let's be safe)
                 let mkfs_cmd = format!(
@@ -863,38 +745,15 @@ pub async fn create_profile(
                     req.fs_type,
                     req.drbd_minor.unwrap_or(0)
                 );
-                let mkfs_out = run_shell_command(&mkfs_cmd, "Create filesystem for NFS state").await?;
-                if !mkfs_out.success() {
-                    let _ = run_shell_command(
-                        &format!("drbdadm secondary {}", req.resource_name),
-                        "Cleanup secondary",
-                    )
-                    .await;
-                    return Err(AppError::Internal(format!(
-                        "Failed to create filesystem for NFS: {}",
-                        mkfs_out.stderr
-                    )));
-                }
+                run_shell_command(&mkfs_cmd, "Create filesystem for NFS state").await?;
 
                 // Mount
-                let mkdir_out = run_shell_command(
+                run_shell_command(
                     &format!("mkdir -p {}", req.mount_point),
                     "Create mount point",
                 )
                 .await?;
-                if !mkdir_out.success() {
-                    let _ = run_shell_command(
-                        &format!("drbdadm secondary {}", req.resource_name),
-                        "Cleanup secondary",
-                    )
-                    .await;
-                    return Err(AppError::Internal(format!(
-                        "Failed to create mount point: {}",
-                        mkdir_out.stderr
-                    )));
-                }
-
-                let mount_out = run_shell_command(
+                run_shell_command(
                     &format!(
                         "mount /dev/drbd{} {}",
                         req.drbd_minor.unwrap_or(0),
@@ -903,17 +762,6 @@ pub async fn create_profile(
                     "Mount for NFS setup",
                 )
                 .await?;
-                if !mount_out.success() {
-                    let _ = run_shell_command(
-                        &format!("drbdadm secondary {}", req.resource_name),
-                        "Cleanup secondary",
-                    )
-                    .await;
-                    return Err(AppError::Internal(format!(
-                        "Failed to mount for NFS setup: {}",
-                        mount_out.stderr
-                    )));
-                }
 
                 // Setup State Dir
                 if let Err(e) = NfsGenerator::setup_nfs_state(&req.mount_point).await {
@@ -968,7 +816,64 @@ pub async fn create_profile(
                 }
             }
 
-            // 6. No longer generating /etc/exports - managed by OCF agent
+            // 6. Generate /etc/exports configuration for all nodes
+            state.send_progress(
+                &operation_id,
+                "create_ha_profile",
+                Some(&req.name),
+                40,
+                "Configuring NFS exports...",
+                false,
+                None,
+            );
+
+            let exports_content = format!(
+                "{} {}({})\n",
+                req.mount_point,
+                nfs_config
+                    .allowed_networks
+                    .first()
+                    .unwrap_or(&"*".to_string()),
+                nfs_config.options
+            );
+
+            // Write to local /etc/exports
+            let mut current_exports = tokio::fs::read_to_string("/etc/exports")
+                .await
+                .unwrap_or_default();
+
+            // Remove any existing entry for this mount point
+            current_exports = current_exports
+                .lines()
+                .filter(|line| !line.starts_with(&format!("{} ", req.mount_point)))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            if !current_exports.is_empty() && !current_exports.ends_with('\n') {
+                current_exports.push('\n');
+            }
+            current_exports.push_str(&exports_content);
+
+            tokio::fs::write("/etc/exports", current_exports.as_bytes())
+                .await
+                .map_err(|e| AppError::Config(format!("Failed to write /etc/exports: {}", e)))?;
+
+            // Sync to remote nodes
+            let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
+            for node in &remote_nodes {
+                let credential = crate::core::SshCredential::Password("ignored".to_string());
+                state
+                    .ssh_manager
+                    .write_file(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        "/etc/exports",
+                        &current_exports,
+                    )
+                    .await?;
+            }
 
             services
         }
@@ -1033,8 +938,6 @@ pub async fn create_profile(
             );
             if let (Some(nvmeof_config), Some(vip)) = (&req.nvmeof, &req.vip) {
                 let drbd_dev = format!("/dev/drbd{}", req.drbd_minor.unwrap_or(0));
-                
-                // Generate Setup Commands (for ExecStart)
                 let setup_cmds = NvmeOfGenerator::generate_setup_commands(
                     &req.resource_name,
                     &drbd_dev,
@@ -1042,65 +945,14 @@ pub async fn create_profile(
                     &vip.address,
                 );
 
-                // Generate Teardown Commands (for ExecStop)
-                let teardown_cmds = NvmeOfGenerator::generate_teardown_commands(nvmeof_config);
-
-                // Create a systemd unit content
-                // We use nvmetcli shell commands wrapped in a script or inline
-                // Since commands are a list, we can join them.
-                // Note: nvmetcli might need to be run as `nvmetcli <<EOF ...` or just invoked if they are shell commands?
-                // `NvmeOfGenerator` returns `nvmetcli` shell commands (e.g. `create subsystem ...`).
-                // Actually `NvmeOfGenerator` commands are meant for `nvmetcli` shell? 
-                // Let's check `NvmeOfGenerator`. It generates strings like "create subsystem ...".
-                // These are NOT bash commands. They are `nvmetcli` commands.
-                // So we need to pipe them to `nvmetcli`.
-                
-                let setup_script = setup_cmds.join("\n");
-                let teardown_script = teardown_cmds.join("\n");
-
-                let service_name = format!("drbd-ha-nvmeof-{}.service", req.resource_name);
-                let service_content = format!(
-r#"[Unit]
-Description=NVMe-oF Target for {}
-After=network.target drbd-reactor.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/sh -c "echo '{}' | nvmetcli"
-ExecStop=/bin/sh -c "echo '{}' | nvmetcli"
-
-[Install]
-WantedBy=multi-user.target
-"#,
-                    req.resource_name,
-                    setup_script,
-                    teardown_script
-                );
-
-                // Write service file to all nodes
+                // Execute on ALL nodes
                 let creds = state.credentials.read().await;
                 for node in &all_nodes {
-                    let service_path = format!("/etc/systemd/system/{}", service_name);
-                    
+                    let cmd_str = setup_cmds.join(" && ");
                     if node.is_local {
-                        tokio::fs::write(&service_path, &service_content)
-                            .await
-                            .map_err(|e| AppError::Config(format!("Failed to write NVMe-oF service: {}", e)))?;
-                        run_shell_command("systemctl daemon-reload", "Reload systemd").await?;
+                        run_shell_command(&cmd_str, "Setup NVMe-oF Target locally").await?;
                     } else {
                         let credential = get_node_credential(&state, node).await?.unwrap();
-                        state
-                            .ssh_manager
-                            .write_file(
-                                &node.ip,
-                                node.ssh_port,
-                                &node.ssh_user,
-                                &credential,
-                                &service_path,
-                                &service_content,
-                            )
-                            .await?;
                         state
                             .ssh_manager
                             .execute(
@@ -1108,17 +960,14 @@ WantedBy=multi-user.target
                                 node.ssh_port,
                                 &node.ssh_user,
                                 &credential,
-                                "systemctl daemon-reload",
+                                &cmd_str,
                             )
                             .await?;
                     }
                 }
                 drop(creds);
-
-                messages.push("Configured NVMe-oF Target service on all nodes".to_string());
-                
-                // Return the service name to be started by drbd-reactor
-                vec![service_name]
+                messages.push("Configured NVMe-oF Target on all nodes".to_string());
+                vec![] // NVMe-oF currently manages itself via configfs, no extra service needed to start
             } else {
                 return Err(AppError::Validation(
                     "NVMe-oF configuration or VIP missing".to_string(),
@@ -1128,29 +977,17 @@ WantedBy=multi-user.target
     };
 
     // --- Step 3: Data Migration (Only for Generic/NFS with mount) ---
-    let mut migration_result = None;
+    // We run this in a background task so we don't block the response and subsequent config syncing
+    let migration_result = None;
     if matches!(req.ha_type, HaType::Generic | HaType::Nfs) {
         if let Some(ref migration_opts) = req.migration {
             if migration_opts.migrate_data {
-                state.send_progress(
-                    &operation_id,
-                    "create_ha_profile",
-                    Some(&req.name),
-                    40,
-                    "Migrating data...",
-                    false,
-                    None,
-                );
-                tracing::info!("Starting data migration for profile {}", req.name);
-
-                let source_path = migration_opts
-                    .source_path
-                    .clone()
-                    .unwrap_or_else(|| req.mount_point.clone());
-
                 let migration_config = MigrationConfig {
                     resource_name: req.resource_name.clone(),
-                    source_path: source_path.clone(),
+                    source_path: migration_opts
+                        .source_path
+                        .clone()
+                        .unwrap_or_else(|| req.mount_point.clone()),
                     mount_point: req.mount_point.clone(),
                     fs_type: req.fs_type.clone(),
                     format_device: migration_opts.format_device,
@@ -1158,18 +995,111 @@ WantedBy=multi-user.target
                     preserve_permissions: migration_opts.preserve_permissions,
                 };
 
-                let result = DataMigration::migrate(migration_config, None).await?;
+                let resource_name = req.resource_name.clone();
+                let profile_name = req.name.clone();
+                let op_id = operation_id.clone();
+                let state_clone = state.clone();
 
-                migration_result = Some(MigrationResultInfo {
-                    bytes_transferred: result.bytes_transferred,
-                    source_path: result.source_path,
-                    services_restarted: result.services_restarted,
+                tokio::spawn(async move {
+                    state_clone.send_progress(
+                        &op_id,
+                        "create_ha_profile",
+                        Some(&profile_name),
+                        40,
+                        "Starting background data migration...",
+                        false,
+                        None,
+                    );
+                    tracing::info!(
+                        "Starting background data migration for profile {}",
+                        profile_name
+                    );
+
+                    match DataMigration::migrate(migration_config, None).await {
+                        Ok(result) => {
+                            tracing::info!(
+                                "Migration finished for {}: {} bytes transferred",
+                                profile_name,
+                                result.bytes_transferred
+                            );
+                            state_clone.send_progress(
+                                &op_id,
+                                "create_ha_profile",
+                                Some(&profile_name),
+                                45,
+                                &format!(
+                                    "Migration done ({} bytes). Syncing DRBD...",
+                                    result.bytes_transferred
+                                ),
+                                false,
+                                None,
+                            );
+
+                            // Poll DRBD status until UpToDate
+                            tracing::info!(
+                                "Polling DRBD status for {} until UpToDate...",
+                                resource_name
+                            );
+                            loop {
+                                let cmd = format!("drbdadm status {}", resource_name);
+                                match run_shell_command(&cmd, "Check DRBD sync status").await {
+                                    Ok(output) => {
+                                        if output.success() {
+                                            // Check if all peers are UpToDate
+                                            // Typical output line: "    peer-disk:UpToDate"
+                                            // We want to ensure NO "Inconsistent" or "Negotiating" and AT LEAST one "UpToDate" (if peers exist)
+                                            // But strictly, the user asked to wait until "peer-disk:UpToDate"
+
+                                            // Simple check: if it contains "peer-disk:UpToDate" and DOES NOT contain "Inconsistent"
+                                            if output.stdout.contains("peer-disk:UpToDate")
+                                                && !output.stdout.contains("Inconsistent")
+                                                && !output.stdout.contains("SyncSource")
+                                                && !output.stdout.contains("SyncTarget")
+                                            {
+                                                tracing::info!(
+                                                    "DRBD resource {} is fully synced",
+                                                    resource_name
+                                                );
+                                                state_clone.send_progress(
+                                                    &op_id,
+                                                    "create_ha_profile",
+                                                    Some(&profile_name),
+                                                    48,
+                                                    "DRBD resource fully synced",
+                                                    false,
+                                                    None,
+                                                );
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!("Failed to check DRBD status: {}", e);
+                                    }
+                                }
+                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Background migration failed for {}: {}",
+                                profile_name,
+                                e
+                            );
+                            state_clone.send_progress(
+                                &op_id,
+                                "create_ha_profile",
+                                Some(&profile_name),
+                                40,
+                                &format!("Migration failed: {}", e),
+                                true, // is_error
+                                None,
+                            );
+                        }
+                    }
                 });
 
-                messages.push(format!(
-                    "Migrated {} bytes of data",
-                    result.bytes_transferred
-                ));
+                messages.push("Data migration started in background".to_string());
             }
         }
     }
@@ -1185,7 +1115,7 @@ WantedBy=multi-user.target
     );
 
     // --- Step 4: Create HA Profile Object ---
-    let mut profile = HaProfile {
+    let profile = HaProfile {
         id: profile_id.clone(),
         name: req.name.clone(),
         ha_type: req.ha_type.clone(),
@@ -1197,20 +1127,12 @@ WantedBy=multi-user.target
             services: req.services.clone(),
             stop_on_demote: req.stop_on_demote,
             on_demote_failure: req.on_demote_failure.clone(),
-            dependencies_as: req.dependencies_as.clone(),
-            target_as: req.target_as.clone(),
-            on_quorum_loss: req.on_quorum_loss.clone(),
-            preferred_nodes: req.preferred_nodes.clone(),
-            preferred_nodes_policy: req.preferred_nodes_policy.clone(),
-            sleep_before_promote_factor: req.sleep_before_promote_factor,
         },
         status: HaProfileStatus::Unknown,
-        active_node: None,
         generated_units: generated_units.clone(),
         nfs: req.nfs.clone(),
         iscsi: req.iscsi.clone(),
         nvmeof: req.nvmeof.clone(),
-        generated_config: None, // Will be set after generation
     };
 
     // --- Step 5: Generate Promoter Config ---
@@ -1222,10 +1144,6 @@ WantedBy=multi-user.target
 
     let promoter_config = ConfigGenerator::promoter_from_profile(&profile_for_gen);
     let config_content = config_gen.generate_promoter(&promoter_config)?;
-
-    // Update profile with generated config
-    profile.generated_config = Some(config_content.clone());
-
     let config_path = ConfigPaths::promoter_path(&req.name);
 
     // Ensure config directory exists
@@ -1314,14 +1232,11 @@ WantedBy=multi-user.target
         }
     }
 
-    // Step 7: Reload systemd daemon to recognize new unit files and restart reactor
-    let systemd_reload = run_shell_command(
-        "systemctl daemon-reload && systemctl restart drbd-reactor",
-        "Reload systemd and restart reactor",
-    )
-    .await;
+    // Step 7: Reload systemd daemon to recognize new unit files
+    let systemd_reload =
+        run_shell_command("systemctl daemon-reload", "Reload systemd daemon").await;
     if systemd_reload.is_err() || !systemd_reload.unwrap().success() {
-        tracing::warn!("Failed to reload systemd/restart reactor");
+        tracing::warn!("Failed to reload systemd daemon");
     }
 
     state.send_progress(
@@ -1416,89 +1331,6 @@ WantedBy=multi-user.target
 
     messages.push("Reload drbd-reactor to apply".to_string());
 
-    // Step 10: Restart drbd-reactor on remote nodes (Parallel execution)
-    state.send_progress(
-        &operation_id,
-        "create_ha_profile",
-        Some(&req.name),
-        98,
-        "Restarting drbd-reactor on remote nodes...",
-        false,
-        None,
-    );
-
-    let remote_nodes: Vec<_> = all_nodes.into_iter().filter(|n| !n.is_local).collect();
-    if !remote_nodes.is_empty() {
-        tracing::info!(
-            "Restarting drbd-reactor on {} remote nodes",
-            remote_nodes.len()
-        );
-
-        let mut futures = Vec::new();
-        // Capture ssh_manager for the closures
-        let ssh_manager = state.ssh_manager.clone();
-
-        for node in remote_nodes {
-            let ssh = ssh_manager.clone();
-            // Use dummy credential as per project convention (key-based auth assumed)
-            let credential = crate::core::SshCredential::Password("ignored".to_string());
-            let restart_cmd = "sudo systemctl restart drbd-reactor";
-            let hostname = node.hostname.clone();
-
-            futures.push(tokio::spawn(async move {
-                tracing::info!("Restarting reactor on {}", hostname);
-                match ssh
-                    .execute(
-                        &node.ip,
-                        node.ssh_port,
-                        &node.ssh_user,
-                        &credential,
-                        restart_cmd,
-                    )
-                    .await
-                {
-                    Ok(output) => {
-                        if output.success() {
-                            tracing::info!("Successfully restarted reactor on {}", hostname);
-                            Ok(())
-                        } else {
-                            tracing::warn!(
-                                "Failed to restart reactor on {}: {}",
-                                hostname,
-                                output.stderr
-                            );
-                            Err(format!("Failed on {}: {}", hostname, output.stderr))
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("SSH error restarting reactor on {}: {}", hostname, e);
-                        Err(format!("SSH error on {}: {}", hostname, e))
-                    }
-                }
-            }));
-        }
-
-        // Wait for all remote restarts to complete
-        let results = futures::future::join_all(futures).await;
-        let mut failed_count = 0;
-        for res in results {
-            if let Ok(Err(_)) = res {
-                failed_count += 1;
-            } else if res.is_err() {
-                failed_count += 1; // JoinError
-            }
-        }
-
-        if failed_count > 0 {
-            messages.push(format!(
-                "Warning: Failed to restart reactor on {} remote nodes",
-                failed_count
-            ));
-        } else {
-            messages.push("Restarted drbd-reactor on all remote nodes".to_string());
-        }
-    }
-
     state.send_progress(
         &operation_id,
         "create_ha_profile",
@@ -1524,6 +1356,7 @@ WantedBy=multi-user.target
             generated_units: Some(generated_units),
             migration_result,
             synced_nodes,
+            promoter_config_content: Some(config_content),
         }),
     ))
 }
@@ -1556,24 +1389,61 @@ pub async fn delete_profile(
         .ok_or_else(|| AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
 
     let resource_name = profile.resource_name.clone();
+    let operation_id = uuid::Uuid::new_v4().to_string();
 
-    // Step 0: Deactivate if active on this node (stop services, unmount, demote)
-    // Check if DRBD is Primary on local node
-    let status_cmd = format!("drbdadm status {} 2>/dev/null", profile.resource_name);
-    let is_primary = match run_shell_command(
+    state.send_progress(
+        &operation_id,
+        "delete_ha_profile",
+        Some(&profile.name),
+        0,
+        "Starting deletion...",
+        false,
+        None,
+    );
+
+    // Step 0: Deactivate if active on this node or remote node
+    // Check DRBD status
+    let status_cmd = format!("drbdadm status --json {} 2>/dev/null", profile.resource_name);
+    let status_output = run_shell_command(
         &status_cmd,
         &format!("Check DRBD status for {}", profile.resource_name),
     )
-    .await
-    {
-        Ok(output) => output.stdout.contains("role:Primary"),
-        Err(_) => false,
-    };
+    .await;
 
-    if is_primary {
+    let mut local_primary = false;
+    let mut remote_primary_node: Option<String> = None;
+
+    if let Ok(output) = status_output {
+        if let Ok(statuses) = drbd_cmd::parse_drbd_status(&output.stdout) {
+            if let Some(res_status) = statuses.first() {
+                if res_status.is_primary() {
+                    local_primary = true;
+                } else {
+                    // Check peers
+                    for conn in &res_status.connections {
+                        if conn.peer_role.as_deref() == Some("Primary") {
+                            remote_primary_node = Some(conn.name.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if local_primary {
         tracing::info!(
             "Profile {} is active on this node, deactivating before delete...",
             profile.name
+        );
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            10,
+            "Deactivating active profile...",
+            false,
+            None,
         );
 
         // Remove VIP if configured
@@ -1590,6 +1460,15 @@ pub async fn delete_profile(
         }
 
         // Stop services in reverse order
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            15,
+            "Stopping services...",
+            false,
+            None,
+        );
         let systemd = SystemdController::new().await?;
         for service in profile.promoter.services.iter().rev() {
             if let Err(e) = systemd.stop(service).await {
@@ -1615,6 +1494,15 @@ pub async fn delete_profile(
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         // Unmount the DRBD device
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            20,
+            "Unmounting...",
+            false,
+            None,
+        );
         let umount_cmd = format!(
             "umount {} 2>/dev/null || umount -l {} 2>/dev/null || true",
             profile.mount_point, profile.mount_point
@@ -1624,6 +1512,15 @@ pub async fn delete_profile(
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         // Demote DRBD resource
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            25,
+            "Demoting DRBD resource...",
+            false,
+            None,
+        );
         let demote_cmd = format!("drbdadm secondary {}", profile.resource_name);
         let demote_output = run_shell_command(
             &demote_cmd,
@@ -1639,9 +1536,168 @@ pub async fn delete_profile(
                 );
             }
         }
-    }
+    } else if let Some(node_name) = remote_primary_node {
+        tracing::info!(
+            "Profile {} is active on remote node {}, deactivating...",
+            profile.name,
+            node_name
+        );
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            10,
+            &format!("Deactivating active profile on {}...", node_name),
+            false,
+            None,
+        );
 
+        // Find the node
+        let nodes = state.db.get_all_nodes()?;
+        if let Some(node) = nodes
+            .iter()
+            .find(|n| n.hostname == node_name || n.id == node_name)
+        {
+            if let Ok(Some(credential)) = get_node_credential(&state, node).await {
+                let remote_sys = RemoteSystemdController::new(state.ssh_manager.clone());
+
+                // Remove VIP if configured
+                if let Some(vip) = &profile.vip {
+                    let vip_cmd = format!(
+                        "ip addr del {}/{} dev {} 2>/dev/null || true",
+                        vip.address, vip.netmask, vip.interface
+                    );
+                    let _ = state
+                        .ssh_manager
+                        .execute(
+                            &node.ip,
+                            node.ssh_port,
+                            &node.ssh_user,
+                            &credential,
+                            &vip_cmd,
+                        )
+                        .await;
+                }
+
+                // Stop services
+                state.send_progress(
+                    &operation_id,
+                    "delete_ha_profile",
+                    Some(&profile.name),
+                    15,
+                    "Stopping services...",
+                    false,
+                    None,
+                );
+                for service in profile.promoter.services.iter().rev() {
+                    if let Err(e) = remote_sys
+                        .stop(
+                            &node.ip,
+                            node.ssh_port,
+                            &node.ssh_user,
+                            &credential,
+                            service,
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            "Failed to stop service {} on {}: {}",
+                            service,
+                            node.hostname,
+                            e
+                        );
+                    }
+                }
+
+                // Wait for services
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                // Kill processes
+                let kill_cmd = format!(
+                    "for pid in $(lsof -t {} 2>/dev/null); do kill -9 $pid 2>/dev/null || true; done",
+                    profile.mount_point
+                );
+                let _ = state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        &kill_cmd,
+                    )
+                    .await;
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                // Unmount
+                state.send_progress(
+                    &operation_id,
+                    "delete_ha_profile",
+                    Some(&profile.name),
+                    20,
+                    "Unmounting...",
+                    false,
+                    None,
+                );
+                let umount_cmd = format!(
+                    "umount {} 2>/dev/null || umount -l {} 2>/dev/null || true",
+                    profile.mount_point, profile.mount_point
+                );
+                let _ = state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        &umount_cmd,
+                    )
+                    .await;
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                // Demote
+                state.send_progress(
+                    &operation_id,
+                    "delete_ha_profile",
+                    Some(&profile.name),
+                    25,
+                    "Demoting DRBD resource...",
+                    false,
+                    None,
+                );
+                let demote_cmd = format!("drbdadm secondary {}", profile.resource_name);
+                let _ = state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        &demote_cmd,
+                    )
+                    .await;
+            } else {
+                tracing::warn!(
+                    "No credential for remote node {}, cannot deactivate",
+                    node_name
+                );
+            }
+        } else {
+            tracing::warn!("Remote active node {} not found in DB", node_name);
+        }
+    }
     // Step 1: Remove service overrides
+    state.send_progress(
+        &operation_id,
+        "delete_ha_profile",
+        Some(&profile.name),
+        30,
+        "Removing service overrides...",
+        false,
+        None,
+    );
     let service_names: Vec<String> = profile.promoter.services.clone();
     if let Err(e) = ServiceOverrideGenerator::remove_for_services(&service_names).await {
         tracing::warn!("Failed to remove service overrides: {}", e);
@@ -1653,6 +1709,15 @@ pub async fn delete_profile(
     }
 
     // Step 3: Delete promoter configuration file
+    state.send_progress(
+        &operation_id,
+        "delete_ha_profile",
+        Some(&profile.name),
+        40,
+        "Removing promoter configuration...",
+        false,
+        None,
+    );
 
     // We always delete the config file when deleting the profile to prevent "zombie" configurations
 
@@ -1674,6 +1739,15 @@ pub async fn delete_profile(
     let _ = run_shell_command("systemctl daemon-reload", "Reload systemd daemon").await;
 
     // Step 5: Remove configuration from remote nodes
+    state.send_progress(
+        &operation_id,
+        "delete_ha_profile",
+        Some(&profile.name),
+        50,
+        "Cleaning up remote nodes...",
+        false,
+        None,
+    );
     let sync_config = HaSyncConfig {
         mount_unit: profile
             .generated_units
@@ -1698,6 +1772,15 @@ pub async fn delete_profile(
     }
 
     // Step 6: Remove from database
+    state.send_progress(
+        &operation_id,
+        "delete_ha_profile",
+        Some(&profile.name),
+        70,
+        "Removing from database...",
+        false,
+        None,
+    );
     state.db.delete_ha_profile(&profile.id)?;
 
     tracing::info!("Deleted HA profile: {} ({})", profile.name, profile.id);
@@ -1705,6 +1788,15 @@ pub async fn delete_profile(
     // Step 7: Delete the DRBD resource configuration
     // We force deletion to ensure clean state as requested
     {
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            80,
+            "Deleting DRBD resource...",
+            false,
+            None,
+        );
         use crate::core::drbd_cmd::DrbdCmd;
 
         tracing::info!(
@@ -1747,6 +1839,15 @@ pub async fn delete_profile(
     // Step 8: Delete the LVM logical volume (Force cleanup)
     // We attempt to find the volume in the DB. If found, we delete it from all nodes.
     if let Some(volume) = state.db.get_volume_by_drbd_res(&resource_name)? {
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            90,
+            "Deleting LVM volume...",
+            false,
+            None,
+        );
         tracing::info!(
             "Deleting associated LVM logical volume '{}' (id: {})",
             volume.name,
@@ -1814,6 +1915,21 @@ pub async fn delete_profile(
             resource_name
         );
     }
+
+    state.send_progress(
+        &operation_id,
+        "delete_ha_profile",
+        Some(&profile.name),
+        100,
+        "Deletion completed successfully",
+        true,
+        Some(true),
+    );
+    state.send_notification(
+        NotificationLevel::Success,
+        "HA Profile Deleted",
+        &format!("HA profile '{}' deleted successfully", profile.name),
+    );
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1921,20 +2037,14 @@ pub async fn get_profile_status(
             }
             .unwrap_or(trimmed);
 
-            // Remove leading symbol and tree characters to get service name
-            let mut service_line = without_symbol.trim().to_string(); // Work with owned string, trimmed
-
-            // Strip tree prefixes
-            if let Some(s) = service_line.strip_prefix("├─") {
-                service_line = s.to_string();
-            } else if let Some(s) = service_line.strip_prefix("└─") {
-                service_line = s.to_string();
-            } else if let Some(s) = service_line.strip_prefix("─") {
-                service_line = s.to_string();
-            }
-
-            // Get the first word after stripping prefixes, which should be the service name
-            let name = service_line.split_whitespace().next().unwrap_or("");
+            // Remove tree drawing characters and whitespace
+            let name = without_symbol
+                .trim_start_matches('├')
+                .trim_start_matches('└')
+                .trim_start_matches('─')
+                .split_whitespace()
+                .next()
+                .unwrap_or("");
 
             // Skip internal drbd services and empty names
             if name.is_empty()
@@ -2302,113 +2412,127 @@ pub async fn activate_profile(
         None,
     );
 
-    // Try to promote DRBD resource
-    let promote_cmd = format!("drbdadm primary {}", profile.resource_name);
-    tracing::info!("activate_profile: Running '{}'", promote_cmd);
-    let output = run_shell_command(
-        &promote_cmd,
-        &format!("Promote DRBD resource {}", profile.resource_name),
-    )
-    .await?;
-    tracing::info!(
-        "activate_profile: primary result: success={}, stderr='{}'",
-        output.success(),
-        output.stderr.trim()
-    );
+    // Check if already Primary to avoid unnecessary promotion and errors
+    let status_cmd_check = format!("drbdadm status {}", profile.resource_name);
+    let status_check_out =
+        run_shell_command(&status_cmd_check, "Check role before promote").await?;
+    let already_primary = status_check_out.stdout.contains("role:Primary");
 
-    if !output.success() {
-        // Check if this is a new resource (all nodes Inconsistent) - need --force
-        if output.stderr.contains("Need access to UpToDate data") {
-            tracing::info!("activate_profile: Need UpToDate data, trying force promote...");
-            state.send_progress(
-                &operation_id,
-                "activate_profile",
-                Some(&profile.name),
-                10,
-                "Resource not synced yet, skipping initial sync...",
-                false,
-                None,
-            );
+    if already_primary {
+        tracing::info!(
+            "activate_profile: Resource {} is already Primary, skipping promotion",
+            profile.resource_name
+        );
+    } else {
+        // Try to promote DRBD resource
+        let promote_cmd = format!("drbdadm primary {}", profile.resource_name);
+        tracing::info!("activate_profile: Running '{}'", promote_cmd);
+        let output = run_shell_command(
+            &promote_cmd,
+            &format!("Promote DRBD resource {}", profile.resource_name),
+        )
+        .await?;
+        tracing::info!(
+            "activate_profile: primary result: success={}, stderr='{}'",
+            output.success(),
+            output.stderr.trim()
+        );
 
-            // Skip initial sync on new resource
-            let skip_sync_cmd = format!(
-                "drbdadm new-current-uuid --clear-bitmap {}",
-                profile.resource_name
-            );
-            tracing::info!("activate_profile: Running '{}'", skip_sync_cmd);
-            let skip_output = run_shell_command(
-                &skip_sync_cmd,
-                &format!("Skip initial sync for {}", profile.resource_name),
-            )
-            .await?;
-            tracing::info!(
-                "activate_profile: skip sync result: success={}, stderr='{}'",
-                skip_output.success(),
-                skip_output.stderr.trim()
-            );
+        if !output.success() {
+            // Check if this is a new resource (all nodes Inconsistent) - need --force
+            if output.stderr.contains("Need access to UpToDate data") {
+                tracing::info!("activate_profile: Need UpToDate data, trying force promote...");
+                state.send_progress(
+                    &operation_id,
+                    "activate_profile",
+                    Some(&profile.name),
+                    10,
+                    "Resource not synced yet, skipping initial sync...",
+                    false,
+                    None,
+                );
 
-            // Try force promote
-            let force_promote_cmd = format!("drbdadm primary --force {}", profile.resource_name);
-            tracing::info!("activate_profile: Running '{}'", force_promote_cmd);
-            let force_output = run_shell_command(
-                &force_promote_cmd,
-                &format!("Force promote DRBD resource {}", profile.resource_name),
-            )
-            .await?;
-            tracing::info!(
-                "activate_profile: force primary result: success={}, stderr='{}'",
-                force_output.success(),
-                force_output.stderr.trim()
-            );
+                // Skip initial sync on new resource
+                let skip_sync_cmd = format!(
+                    "drbdadm new-current-uuid --clear-bitmap {}",
+                    profile.resource_name
+                );
+                tracing::info!("activate_profile: Running '{}'", skip_sync_cmd);
+                let skip_output = run_shell_command(
+                    &skip_sync_cmd,
+                    &format!("Skip initial sync for {}", profile.resource_name),
+                )
+                .await?;
+                tracing::info!(
+                    "activate_profile: skip sync result: success={}, stderr='{}'",
+                    skip_output.success(),
+                    skip_output.stderr.trim()
+                );
 
-            if !force_output.success() {
+                // Try force promote
+                let force_promote_cmd =
+                    format!("drbdadm primary --force {}", profile.resource_name);
+                tracing::info!("activate_profile: Running '{}'", force_promote_cmd);
+                let force_output = run_shell_command(
+                    &force_promote_cmd,
+                    &format!("Force promote DRBD resource {}", profile.resource_name),
+                )
+                .await?;
+                tracing::info!(
+                    "activate_profile: force primary result: success={}, stderr='{}'",
+                    force_output.success(),
+                    force_output.stderr.trim()
+                );
+
+                if !force_output.success() {
+                    state.send_progress(
+                        &operation_id,
+                        "activate_profile",
+                        Some(&profile.name),
+                        20,
+                        &format!("Failed to force promote: {}", force_output.stderr),
+                        true,
+                        Some(false),
+                    );
+                    state.send_notification(
+                        NotificationLevel::Error,
+                        "Activation Failed",
+                        &format!(
+                            "Failed to promote '{}': {}",
+                            profile.name, force_output.stderr
+                        ),
+                    );
+                    return Err(AppError::Drbd(format!(
+                        "Failed to promote resource: {}",
+                        force_output.stderr
+                    )));
+                }
+                tracing::info!("activate_profile: Force promote succeeded");
+            } else {
+                tracing::error!("activate_profile: Promote failed: {}", output.stderr);
                 state.send_progress(
                     &operation_id,
                     "activate_profile",
                     Some(&profile.name),
                     20,
-                    &format!("Failed to force promote: {}", force_output.stderr),
+                    &format!("Failed to promote: {}", output.stderr),
                     true,
                     Some(false),
                 );
                 state.send_notification(
                     NotificationLevel::Error,
                     "Activation Failed",
-                    &format!(
-                        "Failed to promote '{}': {}",
-                        profile.name, force_output.stderr
-                    ),
+                    &format!("Failed to promote '{}': {}", profile.name, output.stderr),
                 );
                 return Err(AppError::Drbd(format!(
                     "Failed to promote resource: {}",
-                    force_output.stderr
+                    output.stderr
                 )));
             }
-            tracing::info!("activate_profile: Force promote succeeded");
-        } else {
-            tracing::error!("activate_profile: Promote failed: {}", output.stderr);
-            state.send_progress(
-                &operation_id,
-                "activate_profile",
-                Some(&profile.name),
-                20,
-                &format!("Failed to promote: {}", output.stderr),
-                true,
-                Some(false),
-            );
-            state.send_notification(
-                NotificationLevel::Error,
-                "Activation Failed",
-                &format!("Failed to promote '{}': {}", profile.name, output.stderr),
-            );
-            return Err(AppError::Drbd(format!(
-                "Failed to promote resource: {}",
-                output.stderr
-            )));
         }
-    }
 
-    tracing::info!("activate_profile: DRBD promoted to Primary successfully");
+        tracing::info!("activate_profile: DRBD promoted to Primary successfully");
+    }
 
     // Check if filesystem exists, if not, format it
     let drbd_device = format!("/dev/drbd/by-res/{}/0", profile.resource_name);
@@ -2594,6 +2718,23 @@ pub async fn activate_profile(
         )
         .await;
     }
+
+    // Restart drbd-reactor on all nodes to ensure it picks up the new state
+    state.send_progress(
+        &operation_id,
+        "activate_profile",
+        Some(&profile.name),
+        90,
+        "Restarting drbd-reactor on all nodes...",
+        false,
+        None,
+    );
+    let _ = reload_reactor(
+        State(state.clone()),
+        Json(ReactorReloadRequest {
+            action: "restart".to_string(),
+        }),
+    ).await;
 
     state.send_progress(
         &operation_id,
@@ -3338,8 +3479,39 @@ pub async fn evict_profile(
             .find(|n| n.id == *node_id || n.hostname == *node_id)
             .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_id)))?
     } else {
-        // Find the active node from drbd-reactor status
-        let active_node_name = get_active_node(&profile.name).await;
+        // Find the active node from drbd-reactorctl status
+        let status_cmd = format!("drbd-reactorctl status {} 2>/dev/null", profile.name);
+        let output = run_shell_command(
+            &status_cmd,
+            &format!("Get drbd-reactorctl status for profile {}", profile.name),
+        )
+        .await?;
+
+        let active_node_name = if output.success() && !output.stdout.is_empty() {
+            output
+                .stdout
+                .lines()
+                .find(|line| line.contains("Currently active"))
+                .and_then(|line| {
+                    if line.contains("Currently active on this node") {
+                        // Active on local node
+                        Some(gethostname::gethostname().to_string_lossy().to_string())
+                    } else if line.contains("Currently active on node") {
+                        // Extract node name between single quotes
+                        let start = line.find('?')?;
+                        let end = line.rfind('?')?;
+                        if start < end {
+                            Some(line[start + 1..end].to_string())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+        } else {
+            None
+        };
 
         if let Some(active_hostname) = active_node_name {
             // Find the node by hostname
@@ -3393,9 +3565,6 @@ pub async fn evict_profile(
         // Execute on remote node via SSH
         let credential = Some(crate::core::SshCredential::Password("ignored".to_string()));
 
-        // Prepend sudo for remote execution to ensure permissions for systemd operations
-        let remote_cmd = format!("sudo {}", evict_cmd);
-
         if let Some(cred) = credential {
             match state
                 .ssh_manager
@@ -3404,7 +3573,7 @@ pub async fn evict_profile(
                     target_node.ssh_port,
                     &target_node.ssh_user,
                     &cred,
-                    &remote_cmd,
+                    &evict_cmd,
                 )
                 .await
             {
