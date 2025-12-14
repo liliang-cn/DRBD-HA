@@ -15,7 +15,7 @@ use crate::core::{
     mount_unit::MountUnitGenerator,
     run_shell_command,
     service_override::ServiceOverrideGenerator,
-    systemd_ctrl::{RemoteSystemdController, ServiceFileInfo, ServiceInfo, SystemdController},
+    systemd_ctrl::{ServiceFileInfo, ServiceInfo, SystemdController},
     validator, drbd_cmd, IscsiGenerator, LvmProvider, NfsGenerator, NvmeOfGenerator, ReactorDiscovery,
     ServiceInitFactory, StorageProvider,
 };
@@ -251,9 +251,23 @@ pub async fn list_profiles(
             if output.success() {
                 if output.stdout.contains("Currently active on node") || output.stdout.contains("Currently active on this node") {
                     profile.status = HaProfileStatus::Active;
+                    
+                    if output.stdout.contains("Currently active on this node") {
+                        profile.active_node = Some(gethostname::gethostname().to_string_lossy().to_string());
+                    } else if let Some(line) = output.stdout.lines().find(|l| l.contains("Currently active on node")) {
+                         // Robust parsing: split by "Currently active on node" and clean up the result
+                         let parts: Vec<&str> = line.split("Currently active on node").collect();
+                         if let Some(suffix) = parts.get(1) {
+                             let node = suffix.trim_start_matches(|c| c == ':' || c == ' ' || c == '\'').trim_end_matches('\'').trim();
+                             if !node.is_empty() {
+                                 profile.active_node = Some(node.to_string());
+                             }
+                         }
+                    }
                 } else {
                     // Managed by reactor but not active -> Standby
                     profile.status = HaProfileStatus::Standby;
+                    profile.active_node = None;
                 }
             }
         }
@@ -284,6 +298,33 @@ pub async fn get_profile(
         if profile.mount_point.is_empty() {
             if let Some(mount_pt) = parse_mount_point_from_config(&content) {
                 profile.mount_point = mount_pt;
+            }
+        }
+    }
+
+    // Check active status via drbd-reactorctl
+    let cmd = format!("drbd-reactorctl status {} 2>/dev/null", profile.name);
+    if let Ok(output) = run_shell_command(&cmd, &format!("Check status for {}", profile.name)).await {
+        if output.success() {
+            if output.stdout.contains("Currently active on node") || output.stdout.contains("Currently active on this node") {
+                profile.status = HaProfileStatus::Active;
+                
+                if output.stdout.contains("Currently active on this node") {
+                    profile.active_node = Some(gethostname::gethostname().to_string_lossy().to_string());
+                } else if let Some(line) = output.stdout.lines().find(|l| l.contains("Currently active on node")) {
+                     // Robust parsing: split by "Currently active on node" and clean up the result
+                     let parts: Vec<&str> = line.split("Currently active on node").collect();
+                     if let Some(suffix) = parts.get(1) {
+                         let node = suffix.trim_start_matches(|c| c == ':' || c == ' ' || c == '\'').trim_end_matches('\'').trim();
+                         if !node.is_empty() {
+                             profile.active_node = Some(node.to_string());
+                         }
+                     }
+                }
+            } else {
+                // Managed by reactor but not active -> Standby
+                profile.status = HaProfileStatus::Standby;
+                profile.active_node = None;
             }
         }
     }
@@ -1129,6 +1170,7 @@ pub async fn create_profile(
             on_demote_failure: req.on_demote_failure.clone(),
         },
         status: HaProfileStatus::Unknown,
+        active_node: None,
         generated_units: generated_units.clone(),
         nfs: req.nfs.clone(),
         iscsi: req.iscsi.clone(),
@@ -1559,12 +1601,10 @@ pub async fn delete_profile(
             .find(|n| n.hostname == node_name || n.id == node_name)
         {
             if let Ok(Some(credential)) = get_node_credential(&state, node).await {
-                let remote_sys = RemoteSystemdController::new(state.ssh_manager.clone());
-
                 // Remove VIP if configured
                 if let Some(vip) = &profile.vip {
                     let vip_cmd = format!(
-                        "ip addr del {}/{} dev {} 2>/dev/null || true",
+                        "sudo ip addr del {}/{} dev {} 2>/dev/null || true",
                         vip.address, vip.netmask, vip.interface
                     );
                     let _ = state
@@ -1579,6 +1619,19 @@ pub async fn delete_profile(
                         .await;
                 }
 
+                // Disable reactor for this profile first to prevent auto-restart
+                let disable_reactor_cmd = format!("sudo drbd-reactorctl disable {} 2>/dev/null || true", profile.name);
+                let _ = state
+                    .ssh_manager
+                    .execute(
+                         &node.ip,
+                         node.ssh_port,
+                         &node.ssh_user,
+                         &credential,
+                         &disable_reactor_cmd,
+                    )
+                    .await;
+
                 // Stop services
                 state.send_progress(
                     &operation_id,
@@ -1589,16 +1642,30 @@ pub async fn delete_profile(
                     false,
                     None,
                 );
+                
+                // Stop the reactor managed service explicitly if it exists
+                let stop_reactor_svc_cmd = format!("sudo systemctl stop drbd-services@{}.target 2>/dev/null || true", profile.name);
+                 let _ = state
+                    .ssh_manager
+                    .execute(
+                         &node.ip,
+                         node.ssh_port,
+                         &node.ssh_user,
+                         &credential,
+                         &stop_reactor_svc_cmd,
+                    )
+                    .await;
+
                 for service in profile.promoter.services.iter().rev() {
-                    if let Err(e) = remote_sys
-                        .stop(
+                    // Use manual execution with sudo instead of remote_sys.stop
+                    let stop_cmd = format!("sudo systemctl stop {}", service);
+                    if let Err(e) = state.ssh_manager.execute(
                             &node.ip,
                             node.ssh_port,
                             &node.ssh_user,
                             &credential,
-                            service,
-                        )
-                        .await
+                            &stop_cmd,
+                        ).await 
                     {
                         tracing::warn!(
                             "Failed to stop service {} on {}: {}",
@@ -1610,11 +1677,11 @@ pub async fn delete_profile(
                 }
 
                 // Wait for services
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
                 // Kill processes
                 let kill_cmd = format!(
-                    "for pid in $(lsof -t {} 2>/dev/null); do kill -9 $pid 2>/dev/null || true; done",
+                    "for pid in $(sudo lsof -t {} 2>/dev/null); do sudo kill -9 $pid 2>/dev/null || true; done",
                     profile.mount_point
                 );
                 let _ = state
@@ -1628,7 +1695,7 @@ pub async fn delete_profile(
                     )
                     .await;
 
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
                 // Unmount
                 state.send_progress(
@@ -1641,7 +1708,7 @@ pub async fn delete_profile(
                     None,
                 );
                 let umount_cmd = format!(
-                    "umount {} 2>/dev/null || umount -l {} 2>/dev/null || true",
+                    "sudo umount {} 2>/dev/null || sudo umount -l {} 2>/dev/null || true",
                     profile.mount_point, profile.mount_point
                 );
                 let _ = state
@@ -1667,7 +1734,7 @@ pub async fn delete_profile(
                     false,
                     None,
                 );
-                let demote_cmd = format!("drbdadm secondary {}", profile.resource_name);
+                let demote_cmd = format!("sudo drbdadm secondary {}", profile.resource_name);
                 let _ = state
                     .ssh_manager
                     .execute(
@@ -1678,6 +1745,23 @@ pub async fn delete_profile(
                         &demote_cmd,
                     )
                     .await;
+                
+                // Finally reload systemd to pick up changes (overrides removed later by cluster_sync)
+                // But we should probably do it after cluster_sync. 
+                // However, doing it here ensures the stops are clean.
+                // We will rely on cluster_sync to do the final cleanup, but we can do a reload here too just in case.
+                let reload_cmd = "sudo systemctl daemon-reload";
+                let _ = state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        reload_cmd,
+                    )
+                    .await;
+
             } else {
                 tracing::warn!(
                     "No credential for remote node {}, cannot deactivate",
@@ -3458,7 +3542,7 @@ pub async fn evict_profile(
         .ok_or_else(|| AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
 
     // Build drbd-reactorctl evict command
-    let mut evict_cmd = format!("drbd-reactorctl evict {}", profile.name);
+    let mut evict_cmd = format!("sudo drbd-reactorctl evict {}", profile.name);
 
     if request.delay != 20 {
         evict_cmd.push_str(&format!(" --delay {}", request.delay));
@@ -3497,14 +3581,18 @@ pub async fn evict_profile(
                         // Active on local node
                         Some(gethostname::gethostname().to_string_lossy().to_string())
                     } else if line.contains("Currently active on node") {
-                        // Extract node name between single quotes
-                        let start = line.find('?')?;
-                        let end = line.rfind('?')?;
-                        if start < end {
-                            Some(line[start + 1..end].to_string())
-                        } else {
-                            None
-                        }
+                         // Robust parsing: split by "Currently active on node" and clean up the result
+                         let parts: Vec<&str> = line.split("Currently active on node").collect();
+                         if let Some(suffix) = parts.get(1) {
+                             let node = suffix.trim_start_matches(|c| c == ':' || c == ' ' || c == '\'').trim_end_matches('\'').trim();
+                             if !node.is_empty() {
+                                 Some(node.to_string())
+                             } else {
+                                 None
+                             }
+                         } else {
+                             None
+                         }
                     } else {
                         None
                     }

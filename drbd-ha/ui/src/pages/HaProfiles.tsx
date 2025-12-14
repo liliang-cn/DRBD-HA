@@ -20,12 +20,14 @@ import {
   Space,
   Table,
   Tag,
+  Typography,
 } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { haProfilesApi } from '@/api';
 import { ImportProfilesModal } from '@/components/ha/ImportProfilesModal';
 import { useHaProfilesStore } from '@/stores/ha-profiles';
+import { useNotificationsStore } from '@/stores/notifications';
 import { useResourcesStore } from '@/stores/resources';
 import type { HaProfile, HaProfileStatus, VipConfig } from '@/types';
 
@@ -61,10 +63,51 @@ export function HaProfiles() {
     useState<HaProfile | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
 
+  // Deletion Progress State
+  const [progressModalOpen, setProgressModalOpen] = useState(false);
+  const [deletionLogs, setDeletionLogs] = useState<string[]>([]);
+  const [deletingProfileName, setDeletingProfileName] = useState<string | null>(
+    null,
+  );
+  const logsEndRef = useRef<HTMLDivElement>(null);
+  const progressEvents = useNotificationsStore((s) => s.progress);
+  const lastLogCountRef = useRef(0);
+
   useEffect(() => {
     fetch();
     fetchResources();
   }, [fetch, fetchResources]);
+
+  // Scroll logs to bottom
+  useEffect(() => {
+    if (progressModalOpen) {
+      logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [deletionLogs, progressModalOpen]);
+
+  // Listen for deletion progress
+  useEffect(() => {
+    if (!deletingProfileName || !progressModalOpen) return;
+
+    const relevantProgress = progressEvents.filter(
+      (p) =>
+        p.resource === deletingProfileName &&
+        p.operation === 'delete_ha_profile',
+    );
+
+    if (relevantProgress.length > lastLogCountRef.current) {
+      const newEvents = relevantProgress.slice(lastLogCountRef.current);
+      newEvents.forEach((e) => {
+        if (e.message) {
+          setDeletionLogs((prev) => [
+            ...prev,
+            `[${new Date().toLocaleTimeString()}] ${e.message}`,
+          ]);
+        }
+      });
+      lastLogCountRef.current = relevantProgress.length;
+    }
+  }, [progressEvents, deletingProfileName, progressModalOpen]);
 
   const openDeleteModal = (profile: HaProfile) => {
     setProfileToDelete(profile);
@@ -74,23 +117,55 @@ export function HaProfiles() {
 
   const handleDelete = async () => {
     if (!profileToDelete) return;
+    
+    // Switch to progress modal
+    setDeletingProfileName(profileToDelete.name);
+    setDeletionLogs([]);
+    lastLogCountRef.current = 0;
+    setDeleteModalOpen(false);
+    setProgressModalOpen(true);
     setDeleting(true);
+
     try {
+      setDeletionLogs([`[${new Date().toLocaleTimeString()}] Requesting deletion...`]);
       await haProfilesApi.delete(profileToDelete.id, deleteResource);
+      
+      setDeletionLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Deletion completed successfully.`]);
       message.success(
         deleteResource
           ? 'HA Profile and DRBD resource deleted'
           : 'HA Profile deleted',
       );
-      setDeleteModalOpen(false);
+      
+      // Keep modal open for a moment to show success
+      setTimeout(() => {
+        setProgressModalOpen(false);
+        setDeletingProfileName(null);
+        setProfileToDelete(null);
+        fetch();
+        fetchResources();
+      }, 1500);
+
+    } catch (err) {
+      const errMsg = (err as { message: string }).message;
+      setDeletionLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ERROR: ${errMsg}`]);
+      message.error(errMsg);
+      // Keep modal open on error so user can see logs
+      setDeleting(false); // Stop loading spinner but keep modal
+    } finally {
+       // If success, deleting is set to false in timeout
+       // If error, set to false immediately
+       if (!deletingProfileName) setDeleting(false); 
+    }
+  };
+
+  const handleCloseProgressModal = () => {
+      setProgressModalOpen(false);
+      setDeletingProfileName(null);
       setProfileToDelete(null);
+      setDeleting(false);
       fetch();
       fetchResources();
-    } catch (err) {
-      message.error((err as { message: string }).message);
-    } finally {
-      setDeleting(false);
-    }
   };
 
   const handleViewStatus = async (profile: HaProfile) => {
@@ -517,6 +592,37 @@ export function HaProfiles() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Deletion Progress Modal */}
+      <Modal
+        title={
+            <span>
+                <LoadingOutlined style={{ marginRight: 8 }} />
+                Deleting Profile {deletingProfileName}
+            </span>
+        }
+        open={progressModalOpen}
+        onCancel={handleCloseProgressModal}
+        footer={[
+             <Button key="close" onClick={handleCloseProgressModal} disabled={deleting}>
+                Close
+             </Button>
+        ]}
+        width={600}
+        closable={!deleting}
+        maskClosable={!deleting}
+      >
+        <div className="h-[300px] overflow-y-auto bg-gray-50 p-4 rounded font-mono text-xs border border-gray-200">
+             {deletionLogs.length === 0 ? (
+                 <div className="text-gray-400 text-center mt-20">Waiting for logs...</div>
+             ) : (
+                 deletionLogs.map((log, i) => (
+                     <div key={i} className="mb-1 text-gray-700">{log}</div>
+                 ))
+             )}
+             <div ref={logsEndRef} />
+        </div>
       </Modal>
 
       {/* Add VIP Modal */}

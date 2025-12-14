@@ -77,6 +77,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const [logs, setLogs] = useState<string[]>([]);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const lastLogCountRef = useRef(0);
+  const generatedPortRef = useRef<number | null>(null);
 
   const addLog = useCallback((msg: string) => {
     setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
@@ -86,6 +87,13 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
+
+  // Reset generated port when leaving step 1
+  useEffect(() => {
+    if (step !== 1) {
+      generatedPortRef.current = null;
+    }
+  }, [step]);
 
   useEffect(() => {
     fetchNodes();
@@ -116,10 +124,16 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       );
       const maxMinor = usedMinors.length > 0 ? Math.max(...usedMinors) : -1;
       const nextMinor = maxMinor + 1;
+      
       // Random port between 7000-8000 as requested
-      const nextPort = Math.floor(Math.random() * (8000 - 7000 + 1)) + 7000;
+      // Use ref to ensure we only generate it once per step entry
+      if (generatedPortRef.current === null) {
+        const nextPort = Math.floor(Math.random() * (8000 - 7000 + 1)) + 7000;
+        generatedPortRef.current = nextPort;
+        resourceForm.setFieldsValue({ port: nextPort });
+      }
 
-      resourceForm.setFieldsValue({ port: nextPort, minor: nextMinor });
+      resourceForm.setFieldsValue({ minor: nextMinor });
     }
     if (step === 2) {
       // Refresh resources list when entering step 2
@@ -377,7 +391,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         const result = await haProfilesApi.create(request);
         setCreatedProfileId(result.profile.id);
         setCreatedProfileName(result.profile.name);
-        setGeneratedConfig(result.profile.generated_config || null);
+        setGeneratedConfig(result.promoter_config_content || null);
         addLog(`HA Profile '${result.profile.name}' created successfully`);
 
         setLoading(false);
@@ -571,45 +585,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
                     ) : null}
                   </div>
         
-                  {/* Creation Progress Modal */}
-                  <Modal
-                    title={
-                      <div className="flex items-center gap-2">
-                        <LoadingOutlined spin />
-                        <span>Creating HA Profile...</span>
-                      </div>
-                    }
-                    open={step === 2 && loading}
-                    footer={null}
-                    closable={false}
-                    maskClosable={false}
-                  >
-                    <div className="space-y-4 max-h-[300px] overflow-y-auto py-2">
-                      <Typography.Text type="secondary" className="block mb-2">
-                        Please wait while we configure your HA profile. This may take a
-                        minute...
-                      </Typography.Text>
-                      
-                      <div className="flex flex-col gap-2">
-                        {progressSteps.map((s, idx) => (
-                          <div key={idx} className="flex items-start gap-2 text-sm">
-                            {s.done ? (
-                              <CheckCircleOutlined className="text-green-500 mt-1 shrink-0" />
-                            ) : (
-                              <LoadingOutlined className="text-blue-500 mt-1 shrink-0" />
-                            )}
-                            <span
-                              className={
-                                s.done ? 'text-gray-700' : 'text-blue-600 font-medium'
-                              }
-                            >
-                              {s.message}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </Modal>
+
                 </div>
         {/* Right Side Log Panel */}
         <div className="w-80 shrink-0 bg-white p-4 rounded-lg shadow border border-gray-100 sticky top-8 h-[calc(100vh-6rem)] flex flex-col">
@@ -619,7 +595,27 @@ export function Wizard({ mode = 'service' }: WizardProps) {
            </div>
            
            <div className="flex-1 overflow-y-auto space-y-2 font-mono text-xs">
-             {logs.length === 0 ? (
+             {progressSteps.length > 0 && (
+                <div className="flex flex-col gap-2 mb-4">
+                    {progressSteps.map((s, idx) => (
+                        <div key={idx} className="flex items-start gap-2 text-sm">
+                            {s.done ? (
+                                <CheckCircleOutlined className="text-green-500 mt-1 shrink-0" />
+                            ) : (
+                                <LoadingOutlined className="text-blue-500 mt-1 shrink-0" />
+                            )}
+                            <span
+                                className={
+                                    s.done ? 'text-gray-700' : 'text-blue-600 font-medium'
+                                }
+                            >
+                                {s.message}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+             {logs.length === 0 && progressSteps.length === 0 ? (
                <div className="text-gray-400 text-center mt-10">No logs yet</div>
              ) : (
                logs.map((log, i) => (

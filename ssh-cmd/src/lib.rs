@@ -102,7 +102,7 @@ impl SshManager {
                 command.to_string()
             };
 
-            tracing::debug!(
+            tracing::info!(
                 "SSH execute: host={}, port={}, user={}, command='{}'",
                 host,
                 port,
@@ -190,7 +190,6 @@ impl SshManager {
             "tee",
             "dd",
             "mkfs",
-            "mkdir",
             "mount",
             "umount",
             "ip",
@@ -199,6 +198,7 @@ impl SshManager {
             "targetcli",
             "nvme",
             "mv",    // Moving files in /etc requires sudo
+            "mkdir", // Creating directories in /etc requires sudo
             "cp",    // Copying files in /etc requires sudo
             "rm",    // Removing files in /etc requires sudo
             "chown", // Changing ownership requires sudo
@@ -258,13 +258,6 @@ impl SshManager {
         let safe_temp_path = escape_single_quotes(&temp_path);
         let safe_path = escape_single_quotes(path);
 
-        tracing::debug!(
-            "Writing file to remote host: host={}, path={}, content_len={} bytes",
-            host,
-            path,
-            content.len()
-        );
-
         // Step 1: Write content to temp file (doesn't need special privileges)
         let encoded = base64_encode(content);
         let safe_encoded = escape_single_quotes(&encoded);
@@ -284,13 +277,6 @@ impl SshManager {
             .execute(host, port, user, credential, &write_cmd)
             .await?;
         if !output.success() {
-            tracing::error!(
-                "Failed to write temp file {} on host {} (exit_code={}): stderr='{}'",
-                temp_path,
-                host,
-                output.exit_code,
-                output.stderr.trim()
-            );
             return Err(SshError::Execution(format!(
                 "Failed to write temp file {} (exit_code={}): stderr='{}'",
                 temp_path,
@@ -298,12 +284,6 @@ impl SshManager {
                 output.stderr.trim()
             )));
         }
-
-        tracing::debug!(
-            "Successfully wrote temp file {} on host {}",
-            temp_path,
-            host
-        );
 
         // Step 2: Move temp file to target location with sudo
         let move_cmd = format!("mv '{}' '{}'", safe_temp_path, safe_path);
@@ -319,15 +299,6 @@ impl SshManager {
             .execute(host, port, user, credential, &move_cmd)
             .await?;
         if !output.success() {
-            tracing::error!(
-                "Failed to move file from {} to {} on host {} (exit_code={}): stderr='{}'",
-                temp_path,
-                path,
-                host,
-                output.exit_code,
-                output.stderr.trim()
-            );
-
             // Cleanup temp file on error
             let _ = self
                 .execute(
@@ -346,12 +317,6 @@ impl SshManager {
                 output.stderr.trim()
             )));
         }
-
-        tracing::debug!(
-            "Successfully wrote file to remote host: host={}, path={}",
-            host,
-            path
-        );
 
         Ok(())
     }

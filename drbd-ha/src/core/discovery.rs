@@ -130,7 +130,6 @@ impl ReactorDiscovery {
                                 services,
                                 stop_on_demote,
                                 on_demote_failure,
-                                ..Default::default()
                             },
                             status: HaProfileStatus::Unknown,
                             active_node: None,
@@ -138,7 +137,6 @@ impl ReactorDiscovery {
                             nfs: nfs_config,
                             iscsi: iscsi_config,
                             nvmeof: nvmeof_config,
-                            generated_config: None,
                         };
                         discovered.push(profile);
                     }

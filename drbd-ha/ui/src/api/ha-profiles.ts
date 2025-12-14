@@ -11,7 +11,7 @@ export const haProfilesApi = {
   get: (id: string) => api.get<HaProfile>(`/ha/profiles/${id}`),
 
   create: (data: CreateHaProfileRequest) =>
-    api.post<{ profile: HaProfile; config_path: string; message: string }>(
+    api.post<{ profile: HaProfile; config_path: string; message: string; promoter_config_content?: string }>(
       '/ha/profiles',
       data,
     ),

@@ -63,7 +63,7 @@ pub struct HaProfile {
     /// Profile status
     #[serde(default)]
     pub status: HaProfileStatus,
-    /// Currently active node (runtime only, not persisted)
+    /// The node where the service is currently active
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_node: Option<String>,
     /// Generated systemd unit information
@@ -74,9 +74,6 @@ pub struct HaProfile {
     pub nfs: Option<NfsConfig>,
     pub iscsi: Option<IscsiConfig>,
     pub nvmeof: Option<NvmeOfConfig>,
-    /// The generated drbd-reactor TOML configuration content
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub generated_config: Option<String>,
 }
 
 /// Promoter settings for drbd-reactor
@@ -90,35 +87,6 @@ pub struct PromoterSettings {
     /// Action on demote failure: "reboot", "force", or "ignore"
     #[serde(default = "default_on_demote_failure")]
     pub on_demote_failure: String,
-    
-    // --- Advanced Promoter Configuration ---
-
-    /// Dependency strictness for services (e.g., "Requires", "Wants", "Requisite", "BindsTo")
-    /// Default: "Requires"
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dependencies_as: Option<String>,
-
-    /// Dependency strictness for the generated target (e.g., "Requires", "Wants")
-    /// Default: "Requires"
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub target_as: Option<String>,
-
-    /// Action on quorum loss (e.g., "shutdown", "freeze")
-    /// Default: "shutdown" (implicit in drbd-reactor if not set)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_quorum_loss: Option<String>,
-
-    /// List of preferred nodes for running the service
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub preferred_nodes: Option<Vec<String>>,
-
-    /// Policy for preferred nodes: "always" or "start-only"
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub preferred_nodes_policy: Option<String>,
-
-    /// Factor to scale sleep time before promotion (default: 1)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sleep_before_promote_factor: Option<u32>,
 }
 
 impl Default for PromoterSettings {
@@ -127,12 +95,6 @@ impl Default for PromoterSettings {
             services: Vec::new(),
             stop_on_demote: true,
             on_demote_failure: "reboot".to_string(),
-            dependencies_as: None,
-            target_as: None,
-            on_quorum_loss: None,
-            preferred_nodes: None,
-            preferred_nodes_policy: None,
-            sleep_before_promote_factor: None,
         }
     }
 }
@@ -200,28 +162,6 @@ pub struct CreateHaProfileRequest {
     /// Action on demote failure: "reboot", "force", or "ignore"
     #[serde(default = "default_on_demote_failure")]
     pub on_demote_failure: String,
-    
-    // --- Advanced Promoter Configuration ---
-    
-    /// Dependency strictness for services
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dependencies_as: Option<String>,
-    /// Dependency strictness for the generated target
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub target_as: Option<String>,
-    /// Action on quorum loss
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_quorum_loss: Option<String>,
-    /// List of preferred nodes
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub preferred_nodes: Option<Vec<String>>,
-    /// Policy for preferred nodes
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub preferred_nodes_policy: Option<String>,
-    /// Factor to scale sleep time before promotion
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sleep_before_promote_factor: Option<u32>,
-
     /// Whether to automatically disable the managed services (systemctl disable)
     /// This prevents services from starting before DRBD is mounted after reboot
     #[serde(default = "default_true")]
