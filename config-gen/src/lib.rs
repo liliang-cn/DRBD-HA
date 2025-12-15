@@ -77,7 +77,7 @@ pub struct PromoterPluginConfig {
     pub stop_services_on_exit: bool,
     pub on_drbd_demote_failure: String,
     pub vip: Option<VipPluginConfig>,
-    
+
     // --- Advanced Options ---
     pub dependencies_as: Option<String>,
     pub target_as: Option<String>,
@@ -318,7 +318,7 @@ mod tests {
         assert!(output
             .contains("ocf:heartbeat:IPaddr2 r0_vip ip=192.168.1.100 cidr_netmask=24 nic=eth0"));
         assert!(output.contains("runner = \"systemd\""));
-        
+
         // Check new fields
         assert!(output.contains("dependencies-as = \"Wants\""));
         assert!(output.contains("target-as = \"Requires\""));

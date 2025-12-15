@@ -97,3 +97,35 @@ impl ResourceStatus {
         None
     }
 }
+
+/// Detailed DRBD resource status (from drbdadm status)
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DrbdResourceStatus {
+    /// Resource name
+    pub resource: String,
+    /// Local role (Primary/Secondary)
+    pub role: String,
+    /// Local disk state (UpToDate/Inconsistent/DUnknown etc)
+    pub disk: String,
+    /// Whether the device is open (mounted)
+    pub open: bool,
+    /// Peer node statuses
+    pub peers: Vec<DrbdPeerStatus>,
+}
+
+/// Status of a DRBD peer node (from drbdadm status)
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DrbdPeerStatus {
+    /// Peer hostname
+    pub name: String,
+    /// Peer role (Primary/Secondary)
+    pub role: String,
+    /// Peer disk state
+    pub peer_disk: String,
+    /// Connection state (Connected/Connecting etc)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+    /// Replication state (Established/SyncSource/SyncTarget etc)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replication: Option<String>,
+}

@@ -10,6 +10,7 @@ use crate::models::{
     NodeStats, NodeStatus, ResourceStats, StorageStats,
 };
 use crate::state::AppState;
+use drbd_reactor_utils::DrbdReactorClient;
 
 /// GET /api/v1/dashboard/summary
 #[utoipa::path(
@@ -205,6 +206,44 @@ fn parse_drbd_summary(output: &str) -> (usize, usize, usize) {
     (total, healthy, degraded)
 }
 
+// Parse drbd-reactorctl status to extract HA service details
+async fn get_ha_service_details(profiles: &[HaProfile]) -> AppResult<Vec<HaServiceDetail>> {
+    let (statuses, _) = match DrbdReactorClient::status(None).await {
+        Ok(res) => res,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    let mut services = Vec::new();
+    let profile_map: std::collections::HashMap<String, &HaProfile> =
+        profiles.iter().map(|p| (p.name.clone(), p)).collect();
+
+    for status in statuses {
+        if let Some(profile) = profile_map.get(&status.name) {
+            let service_type = serde_json::to_string(&profile.ha_type)
+                .unwrap_or_else(|_| "generic".to_string())
+                .trim_matches('"')
+                .to_string();
+
+            services.push(HaServiceDetail {
+                name: status.name,
+                active_node: status.active_node.clone(),
+                status: if status.is_active {
+                    "active"
+                } else {
+                    "standby"
+                }
+                .to_string(),
+                service_type,
+                vip: profile.vip.as_ref().map(|v| v.address.clone()),
+                export_path: Some(profile.mount_point.clone()),
+                nodes: vec![], // Placeholder
+            });
+        }
+    }
+
+    Ok(services)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,153 +321,5 @@ r2 role:Secondary
         assert_eq!(total, 3);
         assert_eq!(healthy, 1); // Only r0 is healthy
         assert_eq!(degraded, 2);
-    }
-}
-
-// Parse drbd-reactorctl status to extract HA service details
-async fn get_ha_service_details(profiles: &[HaProfile]) -> AppResult<Vec<HaServiceDetail>> {
-    let output = run_shell_command("drbd-reactorctl status", "Get drbd-reactor status").await;
-
-    match output {
-        Ok(result) if result.success() => Ok(parse_ha_service_details(&result.stdout, profiles)),
-        _ => {
-            // If command fails, return empty list
-            Ok(Vec::new())
-        }
-    }
-}
-
-fn parse_ha_service_details(output: &str, profiles: &[HaProfile]) -> Vec<HaServiceDetail> {
-    let mut services = Vec::new();
-    let mut current_service: Option<String> = None;
-    let mut current_active_node: Option<String> = None;
-
-    // Create map for quick lookup
-    let profile_map: std::collections::HashMap<String, &HaProfile> =
-        profiles.iter().map(|p| (p.name.clone(), p)).collect();
-
-    for line in output.lines() {
-        // Match profile file paths: "/etc/drbd-reactor.d/mongodb-ha.toml:"
-        if line.contains("/etc/drbd-reactor.d/") && line.ends_with(':') {
-            // If we have a previous service, save it (only if in database)
-            if let Some(service_name) = current_service.take() {
-                if let Some(profile) = profile_map.get(&service_name) {
-                    let has_active_node = current_active_node.is_some();
-
-                    // Convert HaType to string by serializing (removes quotes)
-                    let service_type = serde_json::to_string(&profile.ha_type)
-                        .unwrap_or_else(|_| "generic".to_string())
-                        .trim_matches('"')
-                        .to_string();
-
-                    services.push(HaServiceDetail {
-                        name: service_name,
-                        active_node: current_active_node.take(),
-                        status: if has_active_node { "active" } else { "standby" }.to_string(),
-                        service_type,
-                        vip: profile.vip.as_ref().map(|v| v.address.clone()),
-                        export_path: Some(profile.mount_point.clone()),
-                        nodes: vec![], // Placeholder
-                    });
-                } else {
-                    current_active_node.take(); // Clear it even if not saving
-                }
-            }
-
-            // Extract service name from path
-            if let Some(filename) = line.rsplit('/').next() {
-                if let Some(name) = filename.strip_suffix(".toml:") {
-                    current_service = Some(name.to_string());
-                }
-            }
-        }
-
-        // Match lines like "Promoter: Currently active on node 'gui02'"
-        if line.contains("Promoter: Currently active on node") {
-            if let Some(start) = line.find('\'') {
-                if let Some(end) = line.rfind('\'') {
-                    if end > start {
-                        let node_name = &line[start + 1..end];
-                        current_active_node = Some(node_name.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    // Don't forget the last service (only if in database)
-    if let Some(service_name) = current_service {
-        if let Some(profile) = profile_map.get(&service_name) {
-            let has_active_node = current_active_node.is_some();
-
-            let service_type = serde_json::to_string(&profile.ha_type)
-                .unwrap_or_else(|_| "generic".to_string())
-                .trim_matches('"')
-                .to_string();
-
-            services.push(HaServiceDetail {
-                name: service_name,
-                active_node: current_active_node,
-                status: if has_active_node { "active" } else { "standby" }.to_string(),
-                service_type,
-                vip: profile.vip.as_ref().map(|v| v.address.clone()),
-                export_path: Some(profile.mount_point.clone()),
-                nodes: vec![], // Placeholder
-            });
-        }
-    }
-
-    services
-}
-
-#[cfg(test)]
-mod ha_service_tests {
-    use super::*;
-    use crate::models::{GeneratedUnits, HaProfileStatus, HaType, PromoterSettings};
-
-    fn create_mock_profile(name: &str) -> HaProfile {
-        HaProfile {
-            id: uuid::Uuid::new_v4().to_string(),
-            name: name.to_string(),
-            ha_type: HaType::Generic,
-            resource_name: "r0".to_string(),
-            mount_point: "/mnt".to_string(),
-            fs_type: "xfs".to_string(),
-            vip: None,
-            promoter: PromoterSettings::default(),
-            status: HaProfileStatus::Unknown,
-            generated_units: GeneratedUnits::default(),
-            nfs: None,
-            iscsi: None,
-            nvmeof: None,
-        }
-    }
-
-    #[test]
-    fn test_parse_ha_service_details() {
-        let output = r#"/etc/drbd-reactor.d/linstor_controller.toml:
-Promoter: Currently active on node 'gui02'
-/etc/drbd-reactor.d/mongodb-ha.toml:
-Promoter: Currently active on node 'gui02'
-/etc/drbd-reactor.d/mysql-ha.toml:
-Promoter: Currently active on node 'gui03'
-/etc/drbd-reactor.d/redis-ha.toml:
-Promoter: Currently active on node 'gui03'
-/etc/drbd-reactor.d/prometheus.toml:
-Prometheus: listening on 0.0.0.0:9942
-"#;
-        let profiles = vec![
-            create_mock_profile("linstor_controller"),
-            create_mock_profile("mongodb-ha"),
-            create_mock_profile("mysql-ha"),
-            create_mock_profile("redis-ha"),
-        ];
-
-        let details = parse_ha_service_details(output, &profiles);
-        assert_eq!(details.len(), 4); // prometheus should be filtered out
-        assert_eq!(details[0].name, "linstor_controller");
-        assert_eq!(details[0].active_node, Some("gui02".to_string()));
-        assert_eq!(details[3].name, "redis-ha");
-        assert_eq!(details[3].active_node, Some("gui03".to_string()));
     }
 }

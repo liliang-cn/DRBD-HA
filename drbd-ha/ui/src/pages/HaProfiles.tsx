@@ -117,7 +117,7 @@ export function HaProfiles() {
 
   const handleDelete = async () => {
     if (!profileToDelete) return;
-    
+
     // Switch to progress modal
     setDeletingProfileName(profileToDelete.name);
     setDeletionLogs([]);
@@ -127,16 +127,21 @@ export function HaProfiles() {
     setDeleting(true);
 
     try {
-      setDeletionLogs([`[${new Date().toLocaleTimeString()}] Requesting deletion...`]);
+      setDeletionLogs([
+        `[${new Date().toLocaleTimeString()}] Requesting deletion...`,
+      ]);
       await haProfilesApi.delete(profileToDelete.id, deleteResource);
-      
-      setDeletionLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Deletion completed successfully.`]);
+
+      setDeletionLogs((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] Deletion completed successfully.`,
+      ]);
       message.success(
         deleteResource
           ? 'HA Profile and DRBD resource deleted'
           : 'HA Profile deleted',
       );
-      
+
       // Keep modal open for a moment to show success
       setTimeout(() => {
         setProgressModalOpen(false);
@@ -145,27 +150,29 @@ export function HaProfiles() {
         fetch();
         fetchResources();
       }, 1500);
-
     } catch (err) {
       const errMsg = (err as { message: string }).message;
-      setDeletionLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ERROR: ${errMsg}`]);
+      setDeletionLogs((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] ERROR: ${errMsg}`,
+      ]);
       message.error(errMsg);
       // Keep modal open on error so user can see logs
       setDeleting(false); // Stop loading spinner but keep modal
     } finally {
-       // If success, deleting is set to false in timeout
-       // If error, set to false immediately
-       if (!deletingProfileName) setDeleting(false); 
+      // If success, deleting is set to false in timeout
+      // If error, set to false immediately
+      if (!deletingProfileName) setDeleting(false);
     }
   };
 
   const handleCloseProgressModal = () => {
-      setProgressModalOpen(false);
-      setDeletingProfileName(null);
-      setProfileToDelete(null);
-      setDeleting(false);
-      fetch();
-      fetchResources();
+    setProgressModalOpen(false);
+    setDeletingProfileName(null);
+    setProfileToDelete(null);
+    setDeleting(false);
+    fetch();
+    fetchResources();
   };
 
   const handleViewStatus = async (profile: HaProfile) => {
@@ -597,31 +604,39 @@ export function HaProfiles() {
       {/* Deletion Progress Modal */}
       <Modal
         title={
-            <span>
-                <LoadingOutlined style={{ marginRight: 8 }} />
-                Deleting Profile {deletingProfileName}
-            </span>
+          <span>
+            <LoadingOutlined style={{ marginRight: 8 }} />
+            Deleting Profile {deletingProfileName}
+          </span>
         }
         open={progressModalOpen}
         onCancel={handleCloseProgressModal}
         footer={[
-             <Button key="close" onClick={handleCloseProgressModal} disabled={deleting}>
-                Close
-             </Button>
+          <Button
+            key="close"
+            onClick={handleCloseProgressModal}
+            disabled={deleting}
+          >
+            Close
+          </Button>,
         ]}
         width={600}
         closable={!deleting}
         maskClosable={!deleting}
       >
         <div className="h-[300px] overflow-y-auto bg-gray-50 p-4 rounded font-mono text-xs border border-gray-200">
-             {deletionLogs.length === 0 ? (
-                 <div className="text-gray-400 text-center mt-20">Waiting for logs...</div>
-             ) : (
-                 deletionLogs.map((log, i) => (
-                     <div key={i} className="mb-1 text-gray-700">{log}</div>
-                 ))
-             )}
-             <div ref={logsEndRef} />
+          {deletionLogs.length === 0 ? (
+            <div className="text-gray-400 text-center mt-20">
+              Waiting for logs...
+            </div>
+          ) : (
+            deletionLogs.map((log, i) => (
+              <div key={i} className="mb-1 text-gray-700">
+                {log}
+              </div>
+            ))
+          )}
+          <div ref={logsEndRef} />
         </div>
       </Modal>
 

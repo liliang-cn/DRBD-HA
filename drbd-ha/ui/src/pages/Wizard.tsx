@@ -124,7 +124,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       );
       const maxMinor = usedMinors.length > 0 ? Math.max(...usedMinors) : -1;
       const nextMinor = maxMinor + 1;
-      
+
       // Random port between 7000-8000 as requested
       // Use ref to ensure we only generate it once per step entry
       if (generatedPortRef.current === null) {
@@ -160,13 +160,13 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
   // Reset log count when target changes
   useEffect(() => {
-      lastLogCountRef.current = 0;
+    lastLogCountRef.current = 0;
   }, [createdProfileName, creatingProfileName]);
 
   // Listen to SSE progress events
   useEffect(() => {
     const targetName = createdProfileName || creatingProfileName;
-    
+
     // We want to listen if:
     // 1. We are Activating (step === 4) AND createdProfileName is set
     // 2. We are Creating (step === 2) AND creatingProfileName is set
@@ -182,22 +182,24 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
     if (relevantProgress.length > 0) {
       // Update Progress Steps for Modal/Activation View
-      const newSteps = relevantProgress.map(p => ({
+      const newSteps = relevantProgress
+        .map((p) => ({
           message: p.message,
-          done: p.completed
-      })).filter(s => s.message);
+          done: p.completed,
+        }))
+        .filter((s) => s.message);
 
       if (newSteps.length > 0) {
-          setProgressSteps(newSteps);
+        setProgressSteps(newSteps);
       }
-      
+
       // Add to Logs
       if (relevantProgress.length > lastLogCountRef.current) {
-         const newEvents = relevantProgress.slice(lastLogCountRef.current);
-         newEvents.forEach(e => {
-             if (e.message) addLog(e.message);
-         });
-         lastLogCountRef.current = relevantProgress.length;
+        const newEvents = relevantProgress.slice(lastLogCountRef.current);
+        newEvents.forEach((e) => {
+          if (e.message) addLog(e.message);
+        });
+        lastLogCountRef.current = relevantProgress.length;
       }
 
       const latest = relevantProgress[relevantProgress.length - 1];
@@ -219,7 +221,9 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
       if (allServicesRunning && hasDrbdRole) {
         setActivationStatus('success');
-        addLog('Service activation confirmed: All services running and DRBD is Primary');
+        addLog(
+          'Service activation confirmed: All services running and DRBD is Primary',
+        );
         return;
       }
 
@@ -231,7 +235,9 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       } else {
         if (status.active_node) {
           setActivationStatus('success');
-          addLog(`Service activation successful on node: ${status.active_node}`);
+          addLog(
+            `Service activation successful on node: ${status.active_node}`,
+          );
         } else {
           setActivationStatus('error');
           setActivationError('Services did not start within expected time');
@@ -268,18 +274,18 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
         setLoading(true);
         addLog(`Starting DRBD resource creation: ${values.name}`);
-        
+
         await resourcesApi.create(values);
         message.success('DRBD resource created');
         addLog(`DRBD resource '${values.name}' created successfully`);
-        
+
         await fetchResources();
         try {
           addLog(`Initializing resource '${values.name}'...`);
           await resourcesApi.init(values.name);
           message.success('Resource initialized');
           addLog(`Resource '${values.name}' initialized`);
-          
+
           const fsType = values.fs_type || 'xfs';
           try {
             addLog(`Creating filesystem (${fsType}) on '${values.name}'...`);
@@ -287,12 +293,14 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             message.success(`Filesystem (${fsType}) created`);
             addLog(`Filesystem (${fsType}) created successfully`);
           } catch (mkfsErr) {
-            const errMsg = (mkfsErr as { message?: string }).message || 'unknown error';
+            const errMsg =
+              (mkfsErr as { message?: string }).message || 'unknown error';
             message.warning(`Filesystem creation skipped: ${errMsg}`);
             addLog(`Warning: Filesystem creation skipped: ${errMsg}`);
           }
         } catch (initErr) {
-          const errMsg = (initErr as { message?: string }).message || 'unknown error';
+          const errMsg =
+            (initErr as { message?: string }).message || 'unknown error';
           message.warning(`Resource initialization skipped: ${errMsg}`);
           addLog(`Warning: Resource initialization skipped: ${errMsg}`);
         }
@@ -523,109 +531,116 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-[1400px] mx-auto px-4 flex gap-6 items-start">
-                {/* Main Wizard Area */}
-                <div className="flex-1 max-w-5xl bg-white p-8 rounded-lg shadow">
-                  <div className="text-center mb-8">
-                    <RocketOutlined className="text-4xl text-blue-500 mb-2" />
-                    <h1 className="text-2xl font-bold">
-                      {mode === 'storage'
-                        ? 'Storage Sharing Wizard'
-                        : 'HA Service Wizard'}
-                    </h1>
-                    <p className="text-gray-500">
-                      {mode === 'storage'
-                        ? 'Configure NFS, iSCSI, or NVMe-oF sharing'
-                        : 'Configure high availability for application services'}
-                    </p>
-                  </div>
-        
-                  <Steps
-                    current={step}
-                    className="mb-8 max-w-3xl mx-auto"
-                    items={[
-                      { title: 'Nodes', description: 'Configure cluster nodes' },
-                      { title: 'Storage', description: 'Configure DRBD storage' },
-                      {
-                        title: 'HA',
-                        description:
-                          mode === 'storage' ? 'Configure Sharing' : 'Define HA services',
-                      },
-                      { title: 'Preview', description: 'Review configuration' },
-                      { title: 'Activate', description: 'Deploy and start' },
-                    ]}
-                  />
-        
-                  {renderStepContent()}
-        
-                  <div
-                    className={`flex mt-8 max-w-4xl mx-auto ${
-                      activationStatus === 'success' && step === 4
-                        ? 'justify-center'
-                        : 'justify-between'
-                    }`}
-                  >
-                    {step < 4 && activationStatus !== 'success' && (
-                      <Button
-                        icon={<ArrowLeftOutlined />}
-                        onClick={step === 0 ? () => navigate('/') : handlePrev}
-                      >
-                        {step === 0 ? 'Cancel' : 'Previous'}
-                      </Button>
-                    )}
-        
-                    {step < 4 ? (
-                      <Button
-                        type="primary"
-                        icon={<ArrowRightOutlined />}
-                        onClick={handleNext}
-                        loading={loading}
-                      >
-                        {step === 3 ? 'Activate' : 'Next'}
-                      </Button>
-                    ) : null}
-                  </div>
-        
+        {/* Main Wizard Area */}
+        <div className="flex-1 max-w-5xl bg-white p-8 rounded-lg shadow">
+          <div className="text-center mb-8">
+            <RocketOutlined className="text-4xl text-blue-500 mb-2" />
+            <h1 className="text-2xl font-bold">
+              {mode === 'storage'
+                ? 'Storage Sharing Wizard'
+                : 'HA Service Wizard'}
+            </h1>
+            <p className="text-gray-500">
+              {mode === 'storage'
+                ? 'Configure NFS, iSCSI, or NVMe-oF sharing'
+                : 'Configure high availability for application services'}
+            </p>
+          </div>
 
-                </div>
+          <Steps
+            current={step}
+            className="mb-8 max-w-3xl mx-auto"
+            items={[
+              { title: 'Nodes', description: 'Configure cluster nodes' },
+              { title: 'Storage', description: 'Configure DRBD storage' },
+              {
+                title: 'HA',
+                description:
+                  mode === 'storage'
+                    ? 'Configure Sharing'
+                    : 'Define HA services',
+              },
+              { title: 'Preview', description: 'Review configuration' },
+              { title: 'Activate', description: 'Deploy and start' },
+            ]}
+          />
+
+          {renderStepContent()}
+
+          <div
+            className={`flex mt-8 max-w-4xl mx-auto ${
+              activationStatus === 'success' && step === 4
+                ? 'justify-center'
+                : 'justify-between'
+            }`}
+          >
+            {step < 4 && activationStatus !== 'success' && (
+              <Button
+                icon={<ArrowLeftOutlined />}
+                onClick={step === 0 ? () => navigate('/') : handlePrev}
+              >
+                {step === 0 ? 'Cancel' : 'Previous'}
+              </Button>
+            )}
+
+            {step < 4 ? (
+              <Button
+                type="primary"
+                icon={<ArrowRightOutlined />}
+                onClick={handleNext}
+                loading={loading}
+              >
+                {step === 3 ? 'Activate' : 'Next'}
+              </Button>
+            ) : null}
+          </div>
+        </div>
         {/* Right Side Log Panel */}
         <div className="w-80 shrink-0 bg-white p-4 rounded-lg shadow border border-gray-100 sticky top-8 h-[calc(100vh-6rem)] flex flex-col">
-           <div className="mb-4 pb-2 border-b border-gray-100 flex justify-between items-center">
-             <Typography.Title level={5} className="!mb-0">Operation Logs</Typography.Title>
-             <Button size="small" type="text" onClick={() => setLogs([])}>Clear</Button>
-           </div>
-           
-           <div className="flex-1 overflow-y-auto space-y-2 font-mono text-xs">
-             {progressSteps.length > 0 && (
-                <div className="flex flex-col gap-2 mb-4">
-                    {progressSteps.map((s, idx) => (
-                        <div key={idx} className="flex items-start gap-2 text-sm">
-                            {s.done ? (
-                                <CheckCircleOutlined className="text-green-500 mt-1 shrink-0" />
-                            ) : (
-                                <LoadingOutlined className="text-blue-500 mt-1 shrink-0" />
-                            )}
-                            <span
-                                className={
-                                    s.done ? 'text-gray-700' : 'text-blue-600 font-medium'
-                                }
-                            >
-                                {s.message}
-                            </span>
-                        </div>
-                    ))}
-                </div>
+          <div className="mb-4 pb-2 border-b border-gray-100 flex justify-between items-center">
+            <Typography.Title level={5} className="!mb-0">
+              Operation Logs
+            </Typography.Title>
+            <Button size="small" type="text" onClick={() => setLogs([])}>
+              Clear
+            </Button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-2 font-mono text-xs">
+            {progressSteps.length > 0 && (
+              <div className="flex flex-col gap-2 mb-4">
+                {progressSteps.map((s, idx) => (
+                  <div key={idx} className="flex items-start gap-2 text-sm">
+                    {s.done ? (
+                      <CheckCircleOutlined className="text-green-500 mt-1 shrink-0" />
+                    ) : (
+                      <LoadingOutlined className="text-blue-500 mt-1 shrink-0" />
+                    )}
+                    <span
+                      className={
+                        s.done ? 'text-gray-700' : 'text-blue-600 font-medium'
+                      }
+                    >
+                      {s.message}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
-             {logs.length === 0 && progressSteps.length === 0 ? (
-               <div className="text-gray-400 text-center mt-10">No logs yet</div>
-             ) : (
-               logs.map((log, i) => (
-                 <div key={i} className="break-words leading-relaxed text-gray-600 border-b border-gray-50 pb-1 last:border-0">
-                   {log}
-                 </div>
-               ))
-             )}
-             <div ref={logsEndRef} />
-           </div>
+            {logs.length === 0 && progressSteps.length === 0 ? (
+              <div className="text-gray-400 text-center mt-10">No logs yet</div>
+            ) : (
+              logs.map((log, i) => (
+                <div
+                  key={i}
+                  className="break-words leading-relaxed text-gray-600 border-b border-gray-50 pb-1 last:border-0"
+                >
+                  {log}
+                </div>
+              ))
+            )}
+            <div ref={logsEndRef} />
+          </div>
         </div>
       </div>
     </div>

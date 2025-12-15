@@ -1,11 +1,16 @@
 pub mod cmd;
 pub mod error;
 pub mod models;
+pub mod parser;
 pub mod validator;
 
 pub use cmd::{parse_drbd_status, DrbdCmd};
 pub use error::{DrbdError, DrbdResult};
-pub use models::{ConnectionStatus, DeviceStatus, DrbdStatus, PeerDeviceStatus, ResourceStatus};
+pub use models::{
+    ConnectionStatus, DeviceStatus, DrbdPeerStatus, DrbdResourceStatus, DrbdStatus,
+    PeerDeviceStatus, ResourceStatus,
+};
+pub use parser::parse_drbdadm_status;
 
 #[cfg(test)]
 mod tests {

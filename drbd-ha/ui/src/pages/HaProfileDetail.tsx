@@ -251,7 +251,7 @@ export function HaProfileDetail() {
                 {profile.nvmeof.trsvcid}
               </Descriptions.Item>
               <Descriptions.Item label="Allowed NQNs">
-                 {profile.nvmeof.allowed_nqns.length > 0
+                {profile.nvmeof.allowed_nqns.length > 0
                   ? profile.nvmeof.allowed_nqns.join(', ')
                   : 'All'}
               </Descriptions.Item>
@@ -289,28 +289,36 @@ export function HaProfileDetail() {
           size="small"
         />
       </Card>
-      
-       {/* Configuration Visibility */}
-       <Card title="System Configuration" size="small">
-          <Descriptions bordered column={2}>
-              <Descriptions.Item label="Promoter Config Exists">
-                  {status?.config.promoter_config_exists ? <Tag color="green">Yes</Tag> : <Tag color="red">No</Tag>}
-              </Descriptions.Item>
-              <Descriptions.Item label="Promoter Config Path">
-                  {status?.config.promoter_config_path}
-              </Descriptions.Item>
-              <Descriptions.Item label="Reactor Service Running">
-                  {status?.config.reactor_running ? <Tag color="green">Yes</Tag> : <Tag color="red">No</Tag>}
-              </Descriptions.Item>
-          </Descriptions>
-           {status?.reactor_status_raw && (
-              <div className="mt-4">
-                  <h4 className="font-semibold mb-2">Raw Reactor Status</h4>
-                  <pre className="bg-gray-100 p-2 rounded text-xs overflow-auto max-h-60">
-                      {status.reactor_status_raw}
-                  </pre>
-              </div>
-          )}
+
+      {/* Configuration Visibility */}
+      <Card title="System Configuration" size="small">
+        <Descriptions bordered column={2}>
+          <Descriptions.Item label="Promoter Config Exists">
+            {status?.config.promoter_config_exists ? (
+              <Tag color="green">Yes</Tag>
+            ) : (
+              <Tag color="red">No</Tag>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Promoter Config Path">
+            {status?.config.promoter_config_path}
+          </Descriptions.Item>
+          <Descriptions.Item label="Reactor Service Running">
+            {status?.config.reactor_running ? (
+              <Tag color="green">Yes</Tag>
+            ) : (
+              <Tag color="red">No</Tag>
+            )}
+          </Descriptions.Item>
+        </Descriptions>
+        {status?.reactor_status_raw && (
+          <div className="mt-4">
+            <h4 className="font-semibold mb-2">Raw Reactor Status</h4>
+            <pre className="bg-gray-100 p-2 rounded text-xs overflow-auto max-h-60">
+              {status.reactor_status_raw}
+            </pre>
+          </div>
+        )}
       </Card>
     </div>
   );

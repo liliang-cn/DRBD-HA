@@ -1,5 +1,5 @@
 //! Systemd Mount Unit Generator
-//! 
+//!
 //! This module generates systemd .mount unit files for DRBD-backed mount points.
 //! These units are required for drbd-reactor's promoter plugin to properly mount
 //! DRBD devices when a resource becomes Primary.
