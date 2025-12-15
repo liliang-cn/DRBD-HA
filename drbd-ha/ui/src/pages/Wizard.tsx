@@ -58,6 +58,9 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const [creatingProfileName, setCreatingProfileName] = useState<string | null>(
     null,
   );
+  const [creatingResourceName, setCreatingResourceName] = useState<string | null>(
+    null,
+  );
 
   // Step 4: Activation state
   const [createdProfileId, setCreatedProfileId] = useState<string | null>(null);
@@ -76,7 +79,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   // Logs state
   const [logs, setLogs] = useState<string[]>([]);
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const lastMessageRef = useRef<string | null>(null);
+  const processedMessageIds = useRef<Set<string>>(new Set());
   const generatedPortRef = useRef<number | null>(null);
 
   const addLog = useCallback((msg: string) => {
@@ -160,29 +163,87 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
   // Reset log tracking when target changes
   useEffect(() => {
-    lastMessageRef.current = null;
-  }, [createdProfileName, creatingProfileName]);
+    processedMessageIds.current.clear();
+  }, [createdProfileName, creatingProfileName, creatingResourceName]);
 
   // Listen to SSE progress events
   useEffect(() => {
-    const targetName = createdProfileName || creatingProfileName;
+    // Determine target based on current step
+    let targetName = null;
+    let relevantOperations = [];
 
-    // We want to listen if:
-    // 1. We are Activating (step === 4) AND createdProfileName is set
-    // 2. We are Creating (step === 2) AND creatingProfileName is set
-    if (!targetName) return;
-    if (step !== 4 && step !== 2) return;
+    if (step === 0) {
+      // Step 0: Nodes verification - listen for any progress events
+      targetName = null;
+      relevantOperations = []; // Accept any operation type
+    } else if (step === 1 && creatingResourceName) {
+      // Step 1: Resource creation phase
+      targetName = creatingResourceName;
+      relevantOperations = ['create_resource', 'init_resource', 'mkfs', 'drbd_sync'];
+    } else if (step === 2 && creatingProfileName) {
+      // Step 2: HA profile creation
+      targetName = creatingProfileName;
+      relevantOperations = ['create_ha_profile', 'drbd_sync'];
+    } else if (step === 3) {
+      // Step 3: Preview - show any pending progress for current resources
+      targetName = null; // Will be handled in the filter logic
+      relevantOperations = ['create_ha_profile', 'create_resource', 'init_resource', 'mkfs', 'activate_profile', 'drbd_sync'];
+    } else if (step === 4 && createdProfileName) {
+      // Step 4: Activation
+      targetName = createdProfileName;
+      relevantOperations = ['activate_profile', 'drbd_sync'];
+    }
 
-    const relevantProgress = progressEvents.filter(
-      (p) =>
-        p.resource === targetName &&
-        (p.operation === 'create_ha_profile' ||
-          p.operation === 'activate_profile'),
-    );
+    // Filter progress events based on step requirements
+    const relevantProgress = (progressEvents || []).filter((p) => {
+      // Filter by operations for this step
+      if (relevantOperations.length > 0 && !relevantOperations.includes(p.operation as any)) {
+        return false;
+      }
+
+      // Filter by resource name if we have a specific target
+      if (targetName) {
+        return p.resource === targetName;
+      }
+
+      // If no specific target (step 0), show all progress events that might be relevant
+      if (step === 0) {
+        return true; // Show all progress events during nodes verification
+      }
+
+      // For steps 3 (preview), show any pending progress events for known resources
+      if (step === 3 && (creatingProfileName || createdProfileName || creatingResourceName)) {
+        return p.resource === creatingProfileName ||
+               p.resource === createdProfileName ||
+               p.resource === creatingResourceName;
+      }
+
+      // For drbd_sync, show sync progress for any resource that matches current context
+      if (p.operation === 'drbd_sync') {
+        if (step === 1 && creatingResourceName && p.resource === creatingResourceName) {
+          return true;
+        } else if ((step === 2 || step === 4) && createdProfileName && p.resource === createdProfileName) {
+          return true;
+        } else if (step === 3 && (
+          (creatingResourceName && p.resource === creatingResourceName) ||
+          (creatingProfileName && p.resource === creatingProfileName) ||
+          (createdProfileName && p.resource === createdProfileName)
+        )) {
+          return true;
+        }
+      }
+
+      return false;
+    });
 
     if (relevantProgress.length > 0) {
+      // Sort by operation_id to maintain order
+      const sortedProgress = relevantProgress.sort((a, b) =>
+        a.operation_id.localeCompare(b.operation_id)
+      );
+
       // Update Progress Steps for Modal/Activation View
-      const newSteps = relevantProgress
+      const newSteps = sortedProgress
         .map((p) => ({
           message: p.message,
           done: p.completed,
@@ -193,26 +254,29 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         setProgressSteps(newSteps);
       }
 
-      // Add to Logs (using message tracking since store only keeps latest state)
-      // We process the latest event for the target resource
-      const latestEvent = relevantProgress[relevantProgress.length - 1];
-      if (
-        latestEvent &&
-        latestEvent.message &&
-        latestEvent.message !== lastMessageRef.current
-      ) {
-        addLog(latestEvent.message);
-        lastMessageRef.current = latestEvent.message;
-      }
+      // Add all new progress messages to logs (not just the latest)
+      sortedProgress.forEach((progress) => {
+        const messageId = `${progress.operation_id}_${progress.progress}_${progress.message}`;
 
-      const latest = relevantProgress[relevantProgress.length - 1];
-      if (latest.completed && latest.success === false) {
-        setActivationStatus('error');
-        setActivationError(latest.message);
-        addLog(`Error: ${latest.message}`);
-      }
+        if (
+          progress.message &&
+          !processedMessageIds.current.has(messageId)
+        ) {
+          addLog(progress.message);
+          processedMessageIds.current.add(messageId);
+        }
+
+        // Check for completion and errors
+        if (progress.completed && progress.success === false) {
+          if (step === 4) {
+            setActivationStatus('error');
+            setActivationError(progress.message);
+          }
+          addLog(`Error: ${progress.message}`);
+        }
+      });
     }
-  }, [progressEvents, createdProfileName, creatingProfileName, step, addLog]);
+  }, [progressEvents, createdProfileName, creatingProfileName, creatingResourceName, step, addLog]);
 
   const pollServiceStatus = async (profileId: string, retries = 15) => {
     try {
@@ -275,6 +339,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         await resourceForm.validateFields();
         const values = resourceForm.getFieldsValue();
 
+        // Start SSE monitoring for resource creation
+        setCreatingResourceName(values.name);
         setLoading(true);
         addLog(`Starting DRBD resource creation: ${values.name}`);
 
@@ -307,9 +373,12 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           message.warning(`Resource initialization skipped: ${errMsg}`);
           addLog(`Warning: Resource initialization skipped: ${errMsg}`);
         }
+
         haForm.setFieldValue('resource_name', values.name);
         haForm.setFieldValue('fs_type', values.fs_type || 'xfs');
 
+        // Clear resource creation tracking before moving to next step
+        setCreatingResourceName(null);
         setStep(2);
       } catch (err) {
         if ((err as { message?: string }).message) {
@@ -317,6 +386,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           message.error(errMsg);
           addLog(`Error in resource creation: ${errMsg}`);
         }
+        // Clear resource creation tracking on error
+        setCreatingResourceName(null);
       } finally {
         setLoading(false);
       }

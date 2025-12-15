@@ -48,14 +48,16 @@ export function Storage() {
       const data = await nodesApi.list();
       setNodes(data);
 
-      // Fetch disks for all nodes
-      const disksMap: Record<string, BlockDevice[]> = {};
+      // Fetch disks for new nodes only (avoid excessive API calls)
+      const disksMap: Record<string, BlockDevice[]> = { ...disksByNode };
       for (const node of data) {
-        try {
-          disksMap[node.id] = await nodesApi.getAvailableDisks(node.id);
-        } catch (error) {
-          console.error(`Failed to fetch disks for node ${node.id}:`, error);
-          disksMap[node.id] = [];
+        if (!disksMap[node.id]) {
+          try {
+            disksMap[node.id] = await nodesApi.getAvailableDisks(node.id);
+          } catch (error) {
+            console.error(`Failed to fetch disks for node ${node.id}:`, error);
+            disksMap[node.id] = [];
+          }
         }
       }
       setDisksByNode(disksMap);
@@ -64,10 +66,37 @@ export function Storage() {
     }
   };
 
+  const refreshAvailableDisks = async (nodeId?: string) => {
+    if (nodeId) {
+      // Refresh for specific node
+      try {
+        const disks = await nodesApi.getAvailableDisks(nodeId);
+        setDisksByNode((prev) => ({ ...prev, [nodeId]: disks }));
+        message.success(`Available disks refreshed for node ${nodeId}`);
+      } catch (error) {
+        console.error(`Failed to refresh disks for node ${nodeId}:`, error);
+        message.error(`Failed to refresh disks for node ${nodeId}`);
+      }
+    } else {
+      // Refresh for all nodes
+      const disksMap: Record<string, BlockDevice[]> = {};
+      for (const node of nodes) {
+        try {
+          disksMap[node.id] = await nodesApi.getAvailableDisks(node.id);
+        } catch (error) {
+          console.error(`Failed to fetch disks for node ${node.id}:`, error);
+          disksMap[node.id] = [];
+        }
+      }
+      setDisksByNode(disksMap);
+      message.success('Available disks refreshed for all nodes');
+    }
+  };
+
   useEffect(() => {
     fetchPools();
     fetchNodes();
-  }, [fetchNodes, fetchPools]);
+  }, []); // Only run on mount, and fetchNodes internally handles avoiding duplicates
 
   const handleCreate = async (values: any) => {
     if (selectedNodes.length === 0) {
@@ -154,7 +183,15 @@ export function Storage() {
             icon={<ReloadOutlined />}
             onClick={fetchPools}
             loading={loading}
-          />
+          >
+            Refresh Pools
+          </Button>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => refreshAvailableDisks()}
+          >
+            Refresh Disks
+          </Button>
           <Button
             type="primary"
             icon={<PlusOutlined />}

@@ -17,6 +17,7 @@ import {
   InputNumber,
   Modal,
   message,
+  Popconfirm,
   Space,
   Table,
   Tag,
@@ -69,9 +70,12 @@ export function HaProfiles() {
   const [deletingProfileName, setDeletingProfileName] = useState<string | null>(
     null,
   );
+  const [deletionProgressSteps, setDeletionProgressSteps] = useState<
+    Array<{ message: string; done: boolean }>
+  >([]);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const progressEvents = useNotificationsStore((s) => s.progress);
-  const lastLogCountRef = useRef(0);
+  const processedMessageIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     fetch();
@@ -89,23 +93,82 @@ export function HaProfiles() {
   useEffect(() => {
     if (!deletingProfileName || !progressModalOpen) return;
 
-    const relevantProgress = progressEvents.filter(
-      (p) =>
-        p.resource === deletingProfileName &&
-        p.operation === 'delete_ha_profile',
-    );
+    const relevantProgress = (progressEvents || []).filter((p) => {
+      // Show all progress events for the target resource
+      if (p.resource === deletingProfileName) {
+        return true; // Accept any operation for the target resource
+      }
 
-    if (relevantProgress.length > lastLogCountRef.current) {
-      const newEvents = relevantProgress.slice(lastLogCountRef.current);
-      newEvents.forEach((e) => {
-        if (e.message) {
+      // Also show general system progress events that might be related to deletion
+      if (!p.resource && (
+        p.operation === 'cleanup' ||
+        p.operation === 'system_maintenance' ||
+        p.operation === 'cluster_sync' ||
+        p.operation === 'config_reload'
+      )) {
+        return true;
+      }
+
+      return false;
+    });
+
+    if (relevantProgress.length > 0) {
+      // Sort by operation_id to maintain order
+      const sortedProgress = relevantProgress.sort((a, b) =>
+        a.operation_id.localeCompare(b.operation_id)
+      );
+
+      // Update progress steps display
+      const newSteps = sortedProgress
+        .map((p) => ({
+          message: p.message,
+          done: p.completed,
+        }))
+        .filter((s) => s.message);
+
+      if (newSteps.length > 0) {
+        // Update deletion progress steps in the UI
+        setDeletionProgressSteps(newSteps);
+      }
+
+      // Process each progress event
+      sortedProgress.forEach((progress) => {
+        const messageId = `${progress.operation_id}_${progress.progress}_${progress.message}`;
+
+        if (
+          progress.message &&
+          !processedMessageIds.current.has(messageId)
+        ) {
           setDeletionLogs((prev) => [
             ...prev,
-            `[${new Date().toLocaleTimeString()}] ${e.message}`,
+            `[${new Date().toLocaleTimeString()}] ${progress.message}`,
           ]);
+          processedMessageIds.current.add(messageId);
+        }
+
+        // Check for completion and errors
+        if (progress.completed && progress.success === false) {
+          setDeletionLogs((prev) => [
+            ...prev,
+            `[${new Date().toLocaleTimeString()}] ERROR: ${progress.message}`,
+          ]);
+          setDeleting(false); // Stop loading but keep modal open
+        } else if (progress.completed && progress.success === true) {
+          setDeletionLogs((prev) => [
+            ...prev,
+            `[${new Date().toLocaleTimeString()}] Deletion completed successfully.`,
+          ]);
+          setDeleting(false);
+          // Keep modal open for a moment to show success
+          setTimeout(() => {
+            setProgressModalOpen(false);
+            setDeletingProfileName(null);
+            setProfileToDelete(null);
+            fetch();
+            fetchResources();
+          }, 2000);
         }
       });
-      lastLogCountRef.current = relevantProgress.length;
     }
   }, [progressEvents, deletingProfileName, progressModalOpen]);
 
@@ -118,59 +181,48 @@ export function HaProfiles() {
   const handleDelete = async () => {
     if (!profileToDelete) return;
 
-    // Switch to progress modal
+    // Switch to progress modal and reset state
     setDeletingProfileName(profileToDelete.name);
     setDeletionLogs([]);
-    lastLogCountRef.current = 0;
+    setDeletionProgressSteps([]);
+    processedMessageIds.current.clear();
     setDeleteModalOpen(false);
     setProgressModalOpen(true);
     setDeleting(true);
 
+    // Add initial log
+    setDeletionLogs([
+      `[${new Date().toLocaleTimeString()}] Requesting deletion of ${profileToDelete.name}...`,
+    ]);
+
     try {
-      setDeletionLogs([
-        `[${new Date().toLocaleTimeString()}] Requesting deletion...`,
-      ]);
+      // Make the API call - progress will be handled by SSE
       await haProfilesApi.delete(profileToDelete.id, deleteResource);
 
+      // API call successful - SSE will handle the rest
       setDeletionLogs((prev) => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] Deletion completed successfully.`,
+        `[${new Date().toLocaleTimeString()}] Delete request sent successfully. Waiting for completion...`,
       ]);
-      message.success(
-        deleteResource
-          ? 'HA Profile and DRBD resource deleted'
-          : 'HA Profile deleted',
-      );
-
-      // Keep modal open for a moment to show success
-      setTimeout(() => {
-        setProgressModalOpen(false);
-        setDeletingProfileName(null);
-        setProfileToDelete(null);
-        fetch();
-        fetchResources();
-      }, 1500);
     } catch (err) {
       const errMsg = (err as { message: string }).message;
       setDeletionLogs((prev) => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] ERROR: ${errMsg}`,
+        `[${new Date().toLocaleTimeString()}] ERROR: Failed to send delete request: ${errMsg}`,
       ]);
       message.error(errMsg);
-      // Keep modal open on error so user can see logs
-      setDeleting(false); // Stop loading spinner but keep modal
-    } finally {
-      // If success, deleting is set to false in timeout
-      // If error, set to false immediately
-      if (!deletingProfileName) setDeleting(false);
+      // Stop loading but keep modal open so user can see the error
+      setDeleting(false);
     }
   };
 
   const handleCloseProgressModal = () => {
     setProgressModalOpen(false);
     setDeletingProfileName(null);
+    setDeletionProgressSteps([]);
     setProfileToDelete(null);
     setDeleting(false);
+    processedMessageIds.current.clear();
     fetch();
     fetchResources();
   };
@@ -313,14 +365,23 @@ export function HaProfiles() {
           <Space>
             {node || '-'}
             {isActive && node && (
-              <Button
-                size="small"
-                danger
-                onClick={() => handleEvict(record.id)}
-                title="Evict"
+              <Popconfirm
+                title="Evict Profile"
+                description={`Are you sure you want to evict the HA profile from ${node}? This will trigger failover to a standby node.`}
+                onConfirm={() => handleEvict(record.id)}
+                okText="Evict"
+                cancelText="Cancel"
+                okButtonProps={{ danger: true }}
+                icon={<ExclamationCircleOutlined style={{ color: 'red' }} />}
               >
-                Evict
-              </Button>
+                <Button
+                  size="small"
+                  danger
+                  title="Evict"
+                >
+                  Evict
+                </Button>
+              </Popconfirm>
             )}
           </Space>
         );
@@ -624,19 +685,45 @@ export function HaProfiles() {
         closable={!deleting}
         maskClosable={!deleting}
       >
-        <div className="h-[300px] overflow-y-auto bg-gray-50 p-4 rounded font-mono text-xs border border-gray-200">
-          {deletionLogs.length === 0 ? (
-            <div className="text-gray-400 text-center mt-20">
-              Waiting for logs...
+        <div className="space-y-4">
+          {/* Progress Steps */}
+          {deletionProgressSteps.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-gray-700 mb-2">Deletion Progress:</div>
+              {deletionProgressSteps.map((step, idx) => (
+                <div key={idx} className="flex items-start gap-2 text-sm">
+                  {step.done ? (
+                    <CheckCircleOutlined className="text-green-500 mt-1 shrink-0" />
+                  ) : (
+                    <LoadingOutlined className="text-blue-500 mt-1 shrink-0" />
+                  )}
+                  <span
+                    className={
+                      step.done ? 'text-gray-700' : 'text-blue-600 font-medium'
+                    }
+                  >
+                    {step.message}
+                  </span>
+                </div>
+              ))}
             </div>
-          ) : (
-            deletionLogs.map((log, i) => (
-              <div key={i} className="mb-1 text-gray-700">
-                {log}
-              </div>
-            ))
           )}
-          <div ref={logsEndRef} />
+
+          {/* Logs */}
+          <div className="h-[200px] overflow-y-auto bg-gray-50 p-4 rounded font-mono text-xs border border-gray-200">
+            {deletionLogs.length === 0 ? (
+              <div className="text-gray-400 text-center mt-20">
+                Waiting for logs...
+              </div>
+            ) : (
+              deletionLogs.map((log, i) => (
+                <div key={i} className="mb-1 text-gray-700">
+                  {log}
+                </div>
+              ))
+            )}
+            <div ref={logsEndRef} />
+          </div>
         </div>
       </Modal>
 

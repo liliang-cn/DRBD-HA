@@ -140,13 +140,70 @@ pub async fn resource_status_stream(
     State(_state): State<Arc<AppState>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let stream = async_stream::stream! {
-        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
 
         loop {
             interval.tick().await;
 
-            // Disabled auto-polling to reduce log noise - only send heartbeat
-            yield Ok(Event::default().event("heartbeat").data("{}"));
+            // Get DRBD resource status
+            let status_cmd = crate::core::drbd_cmd::DrbdCmd::status_cmd();
+            if let Ok(output) = crate::core::run_shell_command(&status_cmd, "Get DRBD status").await {
+                if output.success() {
+                    // Parse DRBD status and get sync progress
+                    if let Ok(statuses) = crate::core::drbd_cmd::parse_drbd_status(&output.stdout) {
+                        if !statuses.is_empty() {
+                            // Convert to ResourceStatusEvent for SSE compatibility
+                            let current: Vec<ResourceStatusEvent> = statuses.iter().map(|s| s.into()).collect();
+                            if let Ok(json) = serde_json::to_string(&current) {
+                                yield Ok(Event::default().event("resource_status").data(json));
+
+                                // Send sync progress events for any resources that are syncing
+                                for status_event in &current {
+                                    if let Some(sync_percent) = status_event.sync_percent {
+                                        let operation_id = format!("drbd_sync_{}", status_event.name);
+                                        let progress = if sync_percent < 100.0 {
+                                            Some(sync_percent as u8)
+                                        } else {
+                                            None
+                                        };
+
+                                        let progress_event = ProgressEvent {
+                                            operation_id,
+                                            operation: "drbd_sync".to_string(),
+                                            resource: Some(status_event.name.clone()),
+                                            progress: progress.unwrap_or(100) as u8,
+                                            message: format!("DRBD resource '{}' is {}% synced", status_event.name, sync_percent),
+                                            completed: sync_percent >= 100.0,
+                                            success: Some(sync_percent >= 100.0),
+                                        };
+
+                                        if let Ok(progress_json) = serde_json::to_string(&progress_event) {
+                                            yield Ok(Event::default().event("progress").data(progress_json));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        yield Ok(Event::default().event("resource_status").data("[]"));
+                    }
+                } else {
+                    yield Ok(Event::default().event("resource_status").data("[]"));
+                }
+            } else {
+                yield Ok(Event::default().event("resource_status").data("[]"));
+            }
+
+            // Send heartbeat
+            let heartbeat = SystemEvent {
+                level: EventLevel::Info,
+                message: "heartbeat".to_string(),
+                source: "resource_status".to_string(),
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+            if let Ok(json) = serde_json::to_string(&heartbeat) {
+                yield Ok(Event::default().event("heartbeat").data(json));
+            }
         }
     };
 
@@ -259,8 +316,8 @@ pub async fn all_events_stream(
     let mut rx = state.subscribe_events();
 
     let stream = async_stream::stream! {
-        let mut resource_interval = tokio::time::interval(Duration::from_secs(2));
-        let mut node_interval = tokio::time::interval(Duration::from_secs(5));
+        let mut resource_interval = tokio::time::interval(Duration::from_secs(10));
+        let mut node_interval = tokio::time::interval(Duration::from_secs(30));
         let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30));
 
         let mut last_statuses: Vec<ResourceStatusEvent> = Vec::new();

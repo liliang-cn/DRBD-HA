@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::core::{
     cluster_sync::{ClusterSync, HaSyncConfig},
     config_gen::{ConfigGenerator, ConfigPaths, NodeConfig, ResourceConfig},
-    drbd_cmd,
+    drbd_cmd::DrbdCmd,
     mount_unit::MountUnitGenerator,
     run_shell_command,
     service_override::ServiceOverrideGenerator,
@@ -1207,10 +1207,8 @@ pub async fn delete_profile(
         None,
     );
 
-    let status_cmd = format!(
-        "drbdadm status --json {} 2>/dev/null",
-        profile.resource_name
-    );
+    // Check DRBD status to determine which node is Primary
+    let status_cmd = format!("drbdadm status {}", profile.resource_name);
     let status_output = run_shell_command(
         &status_cmd,
         &format!("Check DRBD status for {}", profile.resource_name),
@@ -1220,21 +1218,35 @@ pub async fn delete_profile(
     let mut local_primary = false;
     let mut remote_primary_node: Option<String> = None;
 
+    tracing::info!("delete_profile: DRBD status for {}: {}", profile.resource_name,
+                 status_output.as_ref().map(|o| &o.stdout).unwrap_or(&"Failed to get status".to_string()));
+
     if let Ok(output) = status_output {
-        if let Ok(statuses) = drbd_cmd::parse_drbd_status(&output.stdout) {
-            if let Some(res_status) = statuses.first() {
-                if res_status.is_primary() {
-                    local_primary = true;
-                } else {
-                    for conn in &res_status.connections {
-                        if conn.peer_role.as_deref() == Some("Primary") {
-                            remote_primary_node = Some(conn.name.clone());
-                            break;
-                        }
+        let status_str = output.stdout;
+
+        // Parse DRBD status to find Primary role
+        if status_str.contains("role:Primary") {
+            local_primary = true;
+            tracing::info!("delete_profile: Local node is Primary for resource {}", profile.resource_name);
+        } else {
+            // Look for remote Primary in connections
+            for line in status_str.lines() {
+                if line.contains("role:Primary") && !line.contains(&profile.resource_name) {
+                    // Extract node name from the line (format is usually "nodename role:Primary")
+                    if let Some(node_name) = line.split_whitespace().next() {
+                        remote_primary_node = Some(node_name.to_string());
+                        tracing::info!("delete_profile: Remote node {} is Primary for resource {}", node_name, profile.resource_name);
+                        break;
                     }
                 }
             }
         }
+    }
+
+    // If no Primary found, we'll assume this node should handle cleanup
+    if !local_primary && remote_primary_node.is_none() {
+        local_primary = true;
+        tracing::warn!("delete_profile: No Primary role found, assuming local node should handle cleanup for {}", profile.resource_name);
     }
 
     if local_primary {
@@ -1270,40 +1282,154 @@ pub async fn delete_profile(
             None,
         );
         let systemd = SystemdController::new().await?;
-        for service in profile.promoter.services.iter().rev() {
-            let _ = systemd.stop(service).await;
+
+        // First, completely disable drbd-reactor control for this profile
+        let disable_reactor_cmd = format!("drbd-reactorctl disable {} 2>/dev/null || true", profile.name);
+        tracing::info!("delete_profile: Disabling drbd-reactor control for profile '{}'", profile.name);
+        if let Ok(output) = run_shell_command(
+            &disable_reactor_cmd,
+            &format!("Disable drbd-reactor control for {}", profile.name),
+        )
+        .await {
+            tracing::info!("delete_profile: drbd-reactor disable result: success={}, stdout={}, stderr={}",
+                         output.success(), output.stdout, output.stderr);
         }
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-        let my_pid = std::process::id();
-        let kill_cmd = format!(
-            "for pid in $(lsof -t {} 2>/dev/null | grep -v {}); do kill -9 $pid 2>/dev/null || true; done",
-            profile.mount_point,
-            my_pid
-        );
-        let _ = run_shell_command(
-            &kill_cmd,
-            &format!("Kill processes using mount point {}", profile.mount_point),
+        // Stop the drbd-reactor target for this profile
+        let stop_reactor_target_cmd = format!("systemctl stop drbd-services@{}.target 2>/dev/null || true", profile.name);
+        tracing::info!("delete_profile: Stopping drbd-reactor target for profile '{}'", profile.name);
+        if let Ok(output) = run_shell_command(
+            &stop_reactor_target_cmd,
+            &format!("Stop drbd-reactor target for {}", profile.name),
         )
-        .await;
+        .await {
+            tracing::info!("delete_profile: drbd-reactor target stop result: success={}, stdout={}, stderr={}",
+                         output.success(), output.stdout, output.stderr);
+        }
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        // First, disable the services to prevent them from being restarted by drbd-reactor
+        for service in profile.promoter.services.iter() {
+            tracing::info!("delete_profile: Disabling service '{}'", service);
+            if let Err(e) = systemd.disable(service).await {
+                tracing::warn!("Failed to disable service {}: {}", service, e);
+            } else {
+                tracing::info!("Successfully disabled service: {}", service);
+            }
+        }
+
+        // Wait a moment for drbd-reactor to recognize the disable
+        tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+
+        // Then stop the services (both directly managed and drbd-reactor controlled)
+        for service in profile.promoter.services.iter().rev() {
+            tracing::info!("delete_profile: Stopping service '{}'", service);
+
+            // Try multiple approaches to stop the service
+            let mut stopped = false;
+
+            // Try normal stop first
+            if let Ok(_) = systemd.stop(service).await {
+                tracing::info!("Stopped service via systemctl: {}", service);
+                stopped = true;
+            } else {
+                tracing::warn!("Failed to stop service {} via systemctl, trying alternative methods", service);
+
+                // Try stopping drbd-reactor controlled service directly
+                let reactor_stop_cmd = format!("systemctl stop drbd-services@{}.target 2>/dev/null || true", profile.name);
+                if let Ok(output) = run_shell_command(
+                    &reactor_stop_cmd,
+                    &format!("Stop drbd-reactor target for {}", service),
+                )
+                .await {
+                    if output.success() {
+                        tracing::info!("Stopped drbd-reactor target for service: {}", service);
+                        stopped = true;
+                    }
+                }
+            }
+
+            if !stopped {
+                tracing::warn!("Failed to stop service: {}", service);
+            } else {
+                tracing::info!("Successfully stopped service: {}", service);
+            }
+        }
+
+        // Force stop specific services that might be stubborn
+        let force_stop_cmds = vec![
+            "systemctl stop postgresql 2>/dev/null || true",
+            "systemctl stop mysql 2>/dev/null || true",
+            "systemctl stop mariadb 2>/dev/null || true",
+        ];
+
+        for cmd in force_stop_cmds {
+            if let Ok(output) = run_shell_command(cmd, "Force stop database services").await {
+                if !output.stderr.trim().is_empty() {
+                    tracing::info!("Force stop command result: {} - {}", cmd, output.stderr.trim());
+                }
+            }
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         state.send_progress(
             &operation_id,
             "delete_ha_profile",
             Some(&profile.name),
-            20,
-            "Unmounting...",
+            18,
+            "Disabling drbd-reactor control...",
             false,
             None,
         );
-        let umount_cmd = format!(
-            "umount {} 2>/dev/null || umount -l {} 2>/dev/null || true",
-            profile.mount_point, profile.mount_point
+
+        // Disable the profile in drbd-reactor to prevent restart
+        let disable_cmd = format!("drbd-reactorctl disable {} 2>/dev/null || true", profile.name);
+        let _ = run_shell_command(
+            &disable_cmd,
+            &format!("Disable drbd-reactor control for {}", profile.name),
+        )
+        .await;
+
+        // Kill processes using the mount point
+        let my_pid = std::process::id();
+        let kill_cmd = format!(
+            "for pid in $(lsof -t {} 2>/dev/null | grep -v {}); do kill -TERM $pid 2>/dev/null || true; done",
+            profile.mount_point,
+            my_pid
         );
-        let _ = run_shell_command(&umount_cmd, &format!("Unmount {}", profile.mount_point)).await;
+        if let Err(e) = run_shell_command(
+            &kill_cmd,
+            &format!("Kill processes using mount point {}", profile.mount_point),
+        )
+        .await {
+            tracing::warn!("Failed to kill processes using mount point: {}", e);
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            22,
+            "Killing processes using mount point...",
+            false,
+            None,
+        );
+
+        // Force kill any remaining processes
+        let force_kill_cmd = format!(
+            "for pid in $(lsof -t {} 2>/dev/null | grep -v {}); do kill -KILL $pid 2>/dev/null || true; done",
+            profile.mount_point,
+            my_pid
+        );
+        if let Err(e) = run_shell_command(
+            &force_kill_cmd,
+            &format!("Force kill remaining processes using mount point {}", profile.mount_point),
+        )
+        .await {
+            tracing::warn!("Failed to force kill processes using mount point: {}", e);
+        }
 
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
@@ -1312,16 +1438,160 @@ pub async fn delete_profile(
             "delete_ha_profile",
             Some(&profile.name),
             25,
+            "Unmounting...",
+            false,
+            None,
+        );
+
+        // Check if mount point is actually mounted
+        let mount_check_cmd = format!("findmnt -n -o SOURCE {} 2>/dev/null || echo 'Not mounted'", profile.mount_point);
+        if let Ok(mount_check_output) = run_shell_command(&mount_check_cmd, "Check if mount point is mounted").await {
+            if !mount_check_output.stdout.contains("Not mounted") {
+                tracing::info!("delete_profile: Mount point {} is mounted, attempting unmount", profile.mount_point);
+
+                // Try multiple unmount methods
+                let umount_attempts = vec![
+                    format!("umount {}", profile.mount_point),
+                    format!("umount -f {}", profile.mount_point),
+                    format!("umount -l {}", profile.mount_point),
+                ];
+
+                let mut unmounted = false;
+                for (i, umount_cmd) in umount_attempts.iter().enumerate() {
+                    tracing::info!("delete_profile: Unmount attempt {}: {}", i+1, umount_cmd);
+                    if let Ok(umount_result) = run_shell_command(umount_cmd, &format!("Unmount attempt {} for {}", i+1, profile.mount_point)).await {
+                        if umount_result.success() {
+                            tracing::info!("delete_profile: Successfully unmounted using: {}", umount_cmd);
+                            unmounted = true;
+                            break;
+                        } else {
+                            tracing::warn!("delete_profile: Unmount attempt {} failed: {}", i+1, umount_result.stderr.trim());
+                        }
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                }
+
+                if !unmounted {
+                    tracing::error!("delete_profile: All unmount attempts failed for {}", profile.mount_point);
+                }
+            } else {
+                tracing::info!("delete_profile: Mount point {} is not mounted", profile.mount_point);
+            }
+        }
+
+        // Verify unmount was successful
+        tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+        if let Ok(verify_output) = run_shell_command(
+            &format!("findmnt -n -o SOURCE {} 2>/dev/null || echo 'Not mounted'", profile.mount_point),
+            "Verify unmount"
+        ).await {
+            if verify_output.stdout.contains("Not mounted") {
+                tracing::info!("delete_profile: Mount point {} successfully unmounted", profile.mount_point);
+            } else {
+                tracing::error!("delete_profile: Mount point {} is still mounted: {}", profile.mount_point, verify_output.stdout.trim());
+            }
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            28,
             "Demoting DRBD resource...",
             false,
             None,
         );
         let demote_cmd = format!("drbdadm secondary {}", profile.resource_name);
-        let _ = run_shell_command(
+        if let Err(e) = run_shell_command(
             &demote_cmd,
             &format!("Demote DRBD resource {}", profile.resource_name),
         )
-        .await;
+        .await {
+            tracing::warn!("Failed to demote DRBD resource {}: {}", profile.resource_name, e);
+        } else {
+            tracing::info!("Successfully demoted DRBD resource: {}", profile.resource_name);
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            30,
+            "Bringing down DRBD resource...",
+            false,
+            None,
+        );
+
+        // Bring down the DRBD resource
+        if let Ok(down_cmd) = DrbdCmd::down_cmd(&profile.resource_name) {
+            if let Err(e) = run_shell_command(
+                &down_cmd,
+                &format!("Bring down DRBD resource {}", profile.resource_name),
+            )
+            .await {
+                tracing::warn!("Failed to bring down DRBD resource {}: {}", profile.resource_name, e);
+            } else {
+                tracing::info!("Successfully brought down DRBD resource: {}", profile.resource_name);
+            }
+        }
+
+        // Refresh local block devices after DRBD changes
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            32,
+            "Refreshing block devices...",
+            false,
+            None,
+        );
+
+        let local_device_refresh_cmds = vec![
+            "sudo partprobe 2>/dev/null || true",
+            "sudo udevadm settle --timeout=10 2>/dev/null || true",
+            "sudo udevadm trigger --subsystem-match=block --action=add 2>/dev/null || true",
+            "sudo systemctl daemon-reload 2>/dev/null || true",
+        ];
+
+        for (i, cmd) in local_device_refresh_cmds.iter().enumerate() {
+            if let Err(e) = run_shell_command(
+                cmd,
+                &format!("Local device refresh command {}", i+1),
+            ).await {
+                tracing::warn!("Local device refresh command {} failed: {}", i+1, e);
+            } else {
+                tracing::info!("Local device refresh command {} executed successfully", i+1);
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+
+        // Verify local device cleanup
+        state.send_progress(
+            &operation_id,
+            "delete_ha_profile",
+            Some(&profile.name),
+            33,
+            "Verifying local device cleanup...",
+            false,
+            None,
+        );
+
+        let local_verify_cmd = format!("lsblk | grep {} || echo 'Device cleaned up'", profile.resource_name);
+        if let Ok(output) = run_shell_command(
+            &local_verify_cmd,
+            "Local device verification",
+        ).await {
+            tracing::info!("Local device verification: {}", output.stdout);
+            if output.stdout.contains("drbd") || output.stderr.contains("drbd") {
+                tracing::warn!("DRBD device still found locally: {}", output.stdout);
+            } else {
+                tracing::info!("DRBD devices successfully cleaned up locally");
+            }
+        }
     } else if let Some(node_name) = remote_primary_node {
         state.send_progress(
             &operation_id,
@@ -1356,11 +1626,22 @@ pub async fn delete_profile(
                         .await;
                 }
 
+                state.send_progress(
+                    &operation_id,
+                    "delete_ha_profile",
+                    Some(&profile.name),
+                    15,
+                    "Disabling drbd-reactor control...",
+                    false,
+                    None,
+                );
+
+                // Disable the profile in drbd-reactor to prevent restart
                 let disable_reactor_cmd = format!(
                     "sudo drbd-reactorctl disable {} 2>/dev/null || true",
                     profile.name
                 );
-                let _ = state
+                let disable_result = state
                     .ssh_manager
                     .execute(
                         &node.ip,
@@ -1371,21 +1652,66 @@ pub async fn delete_profile(
                     )
                     .await;
 
+                match &disable_result {
+                    Ok(output) => {
+                        tracing::info!("drbd-reactor disable command executed on {}, success: {}, stdout: {}, stderr: {}",
+                            node.hostname, output.success(), output.stdout, output.stderr);
+                        if output.success() {
+                            tracing::info!("Successfully disabled drbd-reactor on {}", node.hostname);
+                        } else {
+                            tracing::warn!("drbd-reactor disable failed on {}: {}", node.hostname, output.stderr);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to execute drbd-reactor disable command on {}: {}", node.hostname, e);
+                    }
+                }
+
                 state.send_progress(
                     &operation_id,
                     "delete_ha_profile",
                     Some(&profile.name),
-                    15,
+                    18,
+                    "Disabling services...",
+                    false,
+                    None,
+                );
+
+                // First disable the services to prevent them from being restarted
+                for service in profile.promoter.services.iter() {
+                    let disable_cmd = format!("sudo systemctl disable {}", service);
+                    if let Err(e) = state
+                        .ssh_manager
+                        .execute(
+                            &node.ip,
+                            node.ssh_port,
+                            &node.ssh_user,
+                            &credential,
+                            &disable_cmd,
+                        )
+                        .await {
+                        tracing::warn!("Failed to disable service {} on {}: {}", service, node.hostname, e);
+                    } else {
+                        tracing::info!("Successfully disabled service {} on {}", service, node.hostname);
+                    }
+                }
+
+                state.send_progress(
+                    &operation_id,
+                    "delete_ha_profile",
+                    Some(&profile.name),
+                    20,
                     "Stopping services...",
                     false,
                     None,
                 );
 
+                // Stop the drbd-reactor target first
                 let stop_reactor_svc_cmd = format!(
                     "sudo systemctl stop drbd-services@{}.target 2>/dev/null || true",
                     profile.name
                 );
-                let _ = state
+                let reactor_stop_result = state
                     .ssh_manager
                     .execute(
                         &node.ip,
@@ -1396,9 +1722,25 @@ pub async fn delete_profile(
                     )
                     .await;
 
+                match &reactor_stop_result {
+                    Ok(output) => {
+                        tracing::info!("drbd-reactor target stop command executed on {}, success: {}, stdout: {}, stderr: {}",
+                            node.hostname, output.success(), output.stdout, output.stderr);
+                        if output.success() {
+                            tracing::info!("Successfully stopped drbd-reactor target on {}", node.hostname);
+                        } else {
+                            tracing::warn!("drbd-reactor target stop failed on {}: {}", node.hostname, output.stderr);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to execute drbd-reactor target stop command on {}: {}", node.hostname, e);
+                    }
+                }
+
+                // Then stop all services
                 for service in profile.promoter.services.iter().rev() {
                     let stop_cmd = format!("sudo systemctl stop {}", service);
-                    let _ = state
+                    let service_stop_result = state
                         .ssh_manager
                         .execute(
                             &node.ip,
@@ -1408,15 +1750,81 @@ pub async fn delete_profile(
                             &stop_cmd,
                         )
                         .await;
+
+                    match &service_stop_result {
+                        Ok(output) => {
+                            tracing::info!("systemctl stop {} command executed on {}, success: {}, stdout: {}, stderr: {}",
+                                service, node.hostname, output.success(), output.stdout, output.stderr);
+                            if output.success() {
+                                tracing::info!("Successfully stopped service {} on {}", service, node.hostname);
+                            } else {
+                                tracing::warn!("Failed to stop service {} on {}: {}", service, node.hostname, output.stderr);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to execute systemctl stop {} command on {}: {}", service, node.hostname, e);
+                        }
+                    }
+
+                    // Add small delay between service stops
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 }
 
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
+                state.send_progress(
+                    &operation_id,
+                    "delete_ha_profile",
+                    Some(&profile.name),
+                    21,
+                    "Force stopping remaining services...",
+                    false,
+                    None,
+                );
+
+                // Force stop all services that might still be running
+                let force_stop_cmd = format!(
+                    "sudo systemctl stop mysql 2>/dev/null || true"
+                );
+                let force_stop_result = state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        &force_stop_cmd,
+                    )
+                    .await;
+
+                match &force_stop_result {
+                    Ok(output) => {
+                        tracing::info!("Force stop mysql command executed on {}, success: {}, stdout: {}, stderr: {}",
+                            node.hostname, output.success(), output.stdout, output.stderr);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to execute force stop mysql command on {}: {}", node.hostname, e);
+                    }
+                }
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+                state.send_progress(
+                    &operation_id,
+                    "delete_ha_profile",
+                    Some(&profile.name),
+                    22,
+                    "Killing processes using mount point...",
+                    false,
+                    None,
+                );
+
+                // Kill processes using the mount point
                 let kill_cmd = format!(
-                    "for pid in $(sudo lsof -t {} 2>/dev/null); do sudo kill -9 $pid 2>/dev/null || true; done",
+                    "for pid in $(sudo lsof -t {} 2>/dev/null); do sudo kill -TERM $pid 2>/dev/null || true; done",
                     profile.mount_point
                 );
-                let _ = state
+                if let Err(e) = state
                     .ssh_manager
                     .execute(
                         &node.ip,
@@ -1425,24 +1833,45 @@ pub async fn delete_profile(
                         &credential,
                         &kill_cmd,
                     )
-                    .await;
+                    .await {
+                    tracing::warn!("Failed to kill processes using mount point on {}: {}", node.hostname, e);
+                }
 
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+                // Force kill any remaining processes
+                let force_kill_cmd = format!(
+                    "for pid in $(sudo lsof -t {} 2>/dev/null); do sudo kill -KILL $pid 2>/dev/null || true; done",
+                    profile.mount_point
+                );
+                if let Err(e) = state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        &force_kill_cmd,
+                    )
+                    .await {
+                    tracing::warn!("Failed to force kill processes on {}: {}", node.hostname, e);
+                }
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
                 state.send_progress(
                     &operation_id,
                     "delete_ha_profile",
                     Some(&profile.name),
-                    20,
+                    25,
                     "Unmounting...",
                     false,
                     None,
                 );
-                let umount_cmd = format!(
-                    "sudo umount {} 2>/dev/null || sudo umount -l {} 2>/dev/null || true",
-                    profile.mount_point, profile.mount_point
-                );
-                let _ = state
+
+                // Try regular unmount first
+                let umount_cmd = format!("sudo umount {}", profile.mount_point);
+                let umount_result = state
                     .ssh_manager
                     .execute(
                         &node.ip,
@@ -1453,19 +1882,41 @@ pub async fn delete_profile(
                     )
                     .await;
 
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                // If regular unmount fails, try lazy unmount
+                if umount_result.is_err() || umount_result.as_ref().unwrap().success() == false {
+                    tracing::warn!("Regular unmount failed on {}, trying lazy unmount", node.hostname);
+                    let lazy_umount_cmd = format!("sudo umount -l {}", profile.mount_point);
+                    if let Err(e) = state
+                        .ssh_manager
+                        .execute(
+                            &node.ip,
+                            node.ssh_port,
+                            &node.ssh_user,
+                            &credential,
+                            &lazy_umount_cmd,
+                        )
+                        .await {
+                        tracing::error!("Failed to unmount {} on {}: {}", profile.mount_point, node.hostname, e);
+                    } else {
+                        tracing::info!("Successfully lazy unmounted {} on {}", profile.mount_point, node.hostname);
+                    }
+                } else {
+                    tracing::info!("Successfully unmounted {} on {}", profile.mount_point, node.hostname);
+                }
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
                 state.send_progress(
                     &operation_id,
                     "delete_ha_profile",
                     Some(&profile.name),
-                    25,
+                    28,
                     "Demoting DRBD resource...",
                     false,
                     None,
                 );
                 let demote_cmd = format!("sudo drbdadm secondary {}", profile.resource_name);
-                let _ = state
+                if let Err(e) = state
                     .ssh_manager
                     .execute(
                         &node.ip,
@@ -1474,19 +1925,107 @@ pub async fn delete_profile(
                         &credential,
                         &demote_cmd,
                     )
-                    .await;
+                    .await {
+                    tracing::warn!("Failed to demote DRBD resource {} on {}: {}", profile.resource_name, node.hostname, e);
+                } else {
+                    tracing::info!("Successfully demoted DRBD resource {} on {}", profile.resource_name, node.hostname);
+                }
 
-                let reload_cmd = "sudo systemctl daemon-reload";
-                let _ = state
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                state.send_progress(
+                    &operation_id,
+                    "delete_ha_profile",
+                    Some(&profile.name),
+                    30,
+                    "Bringing down DRBD resource...",
+                    false,
+                    None,
+                );
+
+                // Bring down the DRBD resource on remote node
+                if let Ok(down_cmd) = DrbdCmd::down_cmd(&profile.resource_name) {
+                    if let Err(e) = state
+                        .ssh_manager
+                        .execute(
+                            &node.ip,
+                            node.ssh_port,
+                            &node.ssh_user,
+                            &credential,
+                            &down_cmd,
+                        )
+                        .await {
+                        tracing::warn!("Failed to bring down DRBD resource {} on {}: {}", profile.resource_name, node.hostname, e);
+                    } else {
+                        tracing::info!("Successfully brought down DRBD resource {} on {}", profile.resource_name, node.hostname);
+                    }
+                }
+
+                state.send_progress(
+                    &operation_id,
+                    "delete_ha_profile",
+                    Some(&profile.name),
+                    32,
+                    "Refreshing block devices...",
+                    false,
+                    None,
+                );
+
+                // Refresh block device information after DRBD changes
+                let device_refresh_cmds = vec![
+                    "sudo partprobe 2>/dev/null || true",
+                    "sudo udevadm settle --timeout=10 2>/dev/null || true",
+                    "sudo udevadm trigger --subsystem-match=block --action=add 2>/dev/null || true",
+                    "sudo systemctl daemon-reload 2>/dev/null || true",
+                ];
+
+                for (i, cmd) in device_refresh_cmds.iter().enumerate() {
+                    if let Err(e) = state
+                        .ssh_manager
+                        .execute(
+                            &node.ip,
+                            node.ssh_port,
+                            &node.ssh_user,
+                            &credential,
+                            cmd,
+                        )
+                        .await {
+                        tracing::warn!("Device refresh command {} failed on {}: {}", i+1, node.hostname, e);
+                    } else {
+                        tracing::info!("Device refresh command {} executed successfully on {}", i+1, node.hostname);
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                }
+
+                state.send_progress(
+                    &operation_id,
+                    "delete_ha_profile",
+                    Some(&profile.name),
+                    33,
+                    "Verifying device cleanup...",
+                    false,
+                    None,
+                );
+
+                // Verify that DRBD devices are cleaned up
+                let verify_cmd = format!("sudo lsblk | grep {} || echo 'Device cleaned up'", profile.resource_name);
+                if let Ok(output) = state
                     .ssh_manager
                     .execute(
                         &node.ip,
                         node.ssh_port,
                         &node.ssh_user,
                         &credential,
-                        reload_cmd,
+                        &verify_cmd,
                     )
-                    .await;
+                    .await {
+                    tracing::info!("Device verification on {}: {}", node.hostname, output.stdout);
+                    if output.stdout.contains("drbd") || output.stderr.contains("drbd") {
+                        tracing::warn!("DRBD device still found on {}: {}", node.hostname, output.stdout);
+                    } else {
+                        tracing::info!("DRBD devices successfully cleaned up on {}", node.hostname);
+                    }
+                }
             }
         }
     }
@@ -1521,9 +2060,20 @@ pub async fn delete_profile(
         let _ = tokio::fs::remove_file(&config_path).await;
     }
 
-    // Step 4: Reload systemd daemon
+    // Step 4: Reload systemd daemon and restart drbd-reactor
     if let Ok(sys) = SystemdController::new().await {
         let _ = sys.daemon_reload().await;
+
+        // Restart drbd-reactor to ensure it picks up all changes
+        tracing::info!("delete_profile: Restarting drbd-reactor service");
+        if let Err(e) = sys.restart("drbd-reactor.service").await {
+            tracing::warn!("Failed to restart drbd-reactor service: {}", e);
+        } else {
+            tracing::info!("Successfully restarted drbd-reactor service");
+        }
+
+        // Give drbd-reactor a moment to start up
+        tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
     }
 
     state.send_progress(
@@ -1577,22 +2127,36 @@ pub async fn delete_profile(
             false,
             None,
         );
-        use crate::core::drbd_cmd::DrbdCmd;
 
+        // Bring down the DRBD resource (in case it wasn't brought down earlier)
         if let Ok(down_cmd) = DrbdCmd::down_cmd(&resource_name) {
-            let _ = run_shell_command(
+            if let Err(e) = run_shell_command(
                 &down_cmd,
                 &format!("Bring down DRBD resource {}", resource_name),
             )
-            .await;
+            .await {
+                tracing::warn!("Failed to bring down DRBD resource {}: {}", resource_name, e);
+            } else {
+                tracing::info!("Successfully brought down DRBD resource: {}", resource_name);
+            }
         }
 
+        // Remove DRBD configuration file
         let drbd_config_path = ConfigPaths::drbd_resource_path(&resource_name);
         if tokio::fs::metadata(&drbd_config_path).await.is_ok() {
-            let _ = tokio::fs::remove_file(&drbd_config_path).await;
+            if let Err(e) = tokio::fs::remove_file(&drbd_config_path).await {
+                tracing::warn!("Failed to remove DRBD config file {}: {}", drbd_config_path, e);
+            } else {
+                tracing::info!("Successfully removed DRBD config file: {}", drbd_config_path);
+            }
         }
 
-        let _ = cluster_sync.remove_drbd_resource(&resource_name).await;
+        // Remove DRBD resource from all nodes
+        if let Err(e) = cluster_sync.remove_drbd_resource(&resource_name).await {
+            tracing::warn!("Failed to sync DRBD resource removal to cluster: {}", e);
+        } else {
+            tracing::info!("Successfully synced DRBD resource removal to cluster");
+        }
     }
 
     if let Some(volume) = state.db.get_volume_by_drbd_res(&resource_name)? {

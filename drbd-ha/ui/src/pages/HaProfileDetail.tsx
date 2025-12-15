@@ -4,11 +4,12 @@ import {
   LoadingOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import { Button, Card, Descriptions, Result, Table, Tag, message } from 'antd';
+import { Button, Card, Descriptions, Result, Table, Tag, message, Progress } from 'antd';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { haProfilesApi } from '@/api';
 import { useHaProfilesStore } from '@/stores/ha-profiles';
+import { useNotificationsStore } from '@/stores/notifications';
 import type { HaProfile, HaProfileStatusResponse } from '@/types';
 
 const statusColor: Record<string, string> = {
@@ -29,9 +30,11 @@ export function HaProfileDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { profiles } = useHaProfilesStore();
+  const { progressEvents } = useNotificationsStore();
   const [profile, setProfile] = useState<HaProfile | null>(null);
   const [status, setStatus] = useState<HaProfileStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [drbdSyncProgress, setDrbdSyncProgress] = useState<number | null>(null);
 
   useEffect(() => {
     // Try to find profile in store first
@@ -63,6 +66,23 @@ export function HaProfileDetail() {
     fetchStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Listen for DRBD sync progress events
+  useEffect(() => {
+    if (!profile) return;
+
+    const drbdSyncProgressEvents = (progressEvents || []).filter(
+      (p) =>
+        p.operation === 'drbd_sync' &&
+        p.resource === profile.resource_name
+    );
+
+    if (drbdSyncProgressEvents.length > 0) {
+      // Get the latest progress event
+      const latestEvent = drbdSyncProgressEvents[drbdSyncProgressEvents.length - 1];
+      setDrbdSyncProgress(latestEvent.completed ? null : latestEvent.progress);
+    }
+  }, [progressEvents, profile]);
 
   if (loading && !profile) {
     return (
@@ -157,6 +177,28 @@ export function HaProfileDetail() {
         <Card title="DRBD Status" size="small">
           {status?.drbd ? (
             <div className="space-y-4">
+              {/* DRBD Sync Progress */}
+              {drbdSyncProgress !== null && (
+                <div className="p-4 bg-blue-50 rounded">
+                  <div className="text-sm font-medium text-blue-700 mb-2">
+                    DRBD Synchronization Progress
+                  </div>
+                  <Progress
+                    percent={drbdSyncProgress}
+                    status={drbdSyncProgress >= 100 ? 'success' : 'active'}
+                    strokeColor={{
+                      '0%': '#108ee9',
+                      '100%': '#87d068',
+                    }}
+                  />
+                  <div className="text-xs text-gray-500 mt-1">
+                    {drbdSyncProgress >= 100
+                      ? 'Synchronization completed'
+                      : `Synchronizing data... ${drbdSyncProgress}%`}
+                  </div>
+                </div>
+              )}
+
               <Descriptions bordered column={1}>
                 <Descriptions.Item label="Resource">
                   {status.drbd.resource}
@@ -172,10 +214,25 @@ export function HaProfileDetail() {
                 <Descriptions.Item label="Device Open">
                   {status.drbd.open ? 'Yes' : 'No'}
                 </Descriptions.Item>
+                {/* Show sync percentage from status if available */}
+                {status.drbd.sync_percent !== undefined && (
+                  <Descriptions.Item label="Sync Progress">
+                    <div className="flex items-center gap-2">
+                      <Progress
+                        percent={Math.round(status.drbd.sync_percent)}
+                        size="small"
+                        style={{ width: 100 }}
+                      />
+                      <span className="text-sm">
+                        {status.drbd.sync_percent.toFixed(2)}%
+                      </span>
+                    </div>
+                  </Descriptions.Item>
+                )}
               </Descriptions>
 
               <h4 className="font-semibold mt-4 mb-2">Peers</h4>
-              {status.drbd.peers.map((peer) => (
+              {status.drbd.peers.map((peer: any) => (
                 <Descriptions
                   key={peer.name}
                   title={peer.name}

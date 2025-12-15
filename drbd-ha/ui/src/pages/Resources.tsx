@@ -1,4 +1,4 @@
-import { DeleteOutlined, DownOutlined, PlusOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
   Button,
   Dropdown,
@@ -48,14 +48,16 @@ export function Resources() {
   }, [fetch, fetchNodes]);
 
   useEffect(() => {
-    // Load available disks for each node
+    // Load available disks for each node - only fetch if not already loaded
     nodes.forEach(async (node) => {
-      try {
-        const disks = await nodesApi.getAvailableDisks(node.id);
-        setAvailableDisks((prev) => ({ ...prev, [node.id]: disks }));
-      } catch {}
+      if (!availableDisks[node.id]) {
+        try {
+          const disks = await nodesApi.getAvailableDisks(node.id);
+          setAvailableDisks((prev) => ({ ...prev, [node.id]: disks }));
+        } catch {}
+      }
     });
-  }, [nodes]);
+  }, [nodes, availableDisks]);
 
   const handleCreate = async (values: CreateResourceRequest) => {
     setSubmitting(true);
@@ -107,6 +109,18 @@ export function Resources() {
     } catch (err) {
       message.error((err as { message: string }).message);
     }
+  };
+
+  const refreshAvailableDisks = async () => {
+    const disksMap: Record<string, BlockDevice[]> = {};
+    for (const node of nodes) {
+      try {
+        const disks = await nodesApi.getAvailableDisks(node.id);
+        disksMap[node.id] = disks;
+      } catch {}
+    }
+    setAvailableDisks(disksMap);
+    message.success('Available disks refreshed');
   };
 
   const getActionItems = (record: DrbdResource) => [
@@ -199,13 +213,21 @@ export function Resources() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-semibold">DRBD Resources</h2>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setModalOpen(true)}
-        >
-          Create Resource
-        </Button>
+        <Space>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={refreshAvailableDisks}
+          >
+            Refresh Disks
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setModalOpen(true)}
+          >
+            Create Resource
+          </Button>
+        </Space>
       </div>
 
       <Table
