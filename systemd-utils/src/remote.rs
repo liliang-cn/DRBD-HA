@@ -206,6 +206,36 @@ where
         }
     }
 
+    /// Reload a service on remote node
+    pub async fn reload(
+        &self,
+        host: &str,
+        port: u16,
+        user: &str,
+        credential: &C,
+        unit: &str,
+    ) -> SystemdResult<()> {
+        validator::validate_service_name(unit)?;
+        let output = self
+            .executor
+            .execute(
+                host,
+                port,
+                user,
+                credential,
+                &format!("systemctl reload {}", unit),
+            )
+            .await?;
+        if output.success() {
+            Ok(())
+        } else {
+            Err(SystemdError::RemoteExecution(format!(
+                "Failed to reload {} on {}: {}",
+                unit, host, output.stderr
+            )))
+        }
+    }
+
     /// Enable a service on remote node
     pub async fn enable(
         &self,
@@ -264,6 +294,20 @@ where
                 unit, host, output.stderr
             )))
         }
+    }
+
+    /// Disable and stop a service on remote node
+    pub async fn disable_and_stop(
+        &self,
+        host: &str,
+        port: u16,
+        user: &str,
+        credential: &C,
+        unit: &str,
+    ) -> SystemdResult<()> {
+        self.disable(host, port, user, credential, unit).await?;
+        let _ = self.stop(host, port, user, credential, unit).await;
+        Ok(())
     }
 
     /// Daemon reload on remote node

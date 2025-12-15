@@ -78,6 +78,12 @@ pub enum AppError {
     Migration(String),
 }
 
+impl From<systemd_utils::SystemdError> for AppError {
+    fn from(err: systemd_utils::SystemdError) -> Self {
+        AppError::Systemd(err.to_string())
+    }
+}
+
 impl From<drbd_migration::error::MigrationError> for AppError {
     fn from(err: drbd_migration::error::MigrationError) -> Self {
         AppError::Migration(err.to_string())

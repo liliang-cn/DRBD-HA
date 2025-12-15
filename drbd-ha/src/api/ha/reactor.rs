@@ -4,7 +4,11 @@ use axum::{
 };
 use std::sync::Arc;
 
-use crate::core::{run_shell_command, systemd_ctrl::SystemdController, ReactorDiscovery};
+use crate::core::{
+    run_shell_command,
+    systemd_ctrl::{RemoteSystemdController, SystemdController},
+    ReactorDiscovery,
+};
 use crate::error::{AppError, AppResult};
 use crate::models::{HaProfile, HaProfileStatus};
 use crate::state::AppState;
@@ -70,25 +74,23 @@ pub async fn reload_reactor(
     let mut results = Vec::new();
 
     let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
-    let local_cmd = format!(
-        "systemctl daemon-reload && systemctl {} drbd-reactor",
-        action
-    );
 
-    let (local_success, local_error) = match run_shell_command(
-        &local_cmd,
-        &format!("{} drbd-reactor on local node", action),
-    )
-    .await
-    {
-        Ok(output) => (
-            output.success(),
-            if output.success() {
-                None
+    let (local_success, local_error) = match SystemdController::new().await {
+        Ok(sys) => {
+            if let Err(e) = sys.daemon_reload().await {
+                (false, Some(e.to_string()))
             } else {
-                Some(output.stderr)
-            },
-        ),
+                let res = if action == "restart" {
+                    sys.restart("drbd-reactor.service").await
+                } else {
+                    sys.reload("drbd-reactor.service").await
+                };
+                match res {
+                    Ok(_) => (true, None),
+                    Err(e) => (false, Some(e.to_string())),
+                }
+            }
+        }
         Err(e) => (false, Some(e.to_string())),
     };
 
@@ -99,10 +101,6 @@ pub async fn reload_reactor(
     };
 
     let nodes = state.db.get_all_nodes()?;
-    let remote_cmd = format!(
-        "systemctl daemon-reload && systemctl {} drbd-reactor",
-        action
-    );
 
     for node in nodes {
         if node.is_local {
@@ -112,20 +110,46 @@ pub async fn reload_reactor(
         let credential = Some(crate::core::SshCredential::Password("ignored".to_string()));
 
         let result = if let Some(cred) = credential {
-            match state
-                .ssh_manager
-                .execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, &remote_cmd)
+            let remote_sys = RemoteSystemdController::new(state.ssh_manager.clone());
+            match remote_sys
+                .daemon_reload(&node.ip, node.ssh_port, &node.ssh_user, &cred)
                 .await
             {
-                Ok(output) => NodeReloadResult {
-                    hostname: node.hostname.clone(),
-                    success: output.success(),
-                    error: if output.success() {
-                        None
+                Ok(_) => {
+                    let res = if action == "restart" {
+                        remote_sys
+                            .restart(
+                                &node.ip,
+                                node.ssh_port,
+                                &node.ssh_user,
+                                &cred,
+                                "drbd-reactor.service",
+                            )
+                            .await
                     } else {
-                        Some(output.stderr)
-                    },
-                },
+                        remote_sys
+                            .reload(
+                                &node.ip,
+                                node.ssh_port,
+                                &node.ssh_user,
+                                &cred,
+                                "drbd-reactor.service",
+                            )
+                            .await
+                    };
+                    match res {
+                        Ok(_) => NodeReloadResult {
+                            hostname: node.hostname.clone(),
+                            success: true,
+                            error: None,
+                        },
+                        Err(e) => NodeReloadResult {
+                            hostname: node.hostname.clone(),
+                            success: false,
+                            error: Some(e.to_string()),
+                        },
+                    }
+                }
                 Err(e) => NodeReloadResult {
                     hostname: node.hostname.clone(),
                     success: false,

@@ -15,7 +15,7 @@ use crate::core::{
     mount_unit::MountUnitGenerator,
     run_shell_command,
     service_override::ServiceOverrideGenerator,
-    systemd_ctrl::SystemdController,
+    systemd_ctrl::{RemoteSystemdController, SystemdController},
     validator, IscsiGenerator, LvmProvider, NfsGenerator, NvmeOfGenerator, ServiceInitFactory,
     StorageProvider,
 };
@@ -1043,20 +1043,18 @@ pub async fn create_profile(
             }
         }
 
+        let remote_sys = RemoteSystemdController::new(state.ssh_manager.clone());
         let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
         for node in &remote_nodes {
             let credential = crate::core::SshCredential::Password("ignored".to_string());
             for service in &services_to_disable {
-                let disable_cmd =
-                    format!("systemctl disable --now {} 2>/dev/null || true", service);
-                let _ = state
-                    .ssh_manager
-                    .execute(
+                let _ = remote_sys
+                    .disable_and_stop(
                         &node.ip,
                         node.ssh_port,
                         &node.ssh_user,
                         &credential,
-                        &disable_cmd,
+                        service,
                     )
                     .await;
             }
@@ -1070,7 +1068,9 @@ pub async fn create_profile(
         }
     }
 
-    let _ = run_shell_command("systemctl daemon-reload", "Reload systemd daemon").await;
+    if let Ok(sys) = SystemdController::new().await {
+        let _ = sys.daemon_reload().await;
+    }
 
     state.send_progress(
         &operation_id,
@@ -1521,7 +1521,10 @@ pub async fn delete_profile(
         let _ = tokio::fs::remove_file(&config_path).await;
     }
 
-    let _ = run_shell_command("systemctl daemon-reload", "Reload systemd daemon").await;
+    // Step 4: Reload systemd daemon
+    if let Ok(sys) = SystemdController::new().await {
+        let _ = sys.daemon_reload().await;
+    }
 
     state.send_progress(
         &operation_id,

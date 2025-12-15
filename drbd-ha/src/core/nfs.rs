@@ -8,6 +8,7 @@ use crate::core::run_shell_command;
 use crate::error::AppResult;
 use crate::models::NfsConfig;
 use std::path::Path;
+use systemd_utils::SystemdController;
 use tracing::{info, warn};
 
 pub struct NfsGenerator;
@@ -70,7 +71,8 @@ impl NfsGenerator {
 
         // 3. Prepare system directory
         // Stop NFS server first to release locks on /var/lib/nfs
-        run_shell_command("systemctl stop nfs-server", "Stop NFS server").await?;
+        let sys = SystemdController::new().await?;
+        sys.stop("nfs-server").await?;
 
         // Backup existing /var/lib/nfs if it's a real directory (not a symlink)
         if Path::new(system_nfs_dir).is_dir() && !Path::new(system_nfs_dir).is_symlink() {

@@ -212,6 +212,21 @@ impl RemoteSystemdController {
             .map_err(|e| AppError::Systemd(e.to_string()))
     }
 
+    /// Reload a service on remote node
+    pub async fn reload(
+        &self,
+        host: &str,
+        port: u16,
+        user: &str,
+        credential: &SshCredential,
+        unit: &str,
+    ) -> AppResult<()> {
+        self.inner
+            .reload(host, port, user, credential, unit)
+            .await
+            .map_err(|e| AppError::Systemd(e.to_string()))
+    }
+
     /// Enable a service on remote node
     pub async fn enable(
         &self,
@@ -238,6 +253,21 @@ impl RemoteSystemdController {
     ) -> AppResult<()> {
         self.inner
             .disable(host, port, user, credential, unit)
+            .await
+            .map_err(|e| AppError::Systemd(e.to_string()))
+    }
+
+    /// Disable and stop a service on remote node
+    pub async fn disable_and_stop(
+        &self,
+        host: &str,
+        port: u16,
+        user: &str,
+        credential: &SshCredential,
+        unit: &str,
+    ) -> AppResult<()> {
+        self.inner
+            .disable_and_stop(host, port, user, credential, unit)
             .await
             .map_err(|e| AppError::Systemd(e.to_string()))
     }

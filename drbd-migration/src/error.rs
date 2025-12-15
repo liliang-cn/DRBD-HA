@@ -19,6 +19,9 @@ pub enum MigrationError {
     #[error("Configuration error: {0}")]
     Config(String),
 
+    #[error("Systemd error: {0}")]
+    Systemd(#[from] systemd_utils::SystemdError),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }

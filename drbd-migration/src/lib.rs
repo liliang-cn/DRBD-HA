@@ -9,6 +9,7 @@ pub mod error;
 use crate::error::{MigrationError, MigrationResult};
 use serde::{Deserialize, Serialize};
 use shell_cmd::run_shell_command;
+use systemd_utils::SystemdController;
 
 /// Data migration handler
 pub struct DataMigration;
@@ -150,31 +151,16 @@ impl DataMigration {
 
     /// Stop a systemd service
     async fn stop_service(service: &str) -> MigrationResult<bool> {
+        let sys = SystemdController::new().await?;
         // Check if service is active first
-        let check_cmd = format!("systemctl is-active {} 2>/dev/null || true", service);
-        let output = run_shell_command(
-            &check_cmd,
-            &format!("Check if service {} is active", service),
-        )
-        .await
-        .map_err(|e| MigrationError::Command(e.to_string()))?;
+        let status = sys.status(service).await?;
 
-        if output.stdout.trim() != "active" {
+        if status.active_state != "active" {
             tracing::debug!("Service {} is not active, skipping stop", service);
             return Ok(false);
         }
 
-        let cmd = format!("systemctl stop {}", service);
-        let output = run_shell_command(&cmd, &format!("Stop service {}", service))
-            .await
-            .map_err(|e| MigrationError::Command(e.to_string()))?;
-
-        if !output.success() {
-            return Err(MigrationError::Command(format!(
-                "Failed to stop service {}: {}",
-                service, output.stderr
-            )));
-        }
+        sys.stop(service).await?;
 
         tracing::info!("Stopped service: {}", service);
         Ok(true)
@@ -182,17 +168,8 @@ impl DataMigration {
 
     /// Start a systemd service
     async fn start_service(service: &str) -> MigrationResult<()> {
-        let cmd = format!("systemctl start {}", service);
-        let output = run_shell_command(&cmd, &format!("Start service {}", service))
-            .await
-            .map_err(|e| MigrationError::Command(e.to_string()))?;
-
-        if !output.success() {
-            return Err(MigrationError::Command(format!(
-                "Failed to start service {}: {}",
-                service, output.stderr
-            )));
-        }
+        let sys = SystemdController::new().await?;
+        sys.start(service).await?;
 
         tracing::info!("Started service: {}", service);
         Ok(())

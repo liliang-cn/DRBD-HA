@@ -4,7 +4,7 @@
 //! This ensures mount units, service overrides, and promoter configs
 //! are consistent across the cluster for proper failover.
 
-use crate::core::{Database, SshCredential, SshManager};
+use crate::core::{systemd_ctrl::RemoteSystemdController, Database, SshCredential, SshManager};
 use crate::error::{AppError, AppResult};
 use crate::models::Node;
 use std::collections::HashMap;
@@ -226,24 +226,27 @@ impl ClusterSync {
             "Reloading systemd and restarting drbd-reactor on node {}",
             node.hostname
         );
-        let reload_cmd = "systemctl daemon-reload && systemctl restart drbd-reactor";
-        let reload_result = self
-            .ssh_manager
-            .execute(
+        let remote_sys = RemoteSystemdController::new(self.ssh_manager.clone());
+
+        if let Err(e) = remote_sys
+            .daemon_reload(&node.ip, node.ssh_port, &node.ssh_user, credential)
+            .await
+        {
+            tracing::error!("Failed to daemon-reload on {}: {}", node.hostname, e);
+            return Err(e);
+        }
+
+        if let Err(e) = remote_sys
+            .restart(
                 &node.ip,
                 node.ssh_port,
                 &node.ssh_user,
                 credential,
-                reload_cmd,
+                "drbd-reactor.service",
             )
-            .await;
-
-        if let Err(e) = reload_result {
-            tracing::error!(
-                "Failed to reload systemd/restart drbd-reactor on {}: {}",
-                node.hostname,
-                e
-            );
+            .await
+        {
+            tracing::error!("Failed to restart drbd-reactor on {}: {}", node.hostname, e);
             return Err(e);
         }
 
@@ -381,15 +384,9 @@ impl ClusterSync {
             }
 
             // Reload systemd
-            let _ = self
-                .ssh_manager
-                .execute(
-                    &node.ip,
-                    node.ssh_port,
-                    &node.ssh_user,
-                    &credential,
-                    "systemctl daemon-reload",
-                )
+            let remote_sys = RemoteSystemdController::new(self.ssh_manager.clone());
+            let _ = remote_sys
+                .daemon_reload(&node.ip, node.ssh_port, &node.ssh_user, &credential)
                 .await;
 
             synced_nodes.push(node.hostname.clone());

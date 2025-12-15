@@ -76,7 +76,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   // Logs state
   const [logs, setLogs] = useState<string[]>([]);
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const lastLogCountRef = useRef(0);
+  const lastMessageRef = useRef<string | null>(null);
   const generatedPortRef = useRef<number | null>(null);
 
   const addLog = useCallback((msg: string) => {
@@ -158,9 +158,9 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     };
   }, []);
 
-  // Reset log count when target changes
+  // Reset log tracking when target changes
   useEffect(() => {
-    lastLogCountRef.current = 0;
+    lastMessageRef.current = null;
   }, [createdProfileName, creatingProfileName]);
 
   // Listen to SSE progress events
@@ -193,13 +193,16 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         setProgressSteps(newSteps);
       }
 
-      // Add to Logs
-      if (relevantProgress.length > lastLogCountRef.current) {
-        const newEvents = relevantProgress.slice(lastLogCountRef.current);
-        newEvents.forEach((e) => {
-          if (e.message) addLog(e.message);
-        });
-        lastLogCountRef.current = relevantProgress.length;
+      // Add to Logs (using message tracking since store only keeps latest state)
+      // We process the latest event for the target resource
+      const latestEvent = relevantProgress[relevantProgress.length - 1];
+      if (
+        latestEvent &&
+        latestEvent.message &&
+        latestEvent.message !== lastMessageRef.current
+      ) {
+        addLog(latestEvent.message);
+        lastMessageRef.current = latestEvent.message;
       }
 
       const latest = relevantProgress[relevantProgress.length - 1];
