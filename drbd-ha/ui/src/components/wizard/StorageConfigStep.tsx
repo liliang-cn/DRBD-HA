@@ -84,6 +84,56 @@ export function StorageConfigStep({
           </Form.Item>
         ))}
 
+        <Divider orientation="left">LVM Initialization (Optional)</Divider>
+        <Form.Item
+          name="init_lvm"
+          valuePropName="checked"
+          initialValue={false}
+          tooltip="Initialize selected disks as LVM PV/VG/LV (Will wipe data!)"
+        >
+          <Checkbox>Initialize disks as LVM</Checkbox>
+        </Form.Item>
+
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, current) => prev.init_lvm !== current.init_lvm}
+        >
+          {({ getFieldValue }) =>
+            getFieldValue('init_lvm') ? (
+              <Row gutter={16}>
+                <Col span={8}>
+                  <Form.Item
+                    name="lvm_vg_name"
+                    label="Volume Group Name"
+                    rules={[{ required: true, message: 'VG Name is required' }]}
+                  >
+                    <Input placeholder="drbd_vg" />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item
+                    name="lvm_lv_name"
+                    label="Logical Volume Name"
+                    tooltip="Defaults to resource name"
+                  >
+                    <Input placeholder="drbd_lv" />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item
+                    name="lvm_lv_size"
+                    label="Size"
+                    initialValue="100%FREE"
+                    tooltip="e.g. 10G, 100%FREE"
+                  >
+                    <Input />
+                  </Form.Item>
+                </Col>
+              </Row>
+            ) : null
+          }
+        </Form.Item>
+
         <Divider />
         <Form.Item
           name="force"

@@ -516,6 +516,18 @@ pub struct CreateResourceRequest {
     /// Whether to force creation despite safety checks
     #[serde(default)]
     pub force: bool,
+    /// Optional: Initialize disks as LVM PV/VG/LV before use
+    #[serde(default)]
+    pub init_lvm: bool,
+    /// Optional: Name for the new Volume Group (required if init_lvm is true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lvm_vg_name: Option<String>,
+    /// Optional: Name for the new Logical Volume (defaults to resource name if not set)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lvm_lv_name: Option<String>,
+    /// Optional: Size of the Logical Volume (e.g. "10G", defaults to 100%FREE)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lvm_lv_size: Option<String>,
 }
 
 fn default_auto_promote() -> bool {

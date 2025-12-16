@@ -66,6 +66,10 @@ export interface CreateResourceRequest {
   minor: number;
   node_disks: Record<string, string>;
   auto_promote?: boolean;
+  init_lvm?: boolean;
+  lvm_vg_name?: string;
+  lvm_lv_name?: string;
+  lvm_lv_size?: string;
 }
 
 export interface ResourceAction {

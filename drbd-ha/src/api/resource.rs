@@ -132,16 +132,79 @@ pub async fn create_resource(
     let mut remote_checks: Vec<(String, u16, String, crate::core::SshCredential, String)> =
         Vec::new();
 
+    // Prepare LVM parameters if requested
+    let (lvm_path, lvm_vg_name, lvm_lv_name, lvm_lv_size) = if req.init_lvm {
+        let vg_name = req.lvm_vg_name.as_ref().ok_or_else(|| {
+            AppError::Validation("lvm_vg_name is required when init_lvm is true".to_string())
+        })?;
+        let lv_name = req.lvm_lv_name.as_ref().unwrap_or(&req.name);
+        let lv_size = req.lvm_lv_size.as_deref().unwrap_or("100%FREE"); // Default to full size
+        
+        let path = format!("/dev/{}/{}", vg_name, lv_name);
+        (Some(path), Some(vg_name.clone()), Some(lv_name.clone()), Some(lv_size.to_string()))
+    } else {
+        (None, None, None, None)
+    };
+
+    if req.init_lvm {
+         state.send_progress(
+            &operation_id,
+            "create_resource",
+            Some(&req.name),
+            5,
+            "Initializing LVM on all nodes...",
+            false,
+            None,
+        );
+    }
+
     for (node_id, disk) in &req.node_disks {
         let node = state
             .db
             .get_node(node_id)?
             .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_id)))?;
 
+        // Initialize LVM if requested
+        if let (Some(vg_name), Some(lv_name), Some(lv_size)) = (&lvm_vg_name, &lvm_lv_name, &lvm_lv_size) {
+            // Determine lvcreate flag (-l for % or extents, -L for size)
+            let size_flag = if lv_size.contains('%') { "-l" } else { "-L" };
+            
+            // Execute LVM commands
+            // Note: -ff (force) is used to overwrite existing headers if any (careful!)
+            // Using -y to assume yes
+            let cmds = vec![
+                format!("pvcreate -y -ff {}", disk), 
+                format!("vgcreate -y -ff {} {}", vg_name, disk),
+                format!("lvcreate -y -n {} {} {} {}", lv_name, size_flag, lv_size, vg_name),
+            ];
+            let cmd_str = cmds.join(" && ");
+            
+            info!("Initializing LVM on {}: {}", node.hostname, cmd_str);
+            
+            if node.is_local {
+                let output = run_shell_command(&cmd_str, "Initialize local LVM").await?;
+                if !output.success() {
+                    return Err(AppError::Internal(format!("Failed to init LVM on local node: {}", output.stderr)));
+                }
+            } else {
+                let cred = crate::core::SshCredential::Password("ignored".to_string());
+                // Prepend sudo for remote commands
+                let sudo_cmd_str = format!("sudo bash -c '{}'", cmd_str);
+                let output = state.ssh_manager.execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, &sudo_cmd_str).await
+                    .map_err(|e| AppError::Internal(format!("Failed to connect to remote node {}: {}", node.hostname, e)))?;
+                
+                if !output.success() {
+                    return Err(AppError::Internal(format!("Failed to init LVM on remote node {}: {}", node.hostname, output.stderr)));
+                }
+            }
+        }
+
+        let effective_disk = lvm_path.clone().unwrap_or_else(|| disk.clone());
+
         node_configs.push(NodeConfig {
             hostname: node.hostname.clone(),
             ip: node.ip.clone(),
-            disk: disk.clone(),
+            disk: effective_disk.clone(),
             node_id: node_configs.len() as u32,
         });
 
@@ -161,10 +224,10 @@ pub async fn create_resource(
                 node.ssh_port,
                 node.ssh_user.clone(),
                 cred.clone(),
-                disk.clone(),
+                effective_disk.clone(),
             ));
         } else {
-            local_disks.push(disk.clone());
+            local_disks.push(effective_disk.clone());
         }
     }
 
