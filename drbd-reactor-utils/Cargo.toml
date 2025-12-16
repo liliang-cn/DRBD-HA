@@ -7,6 +7,6 @@ edition = "2021"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
-tokio = { version = "1.0", features = ["process", "io-util"] }
+tokio = { version = "1.0", features = ["process", "io-util", "macros", "rt-multi-thread"] }
 tracing = "0.1"
 gethostname = "0.4"

@@ -19,6 +19,8 @@ pub struct ClusterSync {
 
 /// Files to sync for HA configuration
 pub struct HaSyncConfig {
+    /// DRBD resource config file path and content
+    pub drbd_resource_config: Option<(String, String)>,
     /// Mount unit file path and content
     pub mount_unit: Option<(String, String)>,
     /// Service override files (path, content)
@@ -119,6 +121,83 @@ impl ClusterSync {
         credential: &SshCredential,
         config: &HaSyncConfig,
     ) -> AppResult<()> {
+        // Sync DRBD resource config first (most critical)
+        if let Some((path, content)) = &config.drbd_resource_config {
+            tracing::info!(
+                "Syncing DRBD resource config to node {}: path={}",
+                node.hostname,
+                path
+            );
+
+            // Ensure directory exists for DRBD config
+            let dir = std::path::Path::new(path)
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            if !dir.is_empty() {
+                let mkdir_cmd = format!("mkdir -p '{}'", dir);
+                self.ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        credential,
+                        &mkdir_cmd,
+                    )
+                    .await?;
+            }
+
+            self.write_remote_file(node, credential, path, content)
+                .await?;
+
+            // 使用 drbd-utils 验证远程节点上的DRBD配置状态
+            let resource_name = std::path::Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown");
+
+            let verification_config = drbd_utils::VerificationConfig::quick(); // Quick check for cluster sync
+
+            let node_ip = node.ip.clone();
+            let node_port = node.ssh_port;
+            let node_user = node.ssh_user.clone();
+            let ssh_manager = self.ssh_manager.clone();
+            let ssh_executor = move |cmd: String| async move {
+                match ssh_manager.execute(
+                    &node_ip,
+                    node_port,
+                    &node_user,
+                    credential,
+                    &cmd,
+                ).await {
+                    Ok(output) => Ok(output.stdout),
+                    Err(e) => Err(shell_cmd::error::ShellError::Execution(e.to_string())),
+                }
+            };
+
+            match drbd_utils::DrbdVerifier::verify_remote_drbd_status(
+                resource_name,
+                ssh_executor,
+                verification_config,
+            ).await {
+                Ok(result) => {
+                    if result.success {
+                        tracing::info!("✓ DRBD config verified on remote node {}: {} (attempts: {})",
+                            node.hostname, resource_name, result.attempts);
+                    } else {
+                        tracing::warn!("⚠ DRBD verification failed on remote node {}: {}",
+                            node.hostname, result.details.status_info);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("⚠ Failed to verify DRBD status on remote node {}: {}", node.hostname, e);
+                }
+            }
+
+            tracing::info!("✓ DRBD resource config synced to node {}", node.hostname);
+        }
+
         // Sync mount unit if present
         if let Some((path, content)) = &config.mount_unit {
             self.write_remote_file(node, credential, path, content)

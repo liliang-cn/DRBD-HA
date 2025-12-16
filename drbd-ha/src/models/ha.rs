@@ -222,6 +222,8 @@ impl Default for DataMigrationOptions {
 /// Information about generated systemd units
 #[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 pub struct GeneratedUnits {
+    /// Path to the generated DRBD resource configuration file
+    pub drbd_config_path: Option<String>,
     /// Generated mount unit name (e.g., "var-lib-mysql.mount")
     pub mount_unit: Option<String>,
     /// Path to the generated mount unit file

@@ -120,9 +120,13 @@ impl DataMigration {
         // Handle unmount result
         unmount_result?;
 
-        // Step 7: Demote DRBD back to Secondary
-        report_progress(MigrationStage::Finalizing, "Demoting DRBD resource");
-        Self::demote_drbd(&config.resource_name).await?;
+        // Step 7: Demote DRBD back to Secondary (if not requested to keep Primary)
+        if !config.keep_primary {
+            report_progress(MigrationStage::Finalizing, "Demoting DRBD resource");
+            Self::demote_drbd(&config.resource_name).await?;
+        } else {
+            report_progress(MigrationStage::Finalizing, "Keeping DRBD resource as Primary");
+        }
 
         // Step 8: Restart services if they were stopped
         if !stopped_services.is_empty() {
@@ -439,6 +443,7 @@ pub struct MigrationConfig {
     pub format_device: bool,
     pub services_to_stop: Vec<String>,
     pub preserve_permissions: bool,
+    pub keep_primary: bool,
 }
 
 impl Default for MigrationConfig {
@@ -451,6 +456,7 @@ impl Default for MigrationConfig {
             format_device: true,
             services_to_stop: Vec::new(),
             preserve_permissions: true,
+            keep_primary: false,
         }
     }
 }

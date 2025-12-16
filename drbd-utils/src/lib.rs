@@ -2,7 +2,9 @@ pub mod cmd;
 pub mod error;
 pub mod models;
 pub mod parser;
+pub mod sync;
 pub mod validator;
+pub mod verification;
 
 pub use cmd::{parse_drbd_status, DrbdCmd};
 pub use error::{DrbdError, DrbdResult};
@@ -11,6 +13,10 @@ pub use models::{
     PeerDeviceStatus, ResourceStatus,
 };
 pub use parser::parse_drbdadm_status;
+pub use sync::{check_drbd_sync_complete, get_drbd_sync_status, SyncStatus, PeerSyncStatus};
+pub use verification::{
+    DrbdVerifier, VerificationConfig, VerificationResult, VerificationDetails,
+};
 
 #[cfg(test)]
 mod tests {

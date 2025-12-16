@@ -76,6 +76,10 @@ pub enum AppError {
 
     #[error("Migration error: {0}")]
     Migration(String),
+
+    /// Operation timeout
+    #[error("Operation timeout: {0}")]
+    Timeout(String),
 }
 
 impl From<systemd_utils::SystemdError> for AppError {
@@ -140,6 +144,11 @@ impl IntoResponse for AppError {
             AppError::Migration(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "migration_error",
+                msg.clone(),
+            ),
+            AppError::Timeout(msg) => (
+                StatusCode::REQUEST_TIMEOUT,
+                "timeout_error",
                 msg.clone(),
             ),
         };

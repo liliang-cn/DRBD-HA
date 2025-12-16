@@ -54,6 +54,7 @@ pub async fn add_vip(
         .map_err(|e| AppError::Config(format!("Failed to write promoter config: {}", e)))?;
 
     let sync_config = HaSyncConfig {
+        drbd_resource_config: None, // No DRBD config changes for VIP updates
         mount_unit: None,
         service_overrides: vec![],
         promoter_config: (config_path.clone(), config_content.clone()),
@@ -127,6 +128,7 @@ pub async fn remove_vip(
         .map_err(|e| AppError::Config(format!("Failed to write promoter config: {}", e)))?;
 
     let sync_config = HaSyncConfig {
+        drbd_resource_config: None, // No DRBD config changes for VIP updates
         mount_unit: None,
         service_overrides: vec![],
         promoter_config: (config_path.clone(), config_content.clone()),
