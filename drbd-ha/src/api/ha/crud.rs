@@ -327,6 +327,19 @@ pub async fn create_profile(
     let profile_id = uuid::Uuid::new_v4().to_string();
     let all_nodes = state.db.get_all_nodes()?;
 
+    // Resolve DRBD port and minor early to prevent conflicts
+    let drbd_port = if let Some(p) = req.drbd_port {
+        p
+    } else {
+        super::utils::find_next_free_drbd_port().await?
+    };
+
+    let drbd_minor = if let Some(m) = req.drbd_minor {
+        m
+    } else {
+        super::utils::find_next_free_drbd_minor().await?
+    };
+
     if let (Some(pool_id), Some(volume_size_gb)) = (&req.lvm_pool_id, &req.lvm_volume_size_gb) {
         state.send_progress(
             &operation_id,
@@ -409,9 +422,6 @@ pub async fn create_profile(
                 node_id: i as u32,
             });
         }
-
-        let drbd_port = req.drbd_port.unwrap_or(7789);
-        let drbd_minor = req.drbd_minor.unwrap_or(0);
 
         let config_gen = ConfigGenerator::new()?;
         let resource_config = ResourceConfig {
@@ -619,7 +629,7 @@ pub async fn create_profile(
                 let mkfs_cmd = format!(
                     "mkfs.{} /dev/drbd{}",
                     req.fs_type,
-                    req.drbd_minor.unwrap_or(0)
+                    drbd_minor
                 );
                 run_shell_command(&mkfs_cmd, "Create filesystem").await?;
 
@@ -631,7 +641,7 @@ pub async fn create_profile(
                 run_shell_command(
                     &format!(
                         "mount /dev/drbd{} {}",
-                        req.drbd_minor.unwrap_or(0),
+                        drbd_minor,
                         req.mount_point
                     ),
                     "Mount for setup",
@@ -721,7 +731,7 @@ pub async fn create_profile(
                 let mkfs_cmd = format!(
                     "mkfs.{} /dev/drbd{}",
                     req.fs_type,
-                    req.drbd_minor.unwrap_or(0)
+                    drbd_minor
                 );
                 run_shell_command(&mkfs_cmd, "Create filesystem for NFS state").await?;
 
@@ -733,7 +743,7 @@ pub async fn create_profile(
                 run_shell_command(
                     &format!(
                         "mount /dev/drbd{} {}",
-                        req.drbd_minor.unwrap_or(0),
+                        drbd_minor,
                         req.mount_point
                     ),
                     "Mount for NFS setup",
@@ -1262,7 +1272,7 @@ pub async fn create_profile(
                 let mkfs_cmd = format!(
                     "mkfs.{} /dev/drbd{}",
                     req.fs_type,
-                    req.drbd_minor.unwrap_or(0)
+                    drbd_minor
                 );
                 run_shell_command(&mkfs_cmd, "Create filesystem for NFS state").await?;
 
@@ -1274,7 +1284,7 @@ pub async fn create_profile(
                 run_shell_command(
                     &format!(
                         "mount /dev/drbd{} {}",
-                        req.drbd_minor.unwrap_or(0),
+                        drbd_minor,
                         req.mount_point
                     ),
                     "Mount for NFS setup",
