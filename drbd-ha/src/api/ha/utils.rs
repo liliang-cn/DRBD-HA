@@ -1,3 +1,4 @@
+use crate::core::run_shell_command;
 use crate::error::AppResult;
 use crate::models::{Node, VipConfig};
 use crate::state::AppState;
@@ -80,9 +81,11 @@ pub(crate) fn parse_mount_point_from_config(content: &str) -> Option<String> {
     None
 }
 
-/// Find the next available DRBD minor number by scanning /etc/drbd.d/*.res
+/// Find the next available DRBD minor number by scanning /etc/drbd.d/*.res AND checking active resources
 pub async fn find_next_free_drbd_minor() -> AppResult<u32> {
     let mut used_minors = HashSet::new();
+    
+    // 1. Scan config files
     let config_dir = "/etc/drbd.d";
 
     if let Ok(mut entries) = fs::read_dir(config_dir).await {
@@ -100,16 +103,41 @@ pub async fn find_next_free_drbd_minor() -> AppResult<u32> {
                                 }
                             }
                         } else if line.starts_with("device") {
-                            // device /dev/drbd0;
-                            if let Some(dev) = line.split_whitespace().nth(1) {
-                                let dev = dev.trim_matches(';');
-                                if let Some(num_str) = dev.strip_prefix("/dev/drbd") {
-                                    if let Ok(n) = num_str.parse::<u32>() {
+                            // device /dev/drbd0; OR device /dev/drbd0 minor 0;
+                            // Split by whitespace
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            for (i, part) in parts.iter().enumerate() {
+                                if *part == "device" && i + 1 < parts.len() {
+                                    let dev = parts[i+1].trim_matches(';');
+                                    if let Some(num_str) = dev.strip_prefix("/dev/drbd") {
+                                        if let Ok(n) = num_str.parse::<u32>() {
+                                            used_minors.insert(n);
+                                        }
+                                    }
+                                } else if *part == "minor" && i + 1 < parts.len() {
+                                    let val = parts[i+1].trim_matches(';');
+                                    if let Ok(n) = val.parse::<u32>() {
                                         used_minors.insert(n);
                                     }
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Check active resources via drbdsetup
+    // This prevents race conditions or out-of-sync configs
+    if let Ok(output) = run_shell_command("drbdsetup status --json", "Get active DRBD minors").await {
+        if output.success() {
+            // We use a simplified parse here or import drbd_utils if available
+            // Since drbd_utils::parse_drbd_status exists, use it
+            if let Ok(resources) = drbd_utils::parse_drbd_status(&output.stdout) {
+                for res in resources {
+                    for dev in res.devices {
+                        used_minors.insert(dev.minor);
                     }
                 }
             }

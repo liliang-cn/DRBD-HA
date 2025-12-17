@@ -709,8 +709,6 @@ pub async fn create_profile(
                 .as_ref()
                 .ok_or_else(|| AppError::Validation("NFS configuration missing".to_string()))?;
 
-            let services = vec!["nfs-server.service".to_string()];
-
             if req.lvm_pool_id.is_some() && !migration_performed {
                 state.send_progress(
                     &operation_id,
@@ -796,23 +794,6 @@ pub async fn create_profile(
                 }
             } else if req.lvm_pool_id.is_some() && migration_performed {
                 tracing::info!("Skipping NFS storage initialization because migration was performed");
-                // Note: We might still want to handle the symlinking part for remote nodes if migration handled the data but not the symlinks?
-                // For NFS, migration usually copies /var/lib/nfs content.
-                // But the symlinking logic (ln -s mount_point/.nfs_state /var/lib/nfs) is specific to our HA NFS setup.
-                // If migration copied data to the new volume, we still need to ensure the system is configured to use it.
-                // However, standard migration logic is "copy from source to dest".
-                // If source was /var/lib/nfs, and dest is /srv/nfs (mount point), then /srv/nfs now contains nfs state.
-                // We DO need the symlinks.
-                // But we CANNOT format or wipe the disk.
-                
-                // Let's assume for now migration covers data, but we might need to handle config separately.
-                // Ideally, NFS migration should be specialized.
-                // For now, skipping the formatting part is the most critical fix for "Read-only file system".
-                
-                // We should probably still do the remote node symlinking if it wasn't done.
-                // But looking at the original code, the symlinking happens INSIDE the if block.
-                // So if we skip the block, we skip symlinking.
-                // This might be a separate issue for NFS migration specifically, but for now we fix the crash.
             }
 
             state.send_progress(
@@ -820,56 +801,24 @@ pub async fn create_profile(
                 "create_ha_profile",
                 Some(&req.name),
                 40,
-                "Configuring NFS exports...",
+                "Configuring OCF Exportfs...",
                 false,
                 None,
             );
 
-            let exports_content = format!(
-                "{} {}({})
-",
-                req.mount_point,
-                nfs_config
-                    .allowed_networks
-                    .first()
-                    .unwrap_or(&"*".to_string()),
-                nfs_config.options
+            // Calculate FSID and generate OCF resource string
+            let fsid = NfsGenerator::generate_fsid(&req.resource_name);
+            let ocf_exportfs = NfsGenerator::generate_ocf_exportfs(
+                &req.resource_name,
+                &req.mount_point,
+                nfs_config,
+                fsid,
             );
 
-            let mut current_exports = tokio::fs::read_to_string("/etc/exports")
-                .await
-                .unwrap_or_default();
-
-            current_exports = current_exports
-                .lines()
-                .filter(|line| !line.starts_with(&format!("{} ", req.mount_point)))
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            if !current_exports.is_empty() && !current_exports.ends_with('\n') {
-                current_exports.push('\n');
-            }
-            current_exports.push_str(&exports_content);
-
-            tokio::fs::write("/etc/exports", current_exports.as_bytes())
-                .await
-                .map_err(|e| AppError::Config(format!("Failed to write /etc/exports: {}", e)))?;
-
-            let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
-            for node in &remote_nodes {
-                let credential = crate::core::SshCredential::Password("ignored".to_string());
-                state
-                    .ssh_manager
-                    .write_file(
-                        &node.ip,
-                        node.ssh_port,
-                        &node.ssh_user,
-                        &credential,
-                        "/etc/exports",
-                        &current_exports,
-                    )
-                    .await?;
-            }
+            // Add exportfs OCF agent to services list
+            // Order: nfs-server -> exportfs
+            let mut services = vec!["nfs-server.service".to_string()];
+            services.push(ocf_exportfs);
 
             services
         }
@@ -1250,8 +1199,6 @@ pub async fn create_profile(
                 .as_ref()
                 .ok_or_else(|| AppError::Validation("NFS configuration missing".to_string()))?;
 
-            let services = vec!["nfs-server.service".to_string()];
-
             if req.lvm_pool_id.is_some() && !migration_performed {
                 state.send_progress(
                     &operation_id,
@@ -1344,56 +1291,24 @@ pub async fn create_profile(
                 "create_ha_profile",
                 Some(&req.name),
                 40,
-                "Configuring NFS exports...",
+                "Configuring OCF Exportfs...",
                 false,
                 None,
             );
 
-            let exports_content = format!(
-                "{} {}({})
-",
-                req.mount_point,
-                nfs_config
-                    .allowed_networks
-                    .first()
-                    .unwrap_or(&"*".to_string()),
-                nfs_config.options
+            // Calculate FSID and generate OCF resource string
+            let fsid = NfsGenerator::generate_fsid(&req.resource_name);
+            let ocf_exportfs = NfsGenerator::generate_ocf_exportfs(
+                &req.resource_name,
+                &req.mount_point,
+                nfs_config,
+                fsid,
             );
 
-            let mut current_exports = tokio::fs::read_to_string("/etc/exports")
-                .await
-                .unwrap_or_default();
-
-            current_exports = current_exports
-                .lines()
-                .filter(|line| !line.starts_with(&format!("{} ", req.mount_point)))
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            if !current_exports.is_empty() && !current_exports.ends_with('\n') {
-                current_exports.push('\n');
-            }
-            current_exports.push_str(&exports_content);
-
-            tokio::fs::write("/etc/exports", current_exports.as_bytes())
-                .await
-                .map_err(|e| AppError::Config(format!("Failed to write /etc/exports: {}", e)))?;
-
-            let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
-            for node in &remote_nodes {
-                let credential = crate::core::SshCredential::Password("ignored".to_string());
-                state
-                    .ssh_manager
-                    .write_file(
-                        &node.ip,
-                        node.ssh_port,
-                        &node.ssh_user,
-                        &credential,
-                        "/etc/exports",
-                        &current_exports,
-                    )
-                    .await?;
-            }
+            // Add exportfs OCF agent to services list
+            // Order: nfs-server -> exportfs
+            let mut services = vec!["nfs-server.service".to_string()];
+            services.push(ocf_exportfs);
 
             services
         }
