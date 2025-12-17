@@ -278,14 +278,59 @@ pub async fn list_available_disks(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Vec<BlockDevice>>> {
-    let all_disks = list_node_disks(State(state), Path(id)).await?;
+    let all_disks = list_node_disks(State(state.clone()), Path(id.clone())).await?;
 
-    // Filter to only available disks
-    let available: Vec<BlockDevice> = all_disks
+    // Filter to only available disks from lsblk
+    let mut available: Vec<BlockDevice> = all_disks
         .0
         .into_iter()
         .filter(|d| d.is_available())
         .collect();
+
+    // Check if node is local
+    let is_local = if id == "local" {
+        true
+    } else {
+        let node = state
+            .db
+            .get_node(&id)?
+            .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
+        node.is_local
+    };
+
+    // If local, add unused LVs
+    if is_local {
+        use crate::core::lvm_utils::list_lvs;
+        if let Ok(lvs) = list_lvs().await {
+            for lv in lvs {
+                // Check if LV is unused (not open)
+                // attr index 5 is Open status ('o' means open)
+                let is_open = lv.attr.len() > 5 && lv.attr.chars().nth(5) == Some('o');
+                
+                if !is_open {
+                     let path = format!("/dev/{}/{}", lv.vg_name, lv.name);
+                     
+                     // Check if it's already in the list
+                     if !available.iter().any(|d| d.path.as_ref() == Some(&path)) {
+                         let mut bd = BlockDevice {
+                             name: lv.name,
+                             path: Some(path),
+                             size: lv.size,
+                             size_human: None,
+                             device_type: "lvm".to_string(),
+                             mountpoint: None,
+                             fstype: None,
+                             ro: lv.attr.chars().nth(1) == Some('r'),
+                             model: None,
+                             children: vec![],
+                         };
+                         bd.size_human = Some(bd.size_human());
+                         available.push(bd);
+                     }
+                }
+            }
+        }
+    }
 
     Ok(Json(available))
 }

@@ -6,8 +6,8 @@ use crate::core::SshManager;
 use ssh_cmd::SshCredential;
 use std::sync::Arc;
 
-// Re-export LvmVgInfo
-pub use lvm_utils::LvmVgInfo;
+// Re-export LvmVgInfo and LvmLvInfo
+pub use lvm_utils::{LvmLvInfo, LvmVgInfo};
 
 /// Client for querying LVM information (local or remote)
 pub struct LvmClient {
@@ -59,6 +59,14 @@ impl LvmClient {
             .await
             .map_err(|e| anyhow::anyhow!(e))
     }
+
+    /// List all LVM Logical Volumes
+    pub async fn list_lvs(&self) -> anyhow::Result<Vec<LvmLvInfo>> {
+        self.inner
+            .list_lvs()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
 }
 
 /// Get LVM Volume Group information by name (Local).
@@ -71,6 +79,13 @@ pub async fn get_vg_info(vg_name: &str) -> anyhow::Result<Option<LvmVgInfo>> {
 /// List all LVM Volume Groups (Local).
 pub async fn list_vg_info() -> anyhow::Result<Vec<LvmVgInfo>> {
     lvm_utils::list_vg_info()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))
+}
+
+/// List all LVM Logical Volumes (Local).
+pub async fn list_lvs() -> anyhow::Result<Vec<LvmLvInfo>> {
+    lvm_utils::list_lvs()
         .await
         .map_err(|e| anyhow::anyhow!(e))
 }

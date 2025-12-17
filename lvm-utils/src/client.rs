@@ -16,6 +16,23 @@ pub struct LvmVgInfo {
     pub lv_count: u32, // Number of Logical Volumes
 }
 
+/// Represents LVM Logical Volume information
+#[derive(Debug, Clone)]
+pub struct LvmLvInfo {
+    pub name: String,
+    pub vg_name: String,
+    pub size: u64,
+    pub attr: String,
+    pub pool_lv: String,
+    pub origin: String,
+    pub data_percent: String,
+    pub metadata_percent: String,
+    pub move_pv: String,
+    pub mirror_log: String,
+    pub copy_percent: String,
+    pub convert_lv: String,
+}
+
 /// Client for querying LVM information (local or remote)
 pub struct LvmClient {
     #[allow(dead_code)] // Field is used in non-test builds, but triggered as unused in tests
@@ -98,6 +115,18 @@ impl LvmClient {
         }
 
         parse_vgs_json(&output.stdout)
+    }
+
+    /// List all LVM Logical Volumes using JSON output
+    pub async fn list_lvs(&self) -> LvmResult<Vec<LvmLvInfo>> {
+        let cmd = "lvs --reportformat json --units b --nosuffix -o lv_name,vg_name,lv_size,lv_attr,pool_lv,origin,data_percent,metadata_percent,move_pv,mirror_log,copy_percent,convert_lv";
+        let output = self.execute(cmd, "List all LVM LVs").await?;
+
+        if !output.success() {
+            return Err(LvmError::Execution(output.stderr));
+        }
+
+        parse_lvs_json(&output.stdout)
     }
 
     /// Initialize LVM Volume Group on a disk
@@ -237,6 +266,58 @@ fn parse_vgs_json(json_str: &str) -> LvmResult<Vec<LvmVgInfo>> {
     Ok(vgs)
 }
 
+#[derive(Debug, Deserialize)]
+struct LvsReport {
+    report: Vec<LvsReportItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LvsReportItem {
+    lv: Vec<LvsEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LvsEntry {
+    lv_name: String,
+    vg_name: String,
+    lv_size: String,
+    lv_attr: String,
+    pool_lv: String,
+    origin: String,
+    data_percent: String,
+    metadata_percent: String,
+    move_pv: String,
+    mirror_log: String,
+    copy_percent: String,
+    convert_lv: String,
+}
+
+fn parse_lvs_json(json_str: &str) -> LvmResult<Vec<LvmLvInfo>> {
+    let report: LvsReport = serde_json::from_str(json_str)
+        .map_err(|e| LvmError::JsonParse(format!("Failed to parse lvs JSON: {}", e)))?;
+
+    let mut lvs = Vec::new();
+    for item in report.report {
+        for lv in item.lv {
+            lvs.push(LvmLvInfo {
+                name: lv.lv_name,
+                vg_name: lv.vg_name,
+                size: lv.lv_size.parse().unwrap_or(0),
+                attr: lv.lv_attr,
+                pool_lv: lv.pool_lv,
+                origin: lv.origin,
+                data_percent: lv.data_percent,
+                metadata_percent: lv.metadata_percent,
+                move_pv: lv.move_pv,
+                mirror_log: lv.mirror_log,
+                copy_percent: lv.copy_percent,
+                convert_lv: lv.convert_lv,
+            });
+        }
+    }
+    Ok(lvs)
+}
+
 /// Get LVM Volume Group information by name (Local).
 /// Wraps `LvmClient::new_local().get_vg_info(vg_name)`
 pub async fn get_vg_info(vg_name: &str) -> LvmResult<Option<LvmVgInfo>> {
@@ -247,6 +328,12 @@ pub async fn get_vg_info(vg_name: &str) -> LvmResult<Option<LvmVgInfo>> {
 /// Wraps `LvmClient::new_local().list_vg_info()`
 pub async fn list_vg_info() -> LvmResult<Vec<LvmVgInfo>> {
     LvmClient::new_local().list_vg_info().await
+}
+
+/// List all LVM Logical Volumes (Local).
+/// Wraps `LvmClient::new_local().list_lvs()`
+pub async fn list_lvs() -> LvmResult<Vec<LvmLvInfo>> {
+    LvmClient::new_local().list_lvs().await
 }
 
 #[cfg(test)]
