@@ -1053,8 +1053,65 @@ pub async fn create_profile(
                         loop {
                             match drbd_utils::get_drbd_sync_status(&req.resource_name).await {
                                 Ok(status) => {
+                                    // Optimization: If local node is Primary and UpToDate, we can proceed
+                                    // while the sync continues in the background.
+                                    if status.local_role == "Primary" && status.local_disk_state == "UpToDate" {
+                                         state.send_progress(
+                                            &operation_id,
+                                            "create_ha_profile",
+                                            Some(&req.name),
+                                            48,
+                                            "Local resource ready. Proceeding with configuration (Background sync active)...",
+                                            false,
+                                            None,
+                                        );
+                                        
+                                        // Spawn a background task to monitor full sync completion
+                                        let bg_state = state.clone();
+                                        let resource_name = req.resource_name.clone();
+                                        let profile_name = req.name.clone();
+                                        let bg_op_id = operation_id.clone();
+                                        
+                                        tokio::spawn(async move {
+                                            let mut attempts = 0;
+                                            // Wait up to 30 minutes for background sync
+                                            while attempts < 360 {
+                                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                                                match drbd_utils::get_drbd_sync_status(&resource_name).await {
+                                                    Ok(s) if s.is_fully_synced => {
+                                                        bg_state.send_progress(
+                                                            &bg_op_id,
+                                                            "create_ha_profile_sync",
+                                                            Some(&profile_name),
+                                                            100,
+                                                            "DRBD resource fully synced (Background task)",
+                                                            true,
+                                                            Some(true),
+                                                        );
+                                                        break;
+                                                    }
+                                                    Ok(s) => {
+                                                        // Optional: could send verbose debug progress events, 
+                                                        // but main operation is already done.
+                                                        // Just trace it.
+                                                        if let Some(p) = s.sync_progress_percent {
+                                                            tracing::debug!("Background sync for {}: {:.2}%", resource_name, p);
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        tracing::warn!("Background sync check failed: {}", e);
+                                                    }
+                                                }
+                                                attempts += 1;
+                                            }
+                                        });
+                                        
+                                        break;
+                                    }
+
+                                    // If not yet Primary/UpToDate (e.g. inconsistent), report progress
                                     if status.is_fully_synced {
-                                        state.send_progress(
+                                         state.send_progress(
                                             &operation_id,
                                             "create_ha_profile",
                                             Some(&req.name),
@@ -1066,9 +1123,9 @@ pub async fn create_profile(
                                         break;
                                     } else {
                                         let msg = if let Some(percent) = status.sync_progress_percent {
-                                            format!("Waiting for DRBD sync: {:.2}% completed", percent)
+                                            format!("Waiting for local DRBD ready: {:.2}% synced", percent)
                                         } else {
-                                            "Waiting for DRBD sync...".to_string()
+                                            format!("Waiting for local DRBD ready (Status: {}/{})", status.local_role, status.local_disk_state)
                                         };
 
                                         state.send_progress(
