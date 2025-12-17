@@ -73,28 +73,53 @@ pub fn parse_drbdadm_status(output: &str, resource_name: &str) -> Option<DrbdRes
                     .and_then(|s| s.strip_prefix("connection:"))
                     .map(|s| s.to_string());
 
-                let replication = parts
+                let mut replication = parts
                     .iter()
                     .find(|s| s.starts_with("replication:"))
                     .and_then(|s| s.strip_prefix("replication:"))
                     .map(|s| s.to_string());
 
-                // Next line should have peer-disk
-                let peer_disk = if i + 1 < lines.len() {
+                let mut sync_percent = parts
+                    .iter()
+                    .find(|s| s.starts_with("done:"))
+                    .and_then(|s| s.strip_prefix("done:"))
+                    .and_then(|s| s.parse::<f64>().ok());
+
+                // Next line should have peer-disk or other details
+                let mut peer_disk = "Unknown".to_string();
+                if i + 1 < lines.len() {
                     let next_line = lines[i + 1].trim();
-                    if next_line.starts_with("peer-disk:") {
-                        next_line
-                            .split_whitespace()
-                            .find(|s| s.starts_with("peer-disk:"))
-                            .and_then(|s| s.strip_prefix("peer-disk:"))
-                            .unwrap_or("Unknown")
-                            .to_string()
-                    } else {
-                        "Unknown".to_string()
+                    // We check next line if it seems to contain peer info (peer-disk or replication)
+                    if next_line.starts_with("peer-disk:")
+                        || next_line.contains("replication:")
+                        || next_line.contains("done:")
+                    {
+                        let next_parts: Vec<&str> = next_line.split_whitespace().collect();
+
+                        if let Some(pd) = next_parts.iter().find(|s| s.starts_with("peer-disk:")) {
+                            peer_disk = pd
+                                .strip_prefix("peer-disk:")
+                                .unwrap_or("Unknown")
+                                .to_string();
+                        }
+
+                        if replication.is_none() {
+                            replication = next_parts
+                                .iter()
+                                .find(|s| s.starts_with("replication:"))
+                                .and_then(|s| s.strip_prefix("replication:"))
+                                .map(|s| s.to_string());
+                        }
+
+                        if sync_percent.is_none() {
+                            sync_percent = next_parts
+                                .iter()
+                                .find(|s| s.starts_with("done:"))
+                                .and_then(|s| s.strip_prefix("done:"))
+                                .and_then(|s| s.parse::<f64>().ok());
+                        }
                     }
-                } else {
-                    "Unknown".to_string()
-                };
+                }
 
                 peers.push(DrbdPeerStatus {
                     name: peer_name,
@@ -102,6 +127,7 @@ pub fn parse_drbdadm_status(output: &str, resource_name: &str) -> Option<DrbdRes
                     peer_disk,
                     connection,
                     replication,
+                    sync_percent,
                 });
             }
         }
@@ -153,5 +179,35 @@ mod tests {
         assert_eq!(status.peers[0].name, "node1");
         assert_eq!(status.peers[0].role, "Primary");
         assert_eq!(status.peers[0].peer_disk, "UpToDate");
+    }
+
+    #[test]
+    fn test_parse_drbdadm_status_syncing() {
+        let output = r#"postgres_data role:Primary
+  disk:UpToDate open:no
+  orange2 role:Secondary
+    replication:SyncSource peer-disk:Inconsistent done:19.30
+  orange3 role:Secondary
+    replication:SyncSource peer-disk:Inconsistent done:19.20"#;
+        let status = parse_drbdadm_status(output, "postgres_data").unwrap();
+        assert_eq!(status.resource, "postgres_data");
+        assert_eq!(status.role, "Primary");
+        assert_eq!(status.disk, "UpToDate");
+        assert!(!status.open);
+        assert_eq!(status.peers.len(), 2);
+
+        let p1 = &status.peers[0];
+        assert_eq!(p1.name, "orange2");
+        assert_eq!(p1.role, "Secondary");
+        assert_eq!(p1.peer_disk, "Inconsistent");
+        assert_eq!(p1.replication.as_deref(), Some("SyncSource"));
+        assert_eq!(p1.sync_percent, Some(19.30));
+
+        let p2 = &status.peers[1];
+        assert_eq!(p2.name, "orange3");
+        assert_eq!(p2.role, "Secondary");
+        assert_eq!(p2.peer_disk, "Inconsistent");
+        assert_eq!(p2.replication.as_deref(), Some("SyncSource"));
+        assert_eq!(p2.sync_percent, Some(19.20));
     }
 }

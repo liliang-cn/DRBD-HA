@@ -128,4 +128,7 @@ pub struct DrbdPeerStatus {
     /// Replication state (Established/SyncSource/SyncTarget etc)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replication: Option<String>,
+    /// Synchronization percentage (if syncing)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_percent: Option<f64>,
 }

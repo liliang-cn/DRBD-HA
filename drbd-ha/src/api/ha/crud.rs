@@ -1051,20 +1051,37 @@ pub async fn create_profile(
                         let mut sync_attempts = 0;
                         let max_attempts = 120; // 最多等待10分钟
                         loop {
-                            match drbd_utils::check_drbd_sync_complete(&req.resource_name).await {
-                                Ok(is_synced) if is_synced => {
-                                    state.send_progress(
-                                        &operation_id,
-                                        "create_ha_profile",
-                                        Some(&req.name),
-                                        48,
-                                        "DRBD resource fully synced",
-                                        false,
-                                        None,
-                                    );
-                                    break;
+                            match drbd_utils::get_drbd_sync_status(&req.resource_name).await {
+                                Ok(status) => {
+                                    if status.is_fully_synced {
+                                        state.send_progress(
+                                            &operation_id,
+                                            "create_ha_profile",
+                                            Some(&req.name),
+                                            48,
+                                            "DRBD resource fully synced",
+                                            false,
+                                            None,
+                                        );
+                                        break;
+                                    } else {
+                                        let msg = if let Some(percent) = status.sync_progress_percent {
+                                            format!("Waiting for DRBD sync: {:.2}% completed", percent)
+                                        } else {
+                                            "Waiting for DRBD sync...".to_string()
+                                        };
+
+                                        state.send_progress(
+                                            &operation_id,
+                                            "create_ha_profile",
+                                            Some(&req.name),
+                                            45,
+                                            &msg,
+                                            false,
+                                            None,
+                                        );
+                                    }
                                 }
-                                Ok(_) => {}
                                 Err(e) => {
                                     tracing::warn!("Failed to check DRBD sync status: {}", e);
                                 }

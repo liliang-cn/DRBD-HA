@@ -182,21 +182,25 @@ impl SyncStatus {
     }
 
     fn from_text_status(status: &DrbdResourceStatus) -> Self {
-        let peers = status.peers.iter().map(|peer| {
-            PeerSyncStatus {
+        let peers = status
+            .peers
+            .iter()
+            .map(|peer| PeerSyncStatus {
                 name: peer.name.clone(),
                 role: peer.role.clone(),
                 disk_state: peer.peer_disk.clone(),
                 connection_state: peer.connection.as_deref().unwrap_or("Unknown").to_string(),
                 replication_state: peer.replication.as_deref().unwrap_or("Unknown").to_string(),
-            }
-        }).collect();
+            })
+            .collect();
 
         let is_fully_synced = is_fully_synced_text(status);
         let is_syncing = status.peers.iter().any(|p| {
-            p.peer_disk == "Inconsistent" ||
-            p.connection.as_ref().map_or(false, |c| c.contains("Sync"))
+            p.peer_disk == "Inconsistent"
+                || p.connection.as_ref().map_or(false, |c| c.contains("Sync"))
         });
+
+        let sync_progress_percent = status.peers.iter().find_map(|p| p.sync_percent);
 
         Self {
             resource_name: status.resource.clone(),
@@ -204,7 +208,7 @@ impl SyncStatus {
             local_disk_state: status.disk.clone(),
             is_fully_synced,
             is_syncing,
-            sync_progress_percent: None, // Text parsing doesn't provide exact percentage
+            sync_progress_percent,
             peers,
         }
     }
@@ -284,6 +288,7 @@ mod tests {
                 peer_disk: "UpToDate".to_string(),
                 connection: Some("Connected".to_string()),
                 replication: Some("Established".to_string()),
+                sync_percent: None,
             }],
         };
         assert!(is_fully_synced_text(&synced_status));
@@ -300,6 +305,7 @@ mod tests {
                 peer_disk: "Inconsistent".to_string(),
                 connection: Some("Connected".to_string()),
                 replication: Some("SyncTarget".to_string()),
+                sync_percent: Some(45.0),
             }],
         };
         assert!(!is_fully_synced_text(&syncing_status));
