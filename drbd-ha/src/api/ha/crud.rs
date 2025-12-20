@@ -7,6 +7,7 @@ use drbd_migration::{DataMigration, MigrationConfig};
 use drbd_reactor_utils::DrbdReactorClient;
 use drbd_utils::parse_drbdadm_status;
 use std::sync::Arc;
+use tracing::{info, warn};
 
 use crate::core::{
     cluster_sync::{ClusterSync, HaSyncConfig},
@@ -1697,7 +1698,78 @@ pub async fn create_profile(
 
     state.db.insert_ha_profile(&profile)?;
 
-    messages.push("Reload drbd-reactor to apply".to_string());
+    // Step 5: Restart drbd-reactor to apply new configuration on all nodes
+    state.send_progress(
+        &operation_id,
+        "create_ha_profile",
+        Some(&req.name),
+        95,
+        "Restarting drbd-reactor on all nodes to apply configuration...",
+        false,
+        None,
+    );
+
+    // Get all nodes for drbd-reactor restart
+    let all_nodes = state.db.get_all_nodes()?;
+    let mut successful_restarts = 0;
+    let mut total_nodes = 0;
+
+    info!("Restarting drbd-reactor service on all nodes to apply new HA configuration");
+
+    // Restart drbd-reactor on each node
+    for node in &all_nodes {
+        total_nodes += 1;
+        let hostname = &node.hostname;
+
+        if node.is_local {
+            // Local node restart
+            let sys = SystemdController::new().await;
+            if let Ok(sys) = sys {
+                match sys.restart("drbd-reactor.service").await {
+                    Ok(()) => {
+                        info!("Successfully restarted drbd-reactor on local node");
+                        successful_restarts += 1;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to restart drbd-reactor on local node: {}", e);
+                    }
+                }
+            } else {
+                tracing::warn!("Failed to initialize systemd controller for local drbd-reactor restart");
+            }
+        } else {
+            // Remote node restart via SSH
+            let cred = crate::core::SshCredential::Password("ignored".to_string());
+            let restart_cmd = "sudo systemctl restart drbd-reactor.service";
+
+            match state.ssh_manager.execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, restart_cmd).await {
+                Ok(output) => {
+                    if output.success() {
+                        info!("Successfully restarted drbd-reactor on remote node: {}", hostname);
+                        successful_restarts += 1;
+                    } else {
+                        tracing::warn!("Failed to restart drbd-reactor on remote node {}: {}", hostname, output.stderr);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to connect to remote node {} for drbd-reactor restart: {}", hostname, e);
+                }
+            }
+        }
+    }
+
+    // Update messages based on restart results
+    if successful_restarts == total_nodes {
+        info!("Successfully restarted drbd-reactor on all {}/{} nodes", successful_restarts, total_nodes);
+        messages.push(format!("HA profile created and drbd-reactor restarted on all {} nodes", successful_restarts));
+
+        // Give drbd-reactor a moment to start up and read the new configuration
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    } else {
+        tracing::warn!("drbd-reactor restart succeeded on only {}/{} nodes", successful_restarts, total_nodes);
+        messages.push(format!("HA profile created but drbd-reactor restart failed on {}/{} nodes",
+            total_nodes - successful_restarts, total_nodes));
+    }
 
     state.send_progress(
         &operation_id,
