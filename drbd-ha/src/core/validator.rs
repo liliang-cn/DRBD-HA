@@ -146,6 +146,90 @@ pub fn validate_minor(minor: u32) -> AppResult<()> {
     Ok(())
 }
 
+/// Check if DRBD device name conflicts with existing resources
+pub async fn validate_device_unique(device_name: &str) -> AppResult<()> {
+    // Check against existing DRBD configuration files
+    let config_dir = "/etc/drbd.d";
+
+    // List all .res files
+    match tokio::fs::read_dir(config_dir).await {
+        Ok(mut entries) => {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                // Only process .res files
+                let file_name_os = entry.file_name();
+                let file_name = match file_name_os.to_str() {
+                    Some(name) => name,
+                    None => continue,
+                };
+
+                if !file_name.ends_with(".res") {
+                    continue;
+                }
+
+                let file_path = entry.path();
+
+                // Read the content of the .res file
+                match tokio::fs::read_to_string(&file_path).await {
+                    Ok(content) => {
+                        // Check if this file contains our target device name
+                        for line in content.lines() {
+                            let trimmed_line = line.trim();
+                            // Look for device lines like: device /dev/drbd1234;
+                            if trimmed_line.starts_with("device ") {
+                                let device_part = trimmed_line.strip_prefix("device ")
+                                    .unwrap_or("")
+                                    .trim_end_matches(';');
+
+                                if device_part == device_name {
+                                    let resource_name = file_name
+                                        .strip_suffix(".res")
+                                        .unwrap_or("unknown");
+
+                                    return Err(AppError::Validation(format!(
+                                        "DRBD device '{}' is already used by resource '{}'",
+                                        device_name, resource_name
+                                    )));
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to read DRBD config file '{:?}': {}", file_path, e);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to read DRBD config directory '{}': {}", config_dir, e);
+        }
+    }
+
+    // Also check against active DRBD status
+    let cmd = crate::core::drbd_cmd::DrbdCmd::status_cmd();
+
+    match crate::core::run_shell_command(&cmd, "Check active DRBD resources").await {
+        Ok(output) => {
+            if output.success() {
+                // Parse DRBD status to find device conflicts
+                for line in output.stdout.lines() {
+                    // Look for device paths in status output
+                    if line.contains(device_name) {
+                        return Err(AppError::Validation(format!(
+                            "DRBD device '{}' is currently active and in use",
+                            device_name
+                        )));
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to check DRBD status for device conflicts: {}", e);
+        }
+    }
+
+    Ok(())
+}
+
 /// Validate VIP CIDR netmask
 pub fn validate_netmask(netmask: u8) -> AppResult<()> {
     if netmask == 0 || netmask > 32 {

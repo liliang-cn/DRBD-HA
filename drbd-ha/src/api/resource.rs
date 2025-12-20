@@ -166,6 +166,33 @@ pub async fn create_resource(
         (None, None, None, None)
     };
 
+    // Check if the generated device name conflicts with existing resources
+    // Generate a temporary config just to get the device name
+    let temp_nodes: Vec<(String, String, String)> = req.node_disks
+        .iter()
+        .enumerate()
+        .map(|(i, (_node_id, disk))| {
+            // Use placeholder values for now, we'll validate nodes later
+            (format!("node{}", i), format!("192.168.1.{}", i + 1), disk.clone())
+        })
+        .collect();
+
+    let temp_config = ConfigGenerator::resource_from_request(&req, &temp_nodes);
+
+    state.send_progress(
+        &operation_id,
+        "create_resource",
+        Some(&req.name),
+        3,
+        "Checking device name conflicts...",
+        false,
+        None,
+    );
+
+    validator::validate_device_unique(&temp_config.device).await?;
+
+    tracing::info!("Device name '{}' is available for resource '{}'", temp_config.device, req.name);
+
     if req.init_lvm || req.storage_type.as_ref().map_or(false, |t| t == "zfs") {
          state.send_progress(
             &operation_id,
@@ -188,19 +215,19 @@ pub async fn create_resource(
         if let (Some(vg_name), Some(lv_name), Some(lv_size)) = (&lvm_vg_name, &lvm_lv_name, &lvm_lv_size) {
             // Determine lvcreate flag (-l for % or extents, -L for size)
             let size_flag = if lv_size.contains('%') { "-l" } else { "-L" };
-            
+
             // Execute LVM commands
             // Note: -ff (force) is used to overwrite existing headers if any (careful!)
             // Using -y to assume yes
             let cmds = vec![
-                format!("pvcreate -y -ff {}", disk), 
+                format!("pvcreate -y -ff {}", disk),
                 format!("vgcreate -y -ff {} {}", vg_name, disk),
                 format!("lvcreate -y -n {} {} {} {}", lv_name, size_flag, lv_size, vg_name),
             ];
             let cmd_str = cmds.join(" && ");
-            
+
             info!("Initializing LVM on {}: {}", node.hostname, cmd_str);
-            
+
             if node.is_local {
                 let output = run_shell_command(&cmd_str, "Initialize local LVM").await?;
                 if !output.success() {
