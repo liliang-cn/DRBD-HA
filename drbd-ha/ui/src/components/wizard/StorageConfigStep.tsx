@@ -11,6 +11,7 @@ import {
   Select,
 } from 'antd';
 import type { BlockDevice, Node, StoragePool } from '@/types';
+import { Radio } from 'antd';
 
 interface StorageConfigStepProps {
   form: FormInstance;
@@ -84,7 +85,105 @@ export function StorageConfigStep({
           </Form.Item>
         ))}
 
-        <Divider orientation="left">LVM Initialization (Optional)</Divider>
+        <Divider orientation="left">Storage Pool Initialization (Optional)</Divider>
+        <Form.Item
+          name="storage_type"
+          label="Storage Type"
+          initialValue="none"
+          tooltip="Choose storage pool type for selected disks (will wipe data!)"
+        >
+          <Radio.Group>
+            <Radio value="none">None (Use raw disks)</Radio>
+            <Radio value="lvm">LVM Storage Pool</Radio>
+            <Radio value="zfs">ZFS Storage Pool</Radio>
+          </Radio.Group>
+        </Form.Item>
+
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, current) => prev.storage_type !== current.storage_type}
+        >
+          {({ getFieldValue }) => {
+            const storageType = getFieldValue('storage_type');
+            if (storageType === 'none') {
+              return null;
+            }
+
+            return (
+              <>
+                {storageType === 'lvm' && (
+                  <Row gutter={16}>
+                    <Col span={8}>
+                      <Form.Item
+                        name="lvm_vg_name"
+                        label="Volume Group Name"
+                        rules={[{ required: true, message: 'VG Name is required' }]}
+                      >
+                        <Input placeholder="drbd_vg" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item
+                        name="lvm_lv_name"
+                        label="Logical Volume Name"
+                        tooltip="Defaults to resource name"
+                      >
+                        <Input placeholder="drbd_lv" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item
+                        name="lvm_lv_size"
+                        label="Size"
+                        initialValue="100%FREE"
+                        tooltip="e.g. 10G, 100%FREE"
+                      >
+                        <Input />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                )}
+
+                {storageType === 'zfs' && (
+                  <>
+                    <Row gutter={16}>
+                      <Col span={12}>
+                        <Form.Item
+                          name="zfs_pool_name"
+                          label="ZFS Pool Name"
+                          rules={[{ required: true, message: 'Pool name is required' }]}
+                          tooltip="Name of the ZFS pool to create"
+                        >
+                          <Input placeholder="drbd_pool" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item
+                          name="zfs_volume_size_gb"
+                          label="Volume Size (GB)"
+                          initialValue={10}
+                          rules={[{ required: true, message: 'Volume size is required' }]}
+                          tooltip="Size of the ZFS volume to create"
+                        >
+                          <InputNumber min={1} className="w-full" />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <Form.Item
+                      name="zfs_volume_name"
+                      label="ZFS Volume Name"
+                      tooltip="Defaults to resource name"
+                    >
+                      <Input placeholder="drbd_volume" />
+                    </Form.Item>
+                  </>
+                )}
+              </>
+            );
+          }}
+        </Form.Item>
+
+        <Divider orientation="left">Legacy LVM Initialization</Divider>
         <Form.Item
           name="init_lvm"
           valuePropName="checked"

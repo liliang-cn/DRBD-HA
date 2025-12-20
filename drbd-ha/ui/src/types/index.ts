@@ -70,6 +70,11 @@ export interface CreateResourceRequest {
   lvm_vg_name?: string;
   lvm_lv_name?: string;
   lvm_lv_size?: string;
+  // Storage pool configuration
+  storage_type?: 'none' | 'lvm' | 'zfs';
+  zfs_pool_name?: string;
+  zfs_volume_name?: string;
+  zfs_volume_size_gb?: number;
 }
 
 export interface ResourceAction {

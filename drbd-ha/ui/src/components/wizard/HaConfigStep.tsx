@@ -1,5 +1,4 @@
 import {
-  DatabaseOutlined,
   DeleteOutlined,
   PlusOutlined,
   SettingOutlined,
@@ -25,14 +24,12 @@ import {
   Typography,
 } from 'antd';
 import { useEffect, useState } from 'react';
-import { useStoragePools } from '@/hooks/useStoragePools';
 import { useNodesStore } from '@/stores/nodes';
 import type {
   HaType,
   Node,
   OcfAgentConfig,
   ServiceFileInfo,
-  StoragePool,
 } from '@/types';
 import { OcfAgentModal } from './OcfAgentModal';
 
@@ -64,12 +61,8 @@ export function HaConfigStep({
 }: HaConfigStepProps) {
   const [showAgentModal, setShowAgentModal] = useState(false);
   const { nodes } = useNodesStore();
-  const { pools, loading: poolsLoading } = useStoragePools();
   const [selectedResource, setSelectedResource] = useState<string | null>(null);
   const mountStrategy = Form.useWatch('mount_strategy', form);
-
-  // Storage type selection
-  const storageType = Form.useWatch('storage_type', form);
 
   // Available nodes for preferred nodes selection
   const [availableNodes, setAvailableNodes] = useState<
@@ -245,129 +238,7 @@ export function HaConfigStep({
           </>
         )}
 
-        {/* --- Storage Pool Selection --- */}
-        {!isBlockProtocol && (
-          <>
-            <Divider>
-              <Space>
-                <DatabaseOutlined />
-                Storage Pool Configuration (Optional)
-              </Space>
-            </Divider>
-            <Form.Item
-              name="storage_type"
-              label="Storage Type"
-              initialValue="none"
-              help={
-                <Space direction="vertical" size="small">
-                  <Text type="secondary">
-                    <strong>None:</strong> Use existing DRBD resource without
-                    creating new storage
-                  </Text>
-                  <Text type="secondary">
-                    <strong>LVM:</strong> Create LVM logical volume from a pool
-                  </Text>
-                  <Text type="secondary">
-                    <strong>ZFS:</strong> Create ZFS volume (zvol) from a pool
-                  </Text>
-                </Space>
-              }
-            >
-              <Radio.Group>
-                <Radio value="none">None (Use existing DRBD)</Radio>
-                <Radio value="lvm">LVM Storage Pool</Radio>
-                <Radio value="zfs">ZFS Storage Pool</Radio>
-              </Radio.Group>
-            </Form.Item>
-
-            <Form.Item
-              noStyle
-              shouldUpdate={(prev, current) =>
-                prev.storage_type !== current.storage_type
-              }
-            >
-              {({ getFieldValue }) =>
-                getFieldValue('storage_type') &&
-                getFieldValue('storage_type') !== 'none' ? (
-                  <Row gutter={16}>
-                    <Col span={12}>
-                      <Form.Item
-                        name={
-                          getFieldValue('storage_type') === 'lvm'
-                            ? 'lvm_pool_id'
-                            : 'zfs_pool_id'
-                        }
-                        label={
-                          getFieldValue('storage_type') === 'lvm'
-                            ? 'LVM Pool'
-                            : 'ZFS Pool'
-                        }
-                        rules={[
-                          {
-                            required: true,
-                            message: 'Please select a storage pool',
-                          },
-                        ]}
-                      >
-                        <Select
-                          placeholder={
-                            poolsLoading
-                              ? 'Loading pools...'
-                              : getFieldValue('storage_type') === 'lvm'
-                                ? 'Select LVM pool'
-                                : 'Select ZFS pool'
-                          }
-                          loading={poolsLoading}
-                          options={pools
-                            .filter((pool) => {
-                              // Filter pools by type - assuming pool name or type can indicate type
-                              // In a real implementation, pools might have a type field
-                              return getFieldValue('storage_type') === 'lvm'
-                                ? pool.name.toLowerCase().includes('vg') ||
-                                    pool.name.toLowerCase().includes('lvm') ||
-                                    !pool.name.toLowerCase().includes('zpool')
-                                : pool.name.toLowerCase().includes('zpool') ||
-                                    pool.name.toLowerCase().includes('zfs') ||
-                                    !pool.name.toLowerCase().includes('vg');
-                            })
-                            .map((pool) => ({
-                              value: pool.id,
-                              label: `${pool.name} (${(pool.free_size / 1024 ** 3).toFixed(1)} GB free)`,
-                            }))}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item
-                        name={
-                          getFieldValue('storage_type') === 'lvm'
-                            ? 'lvm_volume_size_gb'
-                            : 'zfs_volume_size_gb'
-                        }
-                        label="Volume Size (GB)"
-                        rules={[
-                          {
-                            required: true,
-                            message: 'Please specify volume size',
-                          },
-                        ]}
-                        help="Size of the logical volume to create"
-                      >
-                        <InputNumber
-                          min={1}
-                          max={10000}
-                          placeholder="10"
-                          className="w-full"
-                        />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                ) : null
-              }
-            </Form.Item>
-          </>
-        )}
-
+  
         {/* --- Service Specific Fields (Generic) --- */}
         {haType === 'generic' && (
           <Form.Item

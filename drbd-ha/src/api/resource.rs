@@ -139,20 +139,40 @@ pub async fn create_resource(
         })?;
         let lv_name = req.lvm_lv_name.as_ref().unwrap_or(&req.name);
         let lv_size = req.lvm_lv_size.as_deref().unwrap_or("100%FREE"); // Default to full size
-        
+
         let path = format!("/dev/{}/{}", vg_name, lv_name);
         (Some(path), Some(vg_name.clone()), Some(lv_name.clone()), Some(lv_size.to_string()))
     } else {
         (None, None, None, None)
     };
 
-    if req.init_lvm {
+    // Prepare ZFS parameters if requested
+    let (zfs_path, zfs_pool_name, zfs_volume_name, zfs_volume_size_gb) = if let Some(storage_type) = &req.storage_type {
+        if storage_type == "zfs" {
+            let pool_name = req.zfs_pool_name.as_ref().ok_or_else(|| {
+                AppError::Validation("zfs_pool_name is required when storage_type is 'zfs'".to_string())
+            })?;
+            let volume_name = req.zfs_volume_name.as_ref().unwrap_or(&req.name);
+            let volume_size_gb = req.zfs_volume_size_gb.ok_or_else(|| {
+                AppError::Validation("zfs_volume_size_gb is required when storage_type is 'zfs'".to_string())
+            })?;
+
+            let path = format!("/dev/zvol/{}/{}", pool_name, volume_name);
+            (Some(path), Some(pool_name.clone()), Some(volume_name.clone()), Some(volume_size_gb))
+        } else {
+            (None, None, None, None)
+        }
+    } else {
+        (None, None, None, None)
+    };
+
+    if req.init_lvm || req.storage_type.as_ref().map_or(false, |t| t == "zfs") {
          state.send_progress(
             &operation_id,
             "create_resource",
             Some(&req.name),
             5,
-            "Initializing LVM on all nodes...",
+            if req.init_lvm { "Initializing LVM on all nodes..." } else { "Initializing ZFS on all nodes..." },
             false,
             None,
         );
@@ -199,7 +219,44 @@ pub async fn create_resource(
             }
         }
 
-        let effective_disk = lvm_path.clone().unwrap_or_else(|| disk.clone());
+        // Initialize ZFS if requested
+        if let (Some(pool_name), Some(volume_name), Some(volume_size_gb)) = (&zfs_pool_name, &zfs_volume_name, &zfs_volume_size_gb) {
+            let cmds = vec![
+                // Create ZFS pool if it doesn't exist
+                format!("zpool list {} || zpool create -f {} {}", pool_name, pool_name, disk),
+                // Create ZFS volume
+                format!("zfs create -V {}G -b 128K {}/{}", volume_size_gb, pool_name, volume_name),
+            ];
+            let cmd_str = cmds.join(" && ");
+
+            info!("Initializing ZFS on {}: {}", node.hostname, cmd_str);
+
+            if node.is_local {
+                let output = run_shell_command(&cmd_str, "Initialize local ZFS").await?;
+                if !output.success() {
+                    return Err(AppError::Internal(format!("Failed to init ZFS on local node: {}", output.stderr)));
+                }
+            } else {
+                let cred = crate::core::SshCredential::Password("ignored".to_string());
+                // Prepend sudo for remote commands
+                let sudo_cmd_str = format!("sudo bash -c '{}'", cmd_str);
+                let output = state.ssh_manager.execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, &sudo_cmd_str).await
+                    .map_err(|e| AppError::Internal(format!("Failed to connect to remote node {}: {}", node.hostname, e)))?;
+
+                if !output.success() {
+                    return Err(AppError::Internal(format!("Failed to init ZFS on remote node {}: {}", node.hostname, output.stderr)));
+                }
+            }
+        }
+
+        // Determine the effective disk path (优先使用存储池路径)
+        let effective_disk = if let Some(ref zfs_path) = zfs_path {
+            zfs_path.clone()
+        } else if let Some(ref lvm_path) = lvm_path {
+            lvm_path.clone()
+        } else {
+            disk.clone()
+        };
 
         node_configs.push(NodeConfig {
             hostname: node.hostname.clone(),
