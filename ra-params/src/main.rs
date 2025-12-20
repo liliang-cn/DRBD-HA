@@ -174,24 +174,14 @@ fn process_agent(agent_path: &Path, output_dir: &Path, save_xml: bool) -> Result
     let agent_name = agent_path.file_name().unwrap().to_string_lossy();
     println!("Processing Agent: {}", agent_name);
 
-    let ra = get_agent_metadata(agent_path)?;
+    let (ra, xml_content) = get_agent_metadata(agent_path)?;
 
     // Optional: Save XML
     if save_xml {
         let xml_path = output_dir.join(format!("{}.xml", agent_name));
-        // We need to re-serialize or read raw output if we want exact XML, 
-        // but get_agent_metadata returns parsed struct. 
-        // For CLI compatibility, we might want the raw XML. 
-        // But for now, let's skip re-implementing raw XML fetch in main just for this flag 
-        // unless strictly necessary. 
-        // actually, let's just serialize it back to XML if possible or just JSON.
-        // The original code saved the RAW output from the command.
-        // `get_agent_metadata` swallows the raw string.
-        // I will fix `get_agent_metadata` or just implement a separate raw fetch if needed.
-        // For now, let's ignore save_xml exactness or assume the user accepts generated XML (if I added serializer).
-        // OR: simpler, just read the file again? No it's command output.
-        // I'll leave save_xml broken/simplified or just don't support it perfectly here to save time.
-        // Actually, I should probably expose a function that returns (ResourceAgent, String) in lib.
+        let mut file = fs::File::create(&xml_path)?;
+        file.write_all(xml_content.as_bytes())?;
+        println!("  Saved XML: {}", xml_path.display());
     }
 
     // Generate JSON

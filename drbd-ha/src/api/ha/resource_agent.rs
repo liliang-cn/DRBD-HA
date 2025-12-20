@@ -161,7 +161,12 @@ pub async fn get_resource_agent_metadata(
         )));
     }
 
-    let meta = get_agent_metadata(&agent_path).map_err(|e| AppError::Internal(e.to_string()))?;
+        let (meta, _) = get_agent_metadata(&agent_path).map_err(|e| AppError::Internal(e.to_string()))?;
 
-    Ok(Json(meta.into()))
-}
+    
+
+        Ok(Json(meta.into()))
+
+    }
+
+    

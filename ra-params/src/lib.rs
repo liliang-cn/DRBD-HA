@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-pub fn get_agent_metadata(agent_path: &Path) -> Result<ResourceAgent> {
+pub fn get_agent_metadata(agent_path: &Path) -> Result<(ResourceAgent, String)> {
     // Run the agent with meta-data argument
     let output = Command::new(agent_path)
         .arg("meta-data")
@@ -26,7 +26,7 @@ pub fn get_agent_metadata(agent_path: &Path) -> Result<ResourceAgent> {
     let xml_content = String::from_utf8(output.stdout).context("Invalid UTF-8 output")?;
     let ra: ResourceAgent = from_str(&xml_content).context("Failed to parse XML")?;
 
-    Ok(ra)
+    Ok((ra, xml_content))
 }
 
 pub fn list_agents(ocf_root: &Path) -> Result<Vec<(String, String)>> {
