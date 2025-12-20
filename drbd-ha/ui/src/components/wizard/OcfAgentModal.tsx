@@ -1,11 +1,12 @@
-import { Modal, Steps, Button, Table, Input, Form, Select, Spin, message, Typography, Space, Tooltip } from 'antd';
-import { useState, useEffect } from 'react';
-import { InfoCircleOutlined } from '@ant-design/icons';
+import { Modal, Steps, Button, Table, Input, Form, Select, Spin, message, Typography, Space, Tooltip, Menu, Layout, Card } from 'antd';
+import { useState, useEffect, useMemo } from 'react';
+import { InfoCircleOutlined, AppstoreOutlined } from '@ant-design/icons';
 import { resourceAgentsApi, AgentSummary, ResourceAgent } from '@/api/resource-agents';
 import { OcfAgentConfig } from '@/types';
 
 const { Search } = Input;
 const { Text } = Typography;
+const { Sider, Content } = Layout;
 
 interface OcfAgentModalProps {
   visible: boolean;
@@ -16,12 +17,12 @@ interface OcfAgentModalProps {
 export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) {
   const [step, setStep] = useState(0);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
-  const [filteredAgents, setFilteredAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedAgentSummary, setSelectedAgentSummary] = useState<AgentSummary | null>(null);
   const [metadata, setMetadata] = useState<ResourceAgent | null>(null);
   const [form] = Form.useForm();
   const [searchText, setSearchText] = useState('');
+  const [selectedProvider, setSelectedProvider] = useState<string>('all');
 
   useEffect(() => {
     if (visible && step === 0) {
@@ -29,24 +30,26 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
     }
   }, [visible, step]);
 
-  useEffect(() => {
-    if (searchText) {
-      const lower = searchText.toLowerCase();
-      setFilteredAgents(agents.filter(a => 
-        a.name.toLowerCase().includes(lower) || 
-        a.provider.toLowerCase().includes(lower)
-      ));
-    } else {
-      setFilteredAgents(agents);
-    }
-  }, [searchText, agents]);
+  const providers = useMemo(() => {
+    const unique = new Set(agents.map(a => a.provider));
+    return ['all', ...Array.from(unique).sort()];
+  }, [agents]);
+
+  const filteredAgents = useMemo(() => {
+    return agents.filter(a => {
+      const matchesProvider = selectedProvider === 'all' || a.provider === selectedProvider;
+      const matchesSearch = searchText === '' || 
+        a.name.toLowerCase().includes(searchText.toLowerCase()) || 
+        a.provider.toLowerCase().includes(searchText.toLowerCase());
+      return matchesProvider && matchesSearch;
+    });
+  }, [agents, selectedProvider, searchText]);
 
   const loadAgents = async () => {
     setLoading(true);
     try {
       const list = await resourceAgentsApi.list();
       setAgents(list);
-      setFilteredAgents(list);
     } catch (err) {
       message.error('Failed to load resource agents');
     } finally {
@@ -110,6 +113,7 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
     setMetadata(null);
     form.resetFields();
     setSearchText('');
+    setSelectedProvider('all');
   };
 
   const handleCancel = () => {
@@ -118,38 +122,54 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
   };
 
   const renderAgentList = () => (
-    <div className="flex flex-col h-[400px]">
-      <div className="mb-4">
-        <Search 
-          placeholder="Search agents..." 
-          allowClear 
-          onChange={e => setSearchText(e.target.value)} 
+    <Layout className="bg-white h-[400px]">
+      <Sider width={160} theme="light" className="border-r border-gray-200">
+        <Menu
+          mode="inline"
+          selectedKeys={[selectedProvider]}
+          onClick={({ key }) => setSelectedProvider(key)}
+          style={{ height: '100%', borderRight: 0 }}
+          items={providers.map(p => ({
+            key: p,
+            icon: <AppstoreOutlined />,
+            label: p === 'all' ? 'All Providers' : p,
+          }))}
         />
-      </div>
-      <div className="flex-1 overflow-auto">
-        <Table 
-          dataSource={filteredAgents} 
-          rowKey={record => `${record.provider}:${record.name}`}
-          size="small"
-          pagination={false}
-          loading={loading}
-          columns={[
-            { title: 'Provider', dataIndex: 'provider', width: 100 },
-            { title: 'Name', dataIndex: 'name' },
-            { 
-              title: 'Action', 
-              key: 'action',
-              width: 80,
-              render: (_, record) => (
-                <Button type="link" size="small" onClick={() => handleAgentSelect(record)}>
-                  Select
-                </Button>
-              )
-            }
-          ]}
-        />
-      </div>
-    </div>
+      </Sider>
+      <Content className="p-4 flex flex-col bg-white">
+        <div className="mb-4">
+          <Search 
+            placeholder="Search agents..." 
+            allowClear 
+            onChange={e => setSearchText(e.target.value)} 
+            value={searchText}
+          />
+        </div>
+        <div className="flex-1 overflow-auto">
+          <Table 
+            dataSource={filteredAgents} 
+            rowKey={record => `${record.provider}:${record.name}`}
+            size="small"
+            pagination={{ pageSize: 10, simple: true }}
+            loading={loading}
+            columns={[
+              { title: 'Provider', dataIndex: 'provider', width: 100 },
+              { title: 'Name', dataIndex: 'name' },
+              { 
+                title: 'Action', 
+                key: 'action',
+                width: 80,
+                render: (_, record) => (
+                  <Button type="link" size="small" onClick={() => handleAgentSelect(record)}>
+                    Select
+                  </Button>
+                )
+              }
+            ]}
+          />
+        </div>
+      </Content>
+    </Layout>
   );
 
   const renderConfigForm = () => {
@@ -211,7 +231,7 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
       title="Add OCF Resource Agent"
       open={visible}
       onCancel={handleCancel}
-      width={700}
+      width={800}
       footer={
         step === 1 ? (
           <div className="flex justify-between">

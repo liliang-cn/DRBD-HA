@@ -37,31 +37,50 @@ pub fn list_agents(ocf_root: &Path) -> Result<Vec<(String, String)>> {
         return Ok(agents);
     }
 
-    for entry in fs::read_dir(resource_d)? {
-        let entry = entry?;
+    let entries = match fs::read_dir(&resource_d) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("Failed to read directory {}: {}", resource_d.display(), e);
+            return Ok(agents);
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let path = entry.path();
 
         if path.is_dir() {
-            let provider_name = path
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string();
+            let provider_name = match path.file_name() {
+                Some(n) => n.to_string_lossy().to_string(),
+                None => continue,
+            };
 
-            for agent_entry in fs::read_dir(&path)? {
-                let agent_entry = agent_entry?;
+            let agent_entries = match fs::read_dir(&path) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            for agent_entry in agent_entries {
+                let agent_entry = match agent_entry {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
                 let agent_path = agent_entry.path();
 
                 if agent_path.is_file() {
-                    use std::os::unix::fs::PermissionsExt;
-                    let metadata = fs::metadata(&agent_path)?;
-                    if metadata.permissions().mode() & 0o111 != 0 {
-                        let agent_name = agent_path
-                            .file_name()
-                            .unwrap()
-                            .to_string_lossy()
-                            .to_string();
-                        agents.push((provider_name.clone(), agent_name));
+                    // Use metadata call that doesn't fail the whole loop
+                    if let Ok(metadata) = fs::metadata(&agent_path) {
+                        use std::os::unix::fs::PermissionsExt;
+                        if metadata.permissions().mode() & 0o111 != 0 {
+                            let agent_name = match agent_path.file_name() {
+                                Some(n) => n.to_string_lossy().to_string(),
+                                None => continue,
+                            };
+                            agents.push((provider_name.clone(), agent_name));
+                        }
                     }
                 }
             }
