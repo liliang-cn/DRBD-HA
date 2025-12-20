@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "drbd-ha", "config-gen", "drbd-utils", "lvm-utils",
+    "drbd-ha", "config-gen", "drbd-utils", "lvm-utils", "zfs-utils",
     "ra-params", "shell-cmd", "ssh-cmd", "systemd-utils",
     "drbd-migration", "drbd-reactor-utils",
 ]

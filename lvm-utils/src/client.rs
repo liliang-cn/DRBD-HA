@@ -33,6 +33,29 @@ pub struct LvmLvInfo {
     pub convert_lv: String,
 }
 
+/// Represents LVM Thin Pool information
+#[derive(Debug, Clone)]
+pub struct LvmThinPoolInfo {
+    pub name: String,
+    pub vg_name: String,
+    pub size: u64,
+    pub data_percent: String,
+    pub metadata_percent: String,
+    pub transaction_id: String,
+    pub zeroing: bool,
+}
+
+/// Represents LVM Thin Volume information
+#[derive(Debug, Clone)]
+pub struct LvmThinVolumeInfo {
+    pub name: String,
+    pub vg_name: String,
+    pub pool_name: String,
+    pub size: u64,
+    pub data_percent: String,
+    pub origin: String,
+}
+
 /// Client for querying LVM information (local or remote)
 pub struct LvmClient {
     #[allow(dead_code)] // Field is used in non-test builds, but triggered as unused in tests
@@ -226,6 +249,185 @@ impl LvmClient {
         }
         Ok(())
     }
+
+    /// Create LVM Thin Pool
+    pub async fn create_thin_pool(
+        &self,
+        vg_name: &str,
+        pool_name: &str,
+        size_gb: u64,
+    ) -> LvmResult<()> {
+        let cmd = format!("lvcreate --type thin-pool -L {}G -n {} {}", size_gb, pool_name, vg_name);
+        let output = self
+            .execute(
+                &cmd,
+                &format!(
+                    "Create LVM thin pool '{}' of {}GB in VG '{}'",
+                    pool_name, size_gb, vg_name
+                ),
+            )
+            .await?;
+
+        if !output.success() {
+            return Err(LvmError::Execution(format!(
+                "Failed to create LVM thin pool: {}",
+                output.stderr
+            )));
+        }
+        Ok(())
+    }
+
+    /// Create LVM Thin Volume in a Thin Pool
+    pub async fn create_thin_volume(
+        &self,
+        vg_name: &str,
+        pool_name: &str,
+        volume_name: &str,
+        size_gb: u64,
+    ) -> LvmResult<String> {
+        let cmd = format!("lvcreate --type thin -V {}G -n {} {}/{}", size_gb, volume_name, vg_name, pool_name);
+        let output = self
+            .execute(
+                &cmd,
+                &format!(
+                    "Create LVM thin volume '{}' of {}GB in pool '{}/{}'",
+                    volume_name, size_gb, vg_name, pool_name
+                ),
+            )
+            .await?;
+
+        if !output.success() {
+            return Err(LvmError::Execution(format!(
+                "Failed to create LVM thin volume: {}",
+                output.stderr
+            )));
+        }
+        Ok(format!("/dev/{}/{}", vg_name, volume_name))
+    }
+
+    /// Get information about a specific LVM Thin Pool
+    pub async fn get_thin_pool_info(&self, vg_name: &str, pool_name: &str) -> LvmResult<Option<LvmThinPoolInfo>> {
+        let cmd = format!(
+            "lvs --reportformat json --units b --nosuffix -o lv_name,vg_name,lv_size,data_percent,metadata_percent,lv_tags {}/{}",
+            vg_name, pool_name
+        );
+        let output = self.execute(&cmd, "Get LVM thin pool info").await?;
+
+        if !output.success() {
+            if output.stderr.contains("not found") {
+                return Ok(None);
+            }
+            return Err(LvmError::Execution(output.stderr));
+        }
+
+        let pools = parse_thin_pools_json(&output.stdout)?;
+        Ok(pools.into_iter().find(|p| p.name == pool_name && p.vg_name == vg_name))
+    }
+
+    /// List all LVM Thin Pools
+    pub async fn list_thin_pools(&self, vg_name: Option<&str>) -> LvmResult<Vec<LvmThinPoolInfo>> {
+        let cmd = if let Some(vg) = vg_name {
+            format!("lvs --reportformat json --units b --nosuffix -o lv_name,vg_name,lv_size,data_percent,metadata_percent,lv_tags {}", vg)
+        } else {
+            "lvs --reportformat json --units b --nosuffix -o lv_name,vg_name,lv_size,data_percent,metadata_percent,lv_tags".to_string()
+        };
+
+        let output = self.execute(&cmd, "List LVM thin pools").await?;
+
+        if !output.success() {
+            return Err(LvmError::Execution(output.stderr));
+        }
+
+        parse_thin_pools_json(&output.stdout)
+    }
+
+    /// List LVM Thin Volumes
+    pub async fn list_thin_volumes(&self, pool_name: Option<&str>) -> LvmResult<Vec<LvmThinVolumeInfo>> {
+        let cmd = "lvs --reportformat json --units b --nosuffix -o lv_name,vg_name,pool_lv,lv_size,data_percent,origin";
+        let output = self.execute(cmd, "List LVM thin volumes").await?;
+
+        if !output.success() {
+            return Err(LvmError::Execution(output.stderr));
+        }
+
+        let volumes = parse_thin_volumes_json(&output.stdout)?;
+        if let Some(pool) = pool_name {
+            Ok(volumes.into_iter().filter(|v| v.pool_name == pool).collect())
+        } else {
+            Ok(volumes)
+        }
+    }
+
+    /// Convert existing LV to Thin Pool
+    pub async fn convert_to_thin_pool(&self, vg_name: &str, lv_name: &str) -> LvmResult<()> {
+        let cmd = format!("lvconvert --type thin-pool {}/{}", vg_name, lv_name);
+        let output = self
+            .execute(
+                &cmd,
+                &format!(
+                    "Convert LV '{}' to thin pool in VG '{}'",
+                    lv_name, vg_name
+                ),
+            )
+            .await?;
+
+        if !output.success() {
+            return Err(LvmError::Execution(format!(
+                "Failed to convert LV to thin pool: {}",
+                output.stderr
+            )));
+        }
+        Ok(())
+    }
+
+    /// Delete Thin Volume
+    pub async fn delete_thin_volume(&self, vg_name: &str, volume_name: &str) -> LvmResult<()> {
+        let cmd = format!("lvremove -f {}/{}", vg_name, volume_name);
+        let output = self
+            .execute(
+                &cmd,
+                &format!(
+                    "Delete thin volume '{}' from VG '{}'",
+                    volume_name, vg_name
+                ),
+            )
+            .await?;
+
+        if !output.success() {
+            return Err(LvmError::Execution(format!(
+                "Failed to delete thin volume: {}",
+                output.stderr
+            )));
+        }
+        Ok(())
+    }
+
+    /// Create snapshot of Thin Volume
+    pub async fn create_thin_snapshot(
+        &self,
+        vg_name: &str,
+        source_volume: &str,
+        snapshot_name: &str,
+    ) -> LvmResult<String> {
+        let cmd = format!("lvcreate -s -n {} {}/{}", snapshot_name, vg_name, source_volume);
+        let output = self
+            .execute(
+                &cmd,
+                &format!(
+                    "Create thin snapshot '{}' of volume '{}/{}'",
+                    snapshot_name, vg_name, source_volume
+                ),
+            )
+            .await?;
+
+        if !output.success() {
+            return Err(LvmError::Execution(format!(
+                "Failed to create thin snapshot: {}",
+                output.stderr
+            )));
+        }
+        Ok(format!("/dev/{}/{}", vg_name, snapshot_name))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -318,6 +520,54 @@ fn parse_lvs_json(json_str: &str) -> LvmResult<Vec<LvmLvInfo>> {
     Ok(lvs)
 }
 
+// Thin pool parsing functions
+fn parse_thin_pools_json(json_str: &str) -> LvmResult<Vec<LvmThinPoolInfo>> {
+    let report: LvsReport = serde_json::from_str(json_str)
+        .map_err(|e| LvmError::JsonParse(format!("Failed to parse thin pools JSON: {}", e)))?;
+
+    let mut pools = Vec::new();
+    for item in report.report {
+        for lv in item.lv {
+            // Check if this is a thin pool by looking at the attributes
+            if lv.lv_attr.len() >= 2 && lv.lv_attr.chars().nth(1) == Some('t') {
+                pools.push(LvmThinPoolInfo {
+                    name: lv.lv_name,
+                    vg_name: lv.vg_name,
+                    size: lv.lv_size.parse().unwrap_or(0),
+                    data_percent: lv.data_percent,
+                    metadata_percent: lv.metadata_percent,
+                    transaction_id: "0".to_string(), // This would need additional parsing from lv_tags
+                    zeroing: true, // Default assumption
+                });
+            }
+        }
+    }
+    Ok(pools)
+}
+
+fn parse_thin_volumes_json(json_str: &str) -> LvmResult<Vec<LvmThinVolumeInfo>> {
+    let report: LvsReport = serde_json::from_str(json_str)
+        .map_err(|e| LvmError::JsonParse(format!("Failed to parse thin volumes JSON: {}", e)))?;
+
+    let mut volumes = Vec::new();
+    for item in report.report {
+        for lv in item.lv {
+            // Check if this is a thin volume by looking at the attributes
+            if lv.lv_attr.len() >= 2 && lv.lv_attr.chars().nth(1) == Some('V') {
+                volumes.push(LvmThinVolumeInfo {
+                    name: lv.lv_name,
+                    vg_name: lv.vg_name,
+                    pool_name: lv.pool_lv,
+                    size: lv.lv_size.parse().unwrap_or(0),
+                    data_percent: lv.data_percent,
+                    origin: lv.origin,
+                });
+            }
+        }
+    }
+    Ok(volumes)
+}
+
 /// Get LVM Volume Group information by name (Local).
 /// Wraps `LvmClient::new_local().get_vg_info(vg_name)`
 pub async fn get_vg_info(vg_name: &str) -> LvmResult<Option<LvmVgInfo>> {
@@ -334,6 +584,24 @@ pub async fn list_vg_info() -> LvmResult<Vec<LvmVgInfo>> {
 /// Wraps `LvmClient::new_local().list_lvs()`
 pub async fn list_lvs() -> LvmResult<Vec<LvmLvInfo>> {
     LvmClient::new_local().list_lvs().await
+}
+
+/// Get LVM Thin Pool information by name (Local).
+/// Wraps `LvmClient::new_local().get_thin_pool_info(vg_name, pool_name)`
+pub async fn get_thin_pool_info(vg_name: &str, pool_name: &str) -> LvmResult<Option<LvmThinPoolInfo>> {
+    LvmClient::new_local().get_thin_pool_info(vg_name, pool_name).await
+}
+
+/// List all LVM Thin Pools (Local).
+/// Wraps `LvmClient::new_local().list_thin_pools()`
+pub async fn list_thin_pools() -> LvmResult<Vec<LvmThinPoolInfo>> {
+    LvmClient::new_local().list_thin_pools(None).await
+}
+
+/// List all LVM Thin Volumes (Local).
+/// Wraps `LvmClient::new_local().list_thin_volumes()`
+pub async fn list_thin_volumes() -> LvmResult<Vec<LvmThinVolumeInfo>> {
+    LvmClient::new_local().list_thin_volumes(None).await
 }
 
 #[cfg(test)]
@@ -506,5 +774,70 @@ mod tests {
             LvmError::JsonParse(_) => {}
             _ => panic!("Expected JsonParse error"),
         }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_thin_pool() {
+        clear_mocks();
+
+        push_mock_output(CommandOutput {
+            stdout: "Logical volume \"thinpool\" created.".to_string(),
+            stderr: "".to_string(),
+            exit_code: 0,
+        });
+
+        let client = LvmClient::new_local();
+        let result = client.create_thin_pool("myvg", "thinpool", 100).await;
+
+        assert!(result.is_ok());
+
+        let cmds = get_recorded_commands_list();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0], "lvcreate --type thin-pool -L 100G -n thinpool myvg");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_thin_volume() {
+        clear_mocks();
+
+        push_mock_output(CommandOutput {
+            stdout: "Logical volume \"thinvol\" created.".to_string(),
+            stderr: "".to_string(),
+            exit_code: 0,
+        });
+
+        let client = LvmClient::new_local();
+        let result = client.create_thin_volume("myvg", "thinpool", "thinvol", 20).await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "/dev/myvg/thinvol");
+
+        let cmds = get_recorded_commands_list();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0], "lvcreate --type thin -V 20G -n thinvol myvg/thinpool");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_thin_snapshot() {
+        clear_mocks();
+
+        push_mock_output(CommandOutput {
+            stdout: "Logical volume \"thinvol_snap\" created.".to_string(),
+            stderr: "".to_string(),
+            exit_code: 0,
+        });
+
+        let client = LvmClient::new_local();
+        let result = client.create_thin_snapshot("myvg", "thinvol", "thinvol_snap").await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "/dev/myvg/thinvol_snap");
+
+        let cmds = get_recorded_commands_list();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0], "lvcreate -s -n thinvol_snap myvg/thinvol");
     }
 }
