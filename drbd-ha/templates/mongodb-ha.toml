@@ -6,7 +6,7 @@
 [promoter.resources.mongodb-data]
 start = [
   "var-lib-mongodb.mount",
-  "ocf:heartbeat:IPaddr2 mongodb-data_vip cidr_netmask=24 ip=192.168.123.198",
+  "ocf:heartbeat:IPaddr2 mongodb-data_vip cidr_netmask=24 ip=192.168.123.198 nic=eth0",
   "mongod.service",
 ]
 runner = "systemd"

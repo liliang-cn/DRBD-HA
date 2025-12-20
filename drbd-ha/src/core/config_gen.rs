@@ -304,13 +304,14 @@ const PROMOTER_TEMPLATE: &str = r#"# drbd-reactor promoter configuration
 [promoter.resources.{{ promoter.resource }}]
 start = [
 {% if promoter.mount_strategy | default(value="systemd") == "ocf" %}
-    {# OCF Filesystem Agent and other OCF agents are dynamically added below #}
+    {# OCF Filesystem Agent for advanced HA scenarios - use drbd device with proper fallback #}
+    "ocf:heartbeat:Filesystem {{ promoter.resource }}_fs device=/dev/drbd/by-{{ promoter.resource }}/0 directory={{ promoter.mount_point }} fstype={{ promoter.fs_type }} run_fsck=no force_unmount=true",
 {% elif promoter.mount_unit %}
     {# Systemd mount unit (default) #}
     "{{ promoter.mount_unit }}",
 {% endif %}
 {% if promoter.vip %}
-    "ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip cidr_netmask={{ promoter.vip.netmask }} ip={{ promoter.vip.address }}",
+    "ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }} nic={{ promoter.vip.interface }}",
 {% endif %}
 {% for agent in promoter.ocf_agents %}
     "{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}",
@@ -435,8 +436,8 @@ mod tests {
         assert!(output.contains("[promoter.resources.r0]"));
         assert!(output.contains("app.service"));
         assert!(output.contains("web.service"));
-        // VIP should be in OCF format inside start list (cidr_netmask before ip)
-        assert!(output.contains("ocf:heartbeat:IPaddr2 r0_vip cidr_netmask=24 ip=192.168.1.100"));
+        // VIP should be in OCF format inside start list (ip, cidr_netmask, nic)
+        assert!(output.contains("ocf:heartbeat:IPaddr2 r0_vip ip=192.168.1.100 cidr_netmask=24 nic=eth0"));
         assert!(output.contains("runner = \"systemd\""));
     }
 
