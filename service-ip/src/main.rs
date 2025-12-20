@@ -21,9 +21,9 @@ struct Args {
     #[arg(long)]
     ip: String,
 
-    /// Network Interface (e.g., eth0)
+    /// Network Interface (e.g., eth0). If not provided, it will be auto-detected.
     #[arg(long)]
-    dev: String,
+    dev: Option<String>,
 }
 
 #[tokio::main]
@@ -38,7 +38,16 @@ async fn main() -> Result<()> {
         anyhow::bail!("Only IPv4 is supported");
     };
 
-    info!("Starting Service-IP Manager for {} on {}", args.ip, args.dev);
+    let dev_name = match args.dev {
+        Some(d) => d,
+        None => {
+            let detected = detect_interface().context("Failed to auto-detect network interface")?;
+            info!("Auto-detected interface: {}", detected);
+            detected
+        }
+    };
+
+    info!("Starting Service-IP Manager for {} on {}", args.ip, dev_name);
 
     // 1. Get interface index
     let (connection, handle, _) = new_connection()?;
@@ -47,11 +56,11 @@ async fn main() -> Result<()> {
     let link = handle
         .link()
         .get()
-        .match_name(args.dev.clone())
+        .match_name(dev_name.clone())
         .execute()
         .try_next()
         .await?
-        .context(format!("Interface {} not found", args.dev))?;
+        .context(format!("Interface {} not found", dev_name))?;
     let iface_idx = link.header.index;
 
     // 2. Start/Daemon loop
@@ -66,12 +75,12 @@ async fn main() -> Result<()> {
                         // IP exists, everything is fine
                     },
                     Ok(false) => {
-                        warn!("VIP {} missing on {}, adding it now...", vip_addr, args.dev);
+                        warn!("VIP {} missing on {}, adding it now...", vip_addr, dev_name);
                         if let Err(e) = add_ip(&handle, iface_idx, vip_net).await {
                             error!("Failed to add VIP: {}", e);
                         } else {
                             info!("VIP added. Sending Gratuitous ARP...");
-                            if let Err(e) = send_gratuitous_arp(&args.dev, vip_addr) {
+                            if let Err(e) = send_gratuitous_arp(&dev_name, vip_addr) {
                                 error!("Failed to send ARP: {}", e);
                             }
                         }
@@ -93,6 +102,22 @@ async fn main() -> Result<()> {
     let _ = del_ip(&handle, iface_idx, vip_net).await;
 
     Ok(())
+}
+
+fn detect_interface() -> Option<String> {
+    datalink::interfaces()
+        .into_iter()
+        .find(|iface| {
+             iface.is_up() 
+             && !iface.is_loopback() 
+             && !iface.ips.is_empty() 
+             // Exclude common virtual interfaces
+             && !iface.name.starts_with("docker")
+             && !iface.name.starts_with("veth")
+             && !iface.name.starts_with("br-")
+             && !iface.name.starts_with("virbr")
+        })
+        .map(|iface| iface.name)
 }
 
 // --- Netlink Helpers ---
@@ -201,13 +226,14 @@ mod tests {
     fn test_args_parsing_valid() {
         let args = Args::try_parse_from(["service-ip", "--ip", "192.168.1.1/24", "--dev", "eth0"]).unwrap();
         assert_eq!(args.ip, "192.168.1.1/24");
-        assert_eq!(args.dev, "eth0");
+        assert_eq!(args.dev, Some("eth0".to_string()));
     }
 
     #[test]
     fn test_args_parsing_missing_dev() {
-        let result = Args::try_parse_from(["service-ip", "--ip", "192.168.1.1/24"]);
-        assert!(result.is_err());
+        let args = Args::try_parse_from(["service-ip", "--ip", "192.168.1.1/24"]).unwrap();
+        assert_eq!(args.ip, "192.168.1.1/24");
+        assert_eq!(args.dev, None);
     }
 
     #[test]
@@ -219,5 +245,11 @@ mod tests {
              assert_eq!(v4.ip().to_string(), "192.168.1.1");
              assert_eq!(v4.prefix(), 24);
         }
+    }
+    
+    #[test]
+    fn test_detect_interface_returns_something_or_nothing() {
+        // Just verify it doesn't panic
+        let _ = detect_interface();
     }
 }
