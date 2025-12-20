@@ -31,7 +31,7 @@ pub struct OcfAgentConfig {
 pub struct NfsConfig {
     pub export_path: String,           // e.g., "/exports/share1"
     pub allowed_networks: Vec<String>, // e.g., ["192.168.1.0/24"]
-    pub options: String,               // e.g., "rw,sync,no_root_squash"
+    pub options: String,               // e.g., "rw,sync,root_squash,anonuid=1000,anongid=1000"
 }
 
 /// iSCSI Configuration

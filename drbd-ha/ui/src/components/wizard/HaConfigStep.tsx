@@ -275,7 +275,8 @@ export function HaConfigStep({
             <Form.Item
               name="nfs_options"
               label="Export Options"
-              initialValue="rw,sync,no_root_squash"
+              initialValue="rw,sync,root_squash,anonuid=1000,anongid=1000"
+              tooltip="Recommended options for secure NFS with proper user mapping"
             >
               <Input />
             </Form.Item>

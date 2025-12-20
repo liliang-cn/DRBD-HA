@@ -22,7 +22,7 @@ impl NfsGenerator {
         config: &NfsConfig,
         fsid: u32,
     ) -> String {
-        // Format: ocf:heartbeat:exportfs name=nfs_exp fsid=1 directory=/exports/share clientspec='192.168.1.0/24' options='rw,sync,no_root_squash'
+        // Format: ocf:heartbeat:exportfs name=nfs_exp fsid=1 directory=/exports/share clientspec='192.168.1.0/24' options='rw,sync,root_squash,anonuid=1000,anongid=1000'
         // Note: We take the first allowed network. Complex multi-network setups might need multiple OCF resources.
         let clientspec = config
             .allowed_networks
