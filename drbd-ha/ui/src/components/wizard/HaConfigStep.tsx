@@ -53,6 +53,7 @@ export function HaConfigStep({
   const [showAgentModal, setShowAgentModal] = useState(false);
   const { nodes } = useNodesStore();
   const [selectedResource, setSelectedResource] = useState<string | null>(null);
+  const mountStrategy = Form.useWatch('mount_strategy', form);
 
   // Available nodes for preferred nodes selection
   const [availableNodes, setAvailableNodes] = useState<Array<{ key: string; title: string; }>>([]);
@@ -163,9 +164,11 @@ export function HaConfigStep({
                   }
                   rules={[{ required: true, message: 'Mount point is required' }]}
                   help={
-                    haType === 'nfs'
-                      ? 'The local path where the DRBD volume will be mounted and exported via NFS.'
-                      : undefined
+                    mountStrategy === 'ocf'
+                      ? 'This path will be used as the "directory" parameter for the automatically generated OCF Filesystem agent.'
+                      : (haType === 'nfs'
+                        ? 'The local path where the DRBD volume will be mounted and exported via NFS.'
+                        : undefined)
                   }
                 >
                   <Input placeholder="/srv/nfs/share1" />
@@ -193,10 +196,10 @@ export function HaConfigStep({
                 help={
                   <Space direction="vertical" size="small">
                     <Text type="secondary">
-                      <strong>Systemd (Recommended):</strong> Uses systemd mount units, best for databases and most applications
+                      <strong>Systemd (Recommended):</strong> Uses systemd mount units. Best for databases and simple setups.
                     </Text>
                     <Text type="secondary">
-                      <strong>OCF Filesystem Agent:</strong> Advanced HA with monitoring and recovery, best for critical storage services
+                      <strong>OCF Filesystem Agent:</strong> Automatically configures an OCF Filesystem agent using the Mount Point above. Provides advanced monitoring and recovery.
                     </Text>
                   </Space>
                 }
