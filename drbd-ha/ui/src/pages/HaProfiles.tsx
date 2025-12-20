@@ -100,12 +100,13 @@ export function HaProfiles() {
       }
 
       // Also show general system progress events that might be related to deletion
-      if (!p.resource && (
-        p.operation === 'cleanup' ||
-        p.operation === 'system_maintenance' ||
-        p.operation === 'cluster_sync' ||
-        p.operation === 'config_reload'
-      )) {
+      if (
+        !p.resource &&
+        (p.operation === 'cleanup' ||
+          p.operation === 'system_maintenance' ||
+          p.operation === 'cluster_sync' ||
+          p.operation === 'config_reload')
+      ) {
         return true;
       }
 
@@ -115,7 +116,7 @@ export function HaProfiles() {
     if (relevantProgress.length > 0) {
       // Sort by operation_id to maintain order
       const sortedProgress = relevantProgress.sort((a, b) =>
-        a.operation_id.localeCompare(b.operation_id)
+        a.operation_id.localeCompare(b.operation_id),
       );
 
       // Update progress steps display
@@ -135,10 +136,7 @@ export function HaProfiles() {
       sortedProgress.forEach((progress) => {
         const messageId = `${progress.operation_id}_${progress.progress}_${progress.message}`;
 
-        if (
-          progress.message &&
-          !processedMessageIds.current.has(messageId)
-        ) {
+        if (progress.message && !processedMessageIds.current.has(messageId)) {
           setDeletionLogs((prev) => [
             ...prev,
             `[${new Date().toLocaleTimeString()}] ${progress.message}`,
@@ -374,11 +372,7 @@ export function HaProfiles() {
                 okButtonProps={{ danger: true }}
                 icon={<ExclamationCircleOutlined style={{ color: 'red' }} />}
               >
-                <Button
-                  size="small"
-                  danger
-                  title="Evict"
-                >
+                <Button size="small" danger title="Evict">
                   Evict
                 </Button>
               </Popconfirm>
@@ -689,7 +683,9 @@ export function HaProfiles() {
           {/* Progress Steps */}
           {deletionProgressSteps.length > 0 && (
             <div className="space-y-2">
-              <div className="text-sm font-medium text-gray-700 mb-2">Deletion Progress:</div>
+              <div className="text-sm font-medium text-gray-700 mb-2">
+                Deletion Progress:
+              </div>
               {deletionProgressSteps.map((step, idx) => (
                 <div key={idx} className="flex items-start gap-2 text-sm">
                   {step.done ? (

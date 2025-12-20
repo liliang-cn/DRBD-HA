@@ -1,3 +1,9 @@
+import {
+  DatabaseOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  SettingOutlined,
+} from '@ant-design/icons';
 import type { FormInstance } from 'antd';
 import {
   Button,
@@ -14,15 +20,21 @@ import {
   Row,
   Select,
   Space,
-  Typography,
-  Transfer,
   Tag,
+  Transfer,
+  Typography,
 } from 'antd';
 import { useEffect, useState } from 'react';
-import { DeleteOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
-import type { HaType, OcfAgentConfig, ServiceFileInfo, Node } from '@/types';
-import { OcfAgentModal } from './OcfAgentModal';
+import { useStoragePools } from '@/hooks/useStoragePools';
 import { useNodesStore } from '@/stores/nodes';
+import type {
+  HaType,
+  Node,
+  OcfAgentConfig,
+  ServiceFileInfo,
+  StoragePool,
+} from '@/types';
+import { OcfAgentModal } from './OcfAgentModal';
 
 const { Text } = Typography;
 
@@ -52,16 +64,22 @@ export function HaConfigStep({
 }: HaConfigStepProps) {
   const [showAgentModal, setShowAgentModal] = useState(false);
   const { nodes } = useNodesStore();
+  const { pools, loading: poolsLoading } = useStoragePools();
   const [selectedResource, setSelectedResource] = useState<string | null>(null);
   const mountStrategy = Form.useWatch('mount_strategy', form);
 
+  // Storage type selection
+  const storageType = Form.useWatch('storage_type', form);
+
   // Available nodes for preferred nodes selection
-  const [availableNodes, setAvailableNodes] = useState<Array<{ key: string; title: string; }>>([]);
+  const [availableNodes, setAvailableNodes] = useState<
+    Array<{ key: string; title: string }>
+  >([]);
 
   // Update available nodes when nodes data changes
   useEffect(() => {
     if (nodes && nodes.length > 0) {
-      const nodeOptions = nodes.map(node => ({
+      const nodeOptions = nodes.map((node) => ({
         key: node.hostname,
         title: `${node.hostname} (${node.ip})`,
       }));
@@ -133,7 +151,12 @@ export function HaConfigStep({
                   📄 Device: <code>/dev/drbd/by-{selectedResource}/0</code>
                 </Text>
                 <Text type="secondary" style={{ fontSize: '12px' }}>
-                  📁 Mount Point: <code>/dev/drbd{selectedResource ? selectedResource.slice(-1) : '0'}</code> (alternative path)
+                  📁 Mount Point:{' '}
+                  <code>
+                    /dev/drbd
+                    {selectedResource ? selectedResource.slice(-1) : '0'}
+                  </code>{' '}
+                  (alternative path)
                 </Text>
               </Space>
             )
@@ -160,15 +183,19 @@ export function HaConfigStep({
                 <Form.Item
                   name="mount_point"
                   label={
-                    haType === 'nfs' ? 'Export Path (Mount Point)' : 'Mount Point'
+                    haType === 'nfs'
+                      ? 'Export Path (Mount Point)'
+                      : 'Mount Point'
                   }
-                  rules={[{ required: true, message: 'Mount point is required' }]}
+                  rules={[
+                    { required: true, message: 'Mount point is required' },
+                  ]}
                   help={
                     mountStrategy === 'ocf'
                       ? 'This path will be used as the "directory" parameter for the automatically generated OCF Filesystem agent.'
-                      : (haType === 'nfs'
+                      : haType === 'nfs'
                         ? 'The local path where the DRBD volume will be mounted and exported via NFS.'
-                        : undefined)
+                        : undefined
                   }
                 >
                   <Input placeholder="/srv/nfs/share1" />
@@ -196,20 +223,148 @@ export function HaConfigStep({
                 help={
                   <Space direction="vertical" size="small">
                     <Text type="secondary">
-                      <strong>Systemd (Recommended):</strong> Uses systemd mount units. Best for databases and simple setups.
+                      <strong>Systemd (Recommended):</strong> Uses systemd mount
+                      units. Best for databases and simple setups.
                     </Text>
                     <Text type="secondary">
-                      <strong>OCF Filesystem Agent:</strong> Automatically configures an OCF Filesystem agent using the Mount Point above. Provides advanced monitoring and recovery.
+                      <strong>OCF Filesystem Agent:</strong> Automatically
+                      configures an OCF Filesystem agent using the Mount Point
+                      above. Provides advanced monitoring and recovery.
                     </Text>
                   </Space>
                 }
               >
                 <Radio.Group>
-                  <Radio.Button value="systemd">Systemd Mount Unit</Radio.Button>
+                  <Radio.Button value="systemd">
+                    Systemd Mount Unit
+                  </Radio.Button>
                   <Radio.Button value="ocf">OCF Filesystem Agent</Radio.Button>
                 </Radio.Group>
               </Form.Item>
             )}
+          </>
+        )}
+
+        {/* --- Storage Pool Selection --- */}
+        {!isBlockProtocol && (
+          <>
+            <Divider>
+              <Space>
+                <DatabaseOutlined />
+                Storage Pool Configuration (Optional)
+              </Space>
+            </Divider>
+            <Form.Item
+              name="storage_type"
+              label="Storage Type"
+              initialValue="none"
+              help={
+                <Space direction="vertical" size="small">
+                  <Text type="secondary">
+                    <strong>None:</strong> Use existing DRBD resource without
+                    creating new storage
+                  </Text>
+                  <Text type="secondary">
+                    <strong>LVM:</strong> Create LVM logical volume from a pool
+                  </Text>
+                  <Text type="secondary">
+                    <strong>ZFS:</strong> Create ZFS volume (zvol) from a pool
+                  </Text>
+                </Space>
+              }
+            >
+              <Radio.Group>
+                <Radio value="none">None (Use existing DRBD)</Radio>
+                <Radio value="lvm">LVM Storage Pool</Radio>
+                <Radio value="zfs">ZFS Storage Pool</Radio>
+              </Radio.Group>
+            </Form.Item>
+
+            <Form.Item
+              noStyle
+              shouldUpdate={(prev, current) =>
+                prev.storage_type !== current.storage_type
+              }
+            >
+              {({ getFieldValue }) =>
+                getFieldValue('storage_type') &&
+                getFieldValue('storage_type') !== 'none' ? (
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item
+                        name={
+                          getFieldValue('storage_type') === 'lvm'
+                            ? 'lvm_pool_id'
+                            : 'zfs_pool_id'
+                        }
+                        label={
+                          getFieldValue('storage_type') === 'lvm'
+                            ? 'LVM Pool'
+                            : 'ZFS Pool'
+                        }
+                        rules={[
+                          {
+                            required: true,
+                            message: 'Please select a storage pool',
+                          },
+                        ]}
+                      >
+                        <Select
+                          placeholder={
+                            poolsLoading
+                              ? 'Loading pools...'
+                              : getFieldValue('storage_type') === 'lvm'
+                                ? 'Select LVM pool'
+                                : 'Select ZFS pool'
+                          }
+                          loading={poolsLoading}
+                          options={pools
+                            .filter((pool) => {
+                              // Filter pools by type - assuming pool name or type can indicate type
+                              // In a real implementation, pools might have a type field
+                              return getFieldValue('storage_type') === 'lvm'
+                                ? pool.name.toLowerCase().includes('vg') ||
+                                    pool.name.toLowerCase().includes('lvm') ||
+                                    !pool.name.toLowerCase().includes('zpool')
+                                : pool.name.toLowerCase().includes('zpool') ||
+                                    pool.name.toLowerCase().includes('zfs') ||
+                                    !pool.name.toLowerCase().includes('vg');
+                            })
+                            .map((pool) => ({
+                              value: pool.id,
+                              label: `${pool.name} (${(pool.free_size / 1024 ** 3).toFixed(1)} GB free)`,
+                            }))}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item
+                        name={
+                          getFieldValue('storage_type') === 'lvm'
+                            ? 'lvm_volume_size_gb'
+                            : 'zfs_volume_size_gb'
+                        }
+                        label="Volume Size (GB)"
+                        rules={[
+                          {
+                            required: true,
+                            message: 'Please specify volume size',
+                          },
+                        ]}
+                        help="Size of the logical volume to create"
+                      >
+                        <InputNumber
+                          min={1}
+                          max={10000}
+                          placeholder="10"
+                          className="w-full"
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                ) : null
+              }
+            </Form.Item>
           </>
         )}
 
@@ -382,7 +537,10 @@ export function HaConfigStep({
                   className="mb-4 bg-white"
                   dataSource={fields}
                   renderItem={(field, index) => {
-                    const agent = form.getFieldValue(['ocf_agents', field.name]) as OcfAgentConfig;
+                    const agent = form.getFieldValue([
+                      'ocf_agents',
+                      field.name,
+                    ]) as OcfAgentConfig;
                     return (
                       <List.Item
                         actions={[
@@ -400,7 +558,11 @@ export function HaConfigStep({
                           description={
                             <Space size="small" wrap>
                               {Object.entries(agent.params).map(([k, v]) => (
-                                <Text key={k} type="secondary" style={{ fontSize: '12px' }}>
+                                <Text
+                                  key={k}
+                                  type="secondary"
+                                  style={{ fontSize: '12px' }}
+                                >
                                   {k}={v}
                                 </Text>
                               ))}
@@ -448,16 +610,16 @@ export function HaConfigStep({
                 <div className="space-y-6">
                   {/* Preferred Nodes Configuration */}
                   <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
-                    <h4 className="font-semibold mb-3 text-gray-800">Node Preferences</h4>
+                    <h4 className="font-semibold mb-3 text-gray-800">
+                      Node Preferences
+                    </h4>
                     <Text type="secondary" className="block mb-4 text-xs">
-                      Set node priority for service placement. Higher priority nodes will be preferred for running services.
-                      Nodes are ordered by priority (first = highest priority).
+                      Set node priority for service placement. Higher priority
+                      nodes will be preferred for running services. Nodes are
+                      ordered by priority (first = highest priority).
                     </Text>
 
-                    <Form.Item
-                      name="preferred_nodes"
-                      label="Preferred Nodes"
-                    >
+                    <Form.Item name="preferred_nodes" label="Preferred Nodes">
                       <Transfer
                         dataSource={availableNodes}
                         targetKeys={form.getFieldValue('preferred_nodes') || []}
@@ -484,17 +646,23 @@ export function HaConfigStep({
                           help={
                             <Space direction="vertical" size="small">
                               <Text type="secondary">
-                                <strong>Always:</strong> Always migrate to higher priority nodes when they become available
+                                <strong>Always:</strong> Always migrate to
+                                higher priority nodes when they become available
                               </Text>
                               <Text type="secondary">
-                                <strong>Start-only:</strong> Only consider priority during initial service startup
+                                <strong>Start-only:</strong> Only consider
+                                priority during initial service startup
                               </Text>
                             </Space>
                           }
                         >
                           <Radio.Group>
-                            <Radio value="always">Always prefer higher priority</Radio>
-                            <Radio value="start-only">Start-only preference</Radio>
+                            <Radio value="always">
+                              Always prefer higher priority
+                            </Radio>
+                            <Radio value="start-only">
+                              Start-only preference
+                            </Radio>
                           </Radio.Group>
                         </Form.Item>
 
@@ -519,7 +687,9 @@ export function HaConfigStep({
 
                   {/* Quorum and Failure Handling */}
                   <div className="bg-yellow-50 p-4 rounded-md border border-yellow-100">
-                    <h4 className="font-semibold mb-3 text-yellow-800">Quorum & Failure Handling</h4>
+                    <h4 className="font-semibold mb-3 text-yellow-800">
+                      Quorum & Failure Handling
+                    </h4>
 
                     <Form.Item
                       name="on_quorum_loss"
@@ -531,7 +701,10 @@ export function HaConfigStep({
                         options={[
                           { value: 'shutdown', label: 'Shutdown (Default)' },
                           { value: 'freeze', label: 'Freeze services' },
-                          { value: 'ignore', label: 'Ignore (Not recommended)' },
+                          {
+                            value: 'ignore',
+                            label: 'Ignore (Not recommended)',
+                          },
                         ]}
                       />
                     </Form.Item>
@@ -544,10 +717,16 @@ export function HaConfigStep({
                     >
                       <Select
                         options={[
-                          { value: 'reboot-immediate', label: 'Reboot immediately' },
+                          {
+                            value: 'reboot-immediate',
+                            label: 'Reboot immediately',
+                          },
                           { value: 'reboot', label: 'Reboot (graceful)' },
                           { value: 'poweroff', label: 'Power off' },
-                          { value: 'ignore', label: 'Ignore (Not recommended)' },
+                          {
+                            value: 'ignore',
+                            label: 'Ignore (Not recommended)',
+                          },
                         ]}
                       />
                     </Form.Item>
@@ -555,7 +734,9 @@ export function HaConfigStep({
 
                   {/* Dependency Configuration */}
                   <div className="bg-blue-50 p-4 rounded-md border border-blue-100">
-                    <h4 className="font-semibold mb-3 text-blue-800">Service Dependencies</h4>
+                    <h4 className="font-semibold mb-3 text-blue-800">
+                      Service Dependencies
+                    </h4>
 
                     <Row gutter={16}>
                       <Col span={12}>

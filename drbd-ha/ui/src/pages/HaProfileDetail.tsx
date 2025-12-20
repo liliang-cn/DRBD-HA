@@ -4,7 +4,16 @@ import {
   LoadingOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import { Button, Card, Descriptions, Result, Table, Tag, message, Progress } from 'antd';
+import {
+  Button,
+  Card,
+  Descriptions,
+  message,
+  Progress,
+  Result,
+  Table,
+  Tag,
+} from 'antd';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { haProfilesApi } from '@/api';
@@ -73,13 +82,13 @@ export function HaProfileDetail() {
 
     const drbdSyncProgressEvents = (progressEvents || []).filter(
       (p) =>
-        p.operation === 'drbd_sync' &&
-        p.resource === profile.resource_name
+        p.operation === 'drbd_sync' && p.resource === profile.resource_name,
     );
 
     if (drbdSyncProgressEvents.length > 0) {
       // Get the latest progress event
-      const latestEvent = drbdSyncProgressEvents[drbdSyncProgressEvents.length - 1];
+      const latestEvent =
+        drbdSyncProgressEvents[drbdSyncProgressEvents.length - 1];
       setDrbdSyncProgress(latestEvent.completed ? null : latestEvent.progress);
     }
   }, [progressEvents, profile]);

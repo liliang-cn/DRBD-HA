@@ -1,4 +1,9 @@
-import { DeleteOutlined, DownOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  DownOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import {
   Button,
   Dropdown,
@@ -214,10 +219,7 @@ export function Resources() {
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-semibold">DRBD Resources</h2>
         <Space>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={refreshAvailableDisks}
-          >
+          <Button icon={<ReloadOutlined />} onClick={refreshAvailableDisks}>
             Refresh Disks
           </Button>
           <Button

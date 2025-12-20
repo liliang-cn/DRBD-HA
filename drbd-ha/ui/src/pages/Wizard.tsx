@@ -61,13 +61,16 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const [sessionInitialized, setSessionInitialized] = useState(false);
 
   // Function to update URL with session ID and step without reload
-  const updateUrlWithSessionAndStep = useCallback((sessionId: string, stepNumber: number) => {
-    const currentUrl = new URL(window.location.href);
-    currentUrl.searchParams.set('session', sessionId);
-    currentUrl.searchParams.set('step', stepNumber.toString());
-    // Use replaceState to update URL without reload
-    window.history.replaceState({}, '', currentUrl.toString());
-  }, []);
+  const updateUrlWithSessionAndStep = useCallback(
+    (sessionId: string, stepNumber: number) => {
+      const currentUrl = new URL(window.location.href);
+      currentUrl.searchParams.set('session', sessionId);
+      currentUrl.searchParams.set('step', stepNumber.toString());
+      // Use replaceState to update URL without reload
+      window.history.replaceState({}, '', currentUrl.toString());
+    },
+    [],
+  );
   const [loading, setLoading] = useState(false);
   const [availableDisks, setAvailableDisks] = useState<
     Record<string, BlockDevice[]>
@@ -88,9 +91,9 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const [creatingProfileName, setCreatingProfileName] = useState<string | null>(
     null,
   );
-  const [creatingResourceName, setCreatingResourceName] = useState<string | null>(
-    null,
-  );
+  const [creatingResourceName, setCreatingResourceName] = useState<
+    string | null
+  >(null);
 
   // Step 4: Activation state
   const [createdProfileId, setCreatedProfileId] = useState<string | null>(null);
@@ -152,7 +155,12 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         if (loadedSession) {
           // IMPORTANT: Set step immediately from session data
           const sessionStep = loadedSession?.current_step ?? stepFromUrl;
-          console.log('🔍 Loading session step:', sessionStep, 'from session current_step:', loadedSession?.current_step);
+          console.log(
+            '🔍 Loading session step:',
+            sessionStep,
+            'from session current_step:',
+            loadedSession?.current_step,
+          );
 
           // Set step immediately
           if (sessionStep >= 0 && sessionStep <= 4) {
@@ -203,50 +211,55 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   }, [step, session?.id, sessionId, updateUrlWithSessionAndStep]);
 
   // Save form data when step changes
-  const saveCurrentStepData = useCallback(async (currentStep: number) => {
-    // Use sessionId from URL if available, otherwise wait for session
-    const currentSessionId = session?.id || sessionId;
+  const saveCurrentStepData = useCallback(
+    async (currentStep: number) => {
+      // Use sessionId from URL if available, otherwise wait for session
+      const currentSessionId = session?.id || sessionId;
 
-    if (!currentSessionId) {
-      console.log('❌ No session ID available for saving');
-      return;
-    }
-
-    try {
-      let stepData: Record<string, any> = {};
-
-      switch (currentStep) {
-        case 0:
-          // Save nodes verification data (if needed)
-          stepData = { nodesVerified: true };
-          break;
-        case 1:
-          // Save storage configuration
-          const resourceValues = resourceForm.getFieldsValue();
-          stepData = resourceValues;
-          break;
-        case 2:
-          // Save HA configuration
-          const haValues = haForm.getFieldsValue(true);
-          stepData = { ...haValues, haType };
-          break;
-        case 3:
-          // Preview step - no additional data needed
-          stepData = { previewCompleted: true };
-          break;
-        case 4:
-          // Activation step - no additional data needed
-          stepData = { activationCompleted: true };
-          break;
+      if (!currentSessionId) {
+        console.log('❌ No session ID available for saving');
+        return;
       }
 
-      console.log(`💾 Saving step ${currentStep} data:`, stepData);
-      await wizardApi.saveStep(currentSessionId, currentStep, stepData);
-      console.log('✅ Step data saved successfully');
-    } catch (err) {
-      console.error('❌ Failed to save step data:', err);
-    }
-  }, [session?.id, sessionId, resourceForm, haForm, haType]);
+      try {
+        let stepData: Record<string, any> = {};
+
+        switch (currentStep) {
+          case 0:
+            // Save nodes verification data (if needed)
+            stepData = { nodesVerified: true };
+            break;
+          case 1: {
+            // Save storage configuration
+            const resourceValues = resourceForm.getFieldsValue();
+            stepData = resourceValues;
+            break;
+          }
+          case 2: {
+            // Save HA configuration
+            const haValues = haForm.getFieldsValue(true);
+            stepData = { ...haValues, haType };
+            break;
+          }
+          case 3:
+            // Preview step - no additional data needed
+            stepData = { previewCompleted: true };
+            break;
+          case 4:
+            // Activation step - no additional data needed
+            stepData = { activationCompleted: true };
+            break;
+        }
+
+        console.log(`💾 Saving step ${currentStep} data:`, stepData);
+        await wizardApi.saveStep(currentSessionId, currentStep, stepData);
+        console.log('✅ Step data saved successfully');
+      } catch (err) {
+        console.error('❌ Failed to save step data:', err);
+      }
+    },
+    [session?.id, sessionId, resourceForm, haForm, haType],
+  );
 
   const loadServices = useCallback(async () => {
     try {
@@ -324,7 +337,12 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     } else if (step === 1 && creatingResourceName) {
       // Step 1: Resource creation phase
       targetName = creatingResourceName;
-      relevantOperations = ['create_resource', 'init_resource', 'mkfs', 'drbd_sync'];
+      relevantOperations = [
+        'create_resource',
+        'init_resource',
+        'mkfs',
+        'drbd_sync',
+      ];
     } else if (step === 2 && creatingProfileName) {
       // Step 2: HA profile creation
       targetName = creatingProfileName;
@@ -332,7 +350,14 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     } else if (step === 3) {
       // Step 3: Preview - show any pending progress for current resources
       targetName = null; // Will be handled in the filter logic
-      relevantOperations = ['create_ha_profile', 'create_resource', 'init_resource', 'mkfs', 'activate_profile', 'drbd_sync'];
+      relevantOperations = [
+        'create_ha_profile',
+        'create_resource',
+        'init_resource',
+        'mkfs',
+        'activate_profile',
+        'drbd_sync',
+      ];
     } else if (step === 4 && createdProfileName) {
       // Step 4: Activation
       targetName = createdProfileName;
@@ -342,7 +367,10 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     // Filter progress events based on step requirements
     const relevantProgress = (progressEvents || []).filter((p) => {
       // Filter by operations for this step
-      if (relevantOperations.length > 0 && !relevantOperations.includes(p.operation as any)) {
+      if (
+        relevantOperations.length > 0 &&
+        !relevantOperations.includes(p.operation as any)
+      ) {
         return false;
       }
 
@@ -357,23 +385,37 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       }
 
       // For steps 3 (preview), show any pending progress events for known resources
-      if (step === 3 && (creatingProfileName || createdProfileName || creatingResourceName)) {
-        return p.resource === creatingProfileName ||
-               p.resource === createdProfileName ||
-               p.resource === creatingResourceName;
+      if (
+        step === 3 &&
+        (creatingProfileName || createdProfileName || creatingResourceName)
+      ) {
+        return (
+          p.resource === creatingProfileName ||
+          p.resource === createdProfileName ||
+          p.resource === creatingResourceName
+        );
       }
 
       // For drbd_sync, show sync progress for any resource that matches current context
       if (p.operation === 'drbd_sync') {
-        if (step === 1 && creatingResourceName && p.resource === creatingResourceName) {
+        if (
+          step === 1 &&
+          creatingResourceName &&
+          p.resource === creatingResourceName
+        ) {
           return true;
-        } else if ((step === 2 || step === 4) && createdProfileName && p.resource === createdProfileName) {
+        } else if (
+          (step === 2 || step === 4) &&
+          createdProfileName &&
+          p.resource === createdProfileName
+        ) {
           return true;
-        } else if (step === 3 && (
-          (creatingResourceName && p.resource === creatingResourceName) ||
-          (creatingProfileName && p.resource === creatingProfileName) ||
-          (createdProfileName && p.resource === createdProfileName)
-        )) {
+        } else if (
+          step === 3 &&
+          ((creatingResourceName && p.resource === creatingResourceName) ||
+            (creatingProfileName && p.resource === creatingProfileName) ||
+            (createdProfileName && p.resource === createdProfileName))
+        ) {
           return true;
         }
       }
@@ -384,7 +426,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     if (relevantProgress.length > 0) {
       // Sort by operation_id to maintain order
       const sortedProgress = relevantProgress.sort((a, b) =>
-        a.operation_id.localeCompare(b.operation_id)
+        a.operation_id.localeCompare(b.operation_id),
       );
 
       // Update Progress Steps for Modal/Activation View
@@ -403,10 +445,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       sortedProgress.forEach((progress) => {
         const messageId = `${progress.operation_id}_${progress.progress}_${progress.message}`;
 
-        if (
-          progress.message &&
-          !processedMessageIds.current.has(messageId)
-        ) {
+        if (progress.message && !processedMessageIds.current.has(messageId)) {
           addLog(progress.message);
           processedMessageIds.current.add(messageId);
         }
@@ -421,7 +460,14 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         }
       });
     }
-  }, [progressEvents, createdProfileName, creatingProfileName, creatingResourceName, step, addLog]);
+  }, [
+    progressEvents,
+    createdProfileName,
+    creatingProfileName,
+    creatingResourceName,
+    step,
+    addLog,
+  ]);
 
   const pollServiceStatus = async (profileId: string, retries = 15) => {
     try {
@@ -578,7 +624,13 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           on_quorum_loss: haValues.on_quorum_loss,
           on_demote_failure: haValues.on_demote_failure,
           mount_strategy: haValues.mount_strategy,
-          
+
+          // Storage Pool Configuration
+          lvm_pool_id: haValues.lvm_pool_id,
+          lvm_volume_size_gb: haValues.lvm_volume_size_gb,
+          zfs_pool_id: haValues.zfs_pool_id,
+          zfs_volume_size_gb: haValues.zfs_volume_size_gb,
+
           vip: haValues.vip_address
             ? {
                 address: haValues.vip_address,
@@ -713,7 +765,6 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         ? 100
         : 0);
 
-  
   const renderStepContent = () => {
     switch (step) {
       case 0:
@@ -799,7 +850,6 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             ]}
           />
 
-          
           {renderStepContent()}
 
           <div

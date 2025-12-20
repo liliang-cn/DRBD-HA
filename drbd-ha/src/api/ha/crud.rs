@@ -18,6 +18,7 @@ use crate::core::{
     systemd_ctrl::{RemoteSystemdController, SystemdController},
     validator, IscsiGenerator, LvmProvider, NfsGenerator, NvmeOfGenerator, ServiceInitFactory,
     StorageProvider,
+    ZfsProvider,
 };
 use crate::error::{AppError, AppResult};
 use crate::models::{
@@ -615,6 +616,237 @@ pub async fn create_profile(
                 .await?;
         }
     }
+    // Handle ZFS volume creation
+    else if let (Some(pool_id), Some(volume_size_gb)) = (&req.zfs_pool_id, &req.zfs_volume_size_gb) {
+        state.send_progress(
+            &operation_id,
+            "create_ha_profile",
+            Some(&req.name),
+            10,
+            "Creating ZFS volume...",
+            false,
+            None,
+        );
+        tracing::info!("Creating ZFS volume for profile {}", req.name);
+
+        let storage_pool = state
+            .db
+            .get_storage_pool(pool_id)?
+            .ok_or_else(|| AppError::NotFound(format!("Storage pool '{}' not found", pool_id)))?;
+
+        let mut node_zfs_paths: Vec<(Node, String)> = Vec::new();
+
+        for node in &all_nodes {
+            let current_pool_name = storage_pool.name.clone();
+            let zvol_name = format!("drbd-ha-zvol-{}", req.resource_name);
+
+            let device_path: String = if node.is_local {
+                let provider = ZfsProvider::new_local(current_pool_name.clone());
+                provider
+                    .create_volume(&zvol_name, *volume_size_gb)
+                    .await
+                    .or_else(|e: anyhow::Error| {
+                        if e.to_string().contains("already exists") {
+                            tracing::warn!(
+                                "ZFS volume {} already exists on node {}, reusing it",
+                                zvol_name,
+                                node.hostname
+                            );
+                            Ok(format!("/dev/zvol/{}/{}", current_pool_name, zvol_name))
+                        } else {
+                            Err(e)
+                        }
+                    })?
+            } else {
+                let credential = crate::core::SshCredential::Password("ignored".to_string());
+                let provider = ZfsProvider::new_remote(
+                    current_pool_name.clone(),
+                    state.ssh_manager.clone(),
+                    node.ip.clone(),
+                    node.ssh_port,
+                    node.ssh_user.clone(),
+                    credential,
+                );
+                provider
+                    .create_volume(&zvol_name, *volume_size_gb)
+                    .await
+                    .or_else(|e: anyhow::Error| {
+                        if e.to_string().contains("already exists") {
+                            tracing::warn!(
+                                "ZFS volume {} already exists on node {}, reusing it",
+                                zvol_name,
+                                node.hostname
+                            );
+                            Ok(format!("/dev/zvol/{}/{}", current_pool_name, zvol_name))
+                        } else {
+                            Err(e)
+                        }
+                    })?
+            };
+
+            if node.is_local {
+                // Check if we need to add ZFS volume to database
+                // The current Volume model might need to be extended to support ZFS
+                // For now, we'll just log that the volume was created
+                tracing::info!(
+                    "Created ZFS volume '{}' on node {} at '{}'",
+                    zvol_name,
+                    node.hostname,
+                    device_path
+                );
+            }
+
+            node_zfs_paths.push((node.clone(), device_path));
+        }
+
+        let mut node_configs = Vec::new();
+        for (i, (node, disk)) in node_zfs_paths.iter().enumerate() {
+            node_configs.push(NodeConfig {
+                hostname: node.hostname.clone(),
+                ip: node.ip.clone(),
+                disk: disk.clone(),
+                node_id: i as u32,
+            });
+        }
+
+        let config_gen = ConfigGenerator::new()?;
+        let resource_config = ResourceConfig {
+            name: req.resource_name.clone(),
+            port: drbd_port,
+            minor: drbd_minor,
+            device: format!("/dev/drbd{}", drbd_minor),
+            nodes: node_configs,
+            auto_promote: false,
+            ..Default::default()
+        };
+
+        let config_content = config_gen.generate_drbd_resource(&resource_config)?;
+        let config_path = ConfigPaths::drbd_resource_path(&req.resource_name);
+
+        let config_dir = std::path::Path::new(&config_path).parent().unwrap();
+        if !config_dir.exists() {
+            tokio::fs::create_dir_all(config_dir)
+                .await
+                .map_err(|e| AppError::Config(format!("Failed to create config dir: {}", e)))?;
+        }
+
+        tokio::fs::write(&config_path, &config_content)
+            .await
+            .map_err(|e| AppError::Config(format!("Failed to write DRBD config: {}", e)))?;
+
+        // Store the DRBD config path for cluster synchronization
+        generated_units.drbd_config_path = Some(config_path.clone());
+
+        let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
+        for node in &remote_nodes {
+            let credential = crate::core::SshCredential::Password("ignored".to_string());
+
+            // Clone state per iteration to avoid moving the Arc across loop iterations
+            let state_for_write = state.clone();
+
+            // 同步DRBD配置文件到远程节点
+            state_for_write
+                .ssh_manager
+                .write_file(
+                    &node.ip,
+                    node.ssh_port,
+                    &node.ssh_user,
+                    &credential,
+                    &config_path,
+                    &config_content,
+                )
+                .await?;
+
+            // 使用 drbd-utils 验证远程节点上的DRBD配置状态
+            let verification_config = drbd_utils::VerificationConfig {
+                max_attempts: 3,
+                retry_delay_secs: 2,
+                continue_on_failure: true,
+            };
+
+            let node_ip = node.ip.clone();
+            let node_port = node.ssh_port;
+            let node_user = node.ssh_user.clone();
+            let state_for_exec = state.clone();
+            let ssh_executor = move |cmd: String| async move {
+                match state_for_exec
+                    .ssh_manager
+                    .execute(&node_ip, node_port, &node_user, &credential, &cmd)
+                    .await
+                {
+                    Ok(output) => Ok(output.stdout),
+                    Err(e) => Err(shell_cmd::error::ShellError::Execution(e.to_string())),
+                }
+            };
+
+            match drbd_utils::DrbdVerifier::verify_remote_drbd_status(
+                &req.resource_name,
+                ssh_executor,
+                verification_config,
+            )
+            .await
+            {
+                Ok(result) => {
+                    if result.success {
+                        tracing::info!(
+                            "✓ DRBD config verified on remote node {}: {} (attempts: {})",
+                            node.hostname,
+                            req.resource_name,
+                            result.attempts
+                        );
+
+                        // Log detailed verification information
+                        tracing::debug!("DRBD verification details for node {}: connected_peers={}, consistent={}",
+                            node.hostname, result.details.connected_peers, result.details.is_consistent);
+                    } else {
+                        tracing::warn!(
+                            "⚠ DRBD verification failed on remote node {} after {} attempts: {}",
+                            node.hostname,
+                            result.attempts,
+                            result.details.status_info
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "⚠ Failed to verify DRBD status on remote node {}: {}",
+                        node.hostname,
+                        e
+                    );
+                }
+            }
+        }
+
+        let create_md_cmd = format!("drbdadm create-md --force {}", req.resource_name);
+        let up_cmd = format!("drbdadm up {}", req.resource_name);
+
+        run_shell_command(&create_md_cmd, "Create local metadata").await?;
+        run_shell_command(&up_cmd, "Up local resource").await?;
+
+        for node in &remote_nodes {
+            let credential = crate::core::SshCredential::Password("ignored".to_string());
+            state
+                .ssh_manager
+                .execute(
+                    &node.ip,
+                    node.ssh_port,
+                    &node.ssh_user,
+                    &credential,
+                    &create_md_cmd,
+                )
+                .await?;
+            state
+                .ssh_manager
+                .execute(
+                    &node.ip,
+                    node.ssh_port,
+                    &node.ssh_user,
+                    &credential,
+                    &up_cmd,
+                )
+                .await?;
+        }
+    }
 
     let mut messages = Vec::new();
     let extra_sync_files: Vec<(String, String)> = Vec::new();
@@ -666,7 +898,7 @@ pub async fn create_profile(
     match req.ha_type {
         HaType::Generic => {
             // Storage initialization for Generic services
-            if req.lvm_pool_id.is_some() && !migration_performed {
+            if (req.lvm_pool_id.is_some() || req.zfs_pool_id.is_some()) && !migration_performed {
                 state.send_progress(
                     &operation_id,
                     "create_ha_profile",
@@ -744,7 +976,7 @@ pub async fn create_profile(
                     "Demote after setup",
                 )
                 .await?;
-            } else if req.lvm_pool_id.is_some() && migration_performed {
+            } else if (req.lvm_pool_id.is_some() || req.zfs_pool_id.is_some()) && migration_performed {
                  tracing::info!("Skipping standard storage initialization because migration was performed");
             }
         }
@@ -763,7 +995,7 @@ pub async fn create_profile(
                 .as_ref()
                 .ok_or_else(|| AppError::Validation("NFS configuration missing".to_string()))?;
 
-            if req.lvm_pool_id.is_some() && !migration_performed {
+            if (req.lvm_pool_id.is_some() || req.zfs_pool_id.is_some()) && !migration_performed {
                 state.send_progress(
                     &operation_id,
                     "create_ha_profile",
@@ -846,7 +1078,7 @@ pub async fn create_profile(
                         )
                         .await?;
                 }
-            } else if req.lvm_pool_id.is_some() && migration_performed {
+            } else if (req.lvm_pool_id.is_some() || req.zfs_pool_id.is_some()) && migration_performed {
                 tracing::info!("Skipping NFS storage initialization because migration was performed");
             }
 

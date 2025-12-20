@@ -36,4 +36,4 @@ pub use service_init::ServiceInitFactory;
 pub use service_override::{ServiceOverrideGenerator, ServiceOverrideInfo};
 pub use shell_cmd::{run_shell_command, CommandOutput};
 pub use ssh_manager::{SshCredential, SshManager};
-pub use storage::{LvmProvider, StorageProvider};
+pub use storage::{LvmProvider, StorageProvider, ZfsProvider};

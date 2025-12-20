@@ -1,5 +1,5 @@
 import { Button, Card, List, Modal, Space, Typography } from 'antd';
-import { WizardSession } from '@/api';
+import type { WizardSession } from '@/api';
 
 const { Title, Text } = Typography;
 
@@ -56,7 +56,12 @@ export const SessionRestoreModal: React.FC<SessionRestoreModalProps> = ({
         <Button key="cancel" onClick={onCancel} disabled={loading}>
           Cancel
         </Button>,
-        <Button key="new" type="primary" onClick={onStartNew} disabled={loading}>
+        <Button
+          key="new"
+          type="primary"
+          onClick={onStartNew}
+          disabled={loading}
+        >
           Start New Configuration
         </Button>,
       ]}
@@ -69,8 +74,9 @@ export const SessionRestoreModal: React.FC<SessionRestoreModalProps> = ({
             {mode === 'service' ? 'HA Service' : 'Storage Sharing'} Wizard
           </Title>
           <Text type="secondary">
-            Found {sessions.length} previous {sessions.length === 1 ? 'session' : 'sessions'}.
-            Select one to continue where you left off, or start a new configuration.
+            Found {sessions.length} previous{' '}
+            {sessions.length === 1 ? 'session' : 'sessions'}. Select one to
+            continue where you left off, or start a new configuration.
           </Text>
         </div>
 
@@ -87,13 +93,23 @@ export const SessionRestoreModal: React.FC<SessionRestoreModalProps> = ({
                   style={{ cursor: 'pointer' }}
                 >
                   <Space direction="vertical" style={{ width: '100%' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
                       <div>
                         <Text strong>Session {session.id.slice(-8)}</Text>
                         <br />
-                        <Text code copyable style={{ fontSize: '12px' }}>{session.id}</Text>
+                        <Text code copyable style={{ fontSize: '12px' }}>
+                          {session.id}
+                        </Text>
                       </div>
-                      <Text type="secondary">{formatTimeAgo(session.updated_at)}</Text>
+                      <Text type="secondary">
+                        {formatTimeAgo(session.updated_at)}
+                      </Text>
                     </div>
 
                     <div>
@@ -104,7 +120,9 @@ export const SessionRestoreModal: React.FC<SessionRestoreModalProps> = ({
                     {Object.keys(session.step_data).length > 0 && (
                       <div>
                         <Text type="secondary">
-                          Saved data for {Object.keys(session.step_data).length} step{Object.keys(session.step_data).length > 1 ? 's' : ''}
+                          Saved data for {Object.keys(session.step_data).length}{' '}
+                          step
+                          {Object.keys(session.step_data).length > 1 ? 's' : ''}
                         </Text>
                       </div>
                     )}
@@ -115,7 +133,9 @@ export const SessionRestoreModal: React.FC<SessionRestoreModalProps> = ({
           />
         ) : (
           <Card>
-            <Text type="secondary">No previous sessions found for {mode} wizard.</Text>
+            <Text type="secondary">
+              No previous sessions found for {mode} wizard.
+            </Text>
           </Card>
         )}
       </Space>

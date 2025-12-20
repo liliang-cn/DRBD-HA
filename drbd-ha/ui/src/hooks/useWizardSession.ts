@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { wizardApi, WizardSession, WizardSessionRequest } from '@/api';
+import {
+  type WizardSession,
+  type WizardSessionRequest,
+  wizardApi,
+} from '@/api';
 
 export interface UseWizardSessionOptions {
   mode: 'service' | 'storage';
@@ -11,7 +15,10 @@ export interface UseWizardSessionReturn {
   loading: boolean;
   error: string | null;
   createSession: () => Promise<WizardSession>;
-  updateSession: (step: number, data: Record<string, any>) => Promise<WizardSession>;
+  updateSession: (
+    step: number,
+    data: Record<string, any>,
+  ) => Promise<WizardSession>;
   saveStep: (step: number, data: Record<string, any>) => Promise<WizardSession>;
   loadSession: (id: string) => Promise<WizardSession | null>;
   getStepData: (step: number) => Record<string, any>;
@@ -19,7 +26,10 @@ export interface UseWizardSessionReturn {
   getRecentSessions: () => Promise<WizardSession[]>;
 }
 
-export const useWizardSession = ({ mode, sessionId }: UseWizardSessionOptions): UseWizardSessionReturn => {
+export const useWizardSession = ({
+  mode,
+  sessionId,
+}: UseWizardSessionOptions): UseWizardSessionReturn => {
   const [session, setSession] = useState<WizardSession | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +49,8 @@ export const useWizardSession = ({ mode, sessionId }: UseWizardSessionOptions): 
       setSession(newSession);
       return newSession;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create wizard session';
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to create wizard session';
       setError(errorMessage);
       throw new Error(errorMessage);
     } finally {
@@ -47,81 +58,101 @@ export const useWizardSession = ({ mode, sessionId }: UseWizardSessionOptions): 
     }
   }, [mode]);
 
-  const updateSession = useCallback(async (step: number, data: Record<string, any>): Promise<WizardSession> => {
-    if (!session) {
-      throw new Error('No active session');
-    }
+  const updateSession = useCallback(
+    async (step: number, data: Record<string, any>): Promise<WizardSession> => {
+      if (!session) {
+        throw new Error('No active session');
+      }
 
-    setLoading(true);
-    setError(null);
+      setLoading(true);
+      setError(null);
 
-    try {
-      // Merge step data with existing session data
-      const updatedStepData = {
-        ...session.step_data,
-        [`step_${step}`]: data,
-      };
+      try {
+        // Merge step data with existing session data
+        const updatedStepData = {
+          ...session.step_data,
+          [`step_${step}`]: data,
+        };
 
-      const request: WizardSessionRequest = {
-        mode: session.mode,
-        current_step: step,
-        step_data: updatedStepData,
-      };
+        const request: WizardSessionRequest = {
+          mode: session.mode,
+          current_step: step,
+          step_data: updatedStepData,
+        };
 
-      const updatedSession = await wizardApi.updateSession(session.id, request);
-      setSession(updatedSession);
-      return updatedSession;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update wizard session';
-      setError(errorMessage);
-      throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  }, [session]);
+        const updatedSession = await wizardApi.updateSession(
+          session.id,
+          request,
+        );
+        setSession(updatedSession);
+        return updatedSession;
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error
+            ? err.message
+            : 'Failed to update wizard session';
+        setError(errorMessage);
+        throw new Error(errorMessage);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [session],
+  );
 
-  const saveStep = useCallback(async (step: number, data: Record<string, any>): Promise<WizardSession> => {
-    if (!session) {
-      throw new Error('No active session');
-    }
+  const saveStep = useCallback(
+    async (step: number, data: Record<string, any>): Promise<WizardSession> => {
+      if (!session) {
+        throw new Error('No active session');
+      }
 
-    setLoading(true);
-    setError(null);
+      setLoading(true);
+      setError(null);
 
-    try {
-      const updatedSession = await wizardApi.saveStep(session.id, step, data);
-      setSession(updatedSession);
-      return updatedSession;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to save wizard step';
-      setError(errorMessage);
-      throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  }, [session]);
+      try {
+        const updatedSession = await wizardApi.saveStep(session.id, step, data);
+        setSession(updatedSession);
+        return updatedSession;
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Failed to save wizard step';
+        setError(errorMessage);
+        throw new Error(errorMessage);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [session],
+  );
 
-  const loadSession = useCallback(async (id: string): Promise<WizardSession | null> => {
-    setLoading(true);
-    setError(null);
+  const loadSession = useCallback(
+    async (id: string): Promise<WizardSession | null> => {
+      setLoading(true);
+      setError(null);
 
-    try {
-      const loadedSession = await wizardApi.getSession(id);
-      setSession(loadedSession);
-      return loadedSession;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load wizard session';
-      setError(errorMessage);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      try {
+        const loadedSession = await wizardApi.getSession(id);
+        setSession(loadedSession);
+        return loadedSession;
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Failed to load wizard session';
+        setError(errorMessage);
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
 
-  const getStepData = useCallback((step: number): Record<string, any> => {
-    if (!session?.step_data) return {};
-    return session.step_data[`step_${step}`] || {};
-  }, [session?.step_data]);
+  const getStepData = useCallback(
+    (step: number): Record<string, any> => {
+      if (!session?.step_data) return {};
+      return session.step_data[`step_${step}`] || {};
+    },
+    [session?.step_data],
+  );
 
   const clearSession = useCallback(() => {
     setSession(null);

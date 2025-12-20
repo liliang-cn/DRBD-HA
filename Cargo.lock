@@ -756,6 +756,7 @@ dependencies = [
  "utoipa-swagger-ui",
  "uuid",
  "zbus",
+ "zfs-utils",
 ]
 
 [[package]]

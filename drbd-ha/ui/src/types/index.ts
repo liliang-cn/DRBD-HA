@@ -226,6 +226,8 @@ export interface CreateHaProfileRequest {
   auto_disable_services?: boolean;
   lvm_pool_id?: string;
   lvm_volume_size_gb?: number;
+  zfs_pool_id?: string;
+  zfs_volume_size_gb?: number;
   drbd_port?: number;
   drbd_minor?: number;
   migration?: {

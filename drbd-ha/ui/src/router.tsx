@@ -1,9 +1,9 @@
 import { createBrowserRouter } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
+import { HaProfileDetail } from '@/pages/HaProfileDetail';
 // import { Nodes } from '@/pages/Nodes';
 // import { Resources } from '@/pages/Resources';
 import { HaProfiles } from '@/pages/HaProfiles';
-import { HaProfileDetail } from '@/pages/HaProfileDetail';
 import { ServiceHaWizard } from '@/pages/ServiceHaWizard';
 import { StorageSharingWizard } from '@/pages/StorageSharingWizard';
 

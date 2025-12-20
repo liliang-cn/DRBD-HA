@@ -35,7 +35,7 @@ export const resourceAgentsApi = {
 
   getMetadata: async (provider: string, agent: string) => {
     const data = await api.get<ResourceAgent>(
-      `/ha/resource-agents/${provider}/${agent}`
+      `/ha/resource-agents/${provider}/${agent}`,
     );
     return data;
   },

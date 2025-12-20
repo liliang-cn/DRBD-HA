@@ -1,8 +1,28 @@
-import { Modal, Steps, Button, Table, Input, Form, Select, Spin, message, Typography, Space, Tooltip, Menu, Layout, Card } from 'antd';
-import { useState, useEffect, useMemo } from 'react';
-import { InfoCircleOutlined, AppstoreOutlined } from '@ant-design/icons';
-import { resourceAgentsApi, AgentSummary, ResourceAgent } from '@/api/resource-agents';
-import { OcfAgentConfig } from '@/types';
+import { AppstoreOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import {
+  Button,
+  Card,
+  Form,
+  Input,
+  Layout,
+  Menu,
+  Modal,
+  message,
+  Select,
+  Space,
+  Spin,
+  Steps,
+  Table,
+  Tooltip,
+  Typography,
+} from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  type AgentSummary,
+  type ResourceAgent,
+  resourceAgentsApi,
+} from '@/api/resource-agents';
+import type { OcfAgentConfig } from '@/types';
 
 const { Search } = Input;
 const { Text } = Typography;
@@ -14,11 +34,16 @@ interface OcfAgentModalProps {
   onAdd: (config: OcfAgentConfig) => void;
 }
 
-export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) {
+export function OcfAgentModal({
+  visible,
+  onCancel,
+  onAdd,
+}: OcfAgentModalProps) {
   const [step, setStep] = useState(0);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedAgentSummary, setSelectedAgentSummary] = useState<AgentSummary | null>(null);
+  const [selectedAgentSummary, setSelectedAgentSummary] =
+    useState<AgentSummary | null>(null);
   const [metadata, setMetadata] = useState<ResourceAgent | null>(null);
   const [form] = Form.useForm();
   const [searchText, setSearchText] = useState('');
@@ -31,15 +56,17 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
   }, [visible, step]);
 
   const providers = useMemo(() => {
-    const unique = new Set(agents.map(a => a.provider));
+    const unique = new Set(agents.map((a) => a.provider));
     return ['all', ...Array.from(unique).sort()];
   }, [agents]);
 
   const filteredAgents = useMemo(() => {
-    return agents.filter(a => {
-      const matchesProvider = selectedProvider === 'all' || a.provider === selectedProvider;
-      const matchesSearch = searchText === '' || 
-        a.name.toLowerCase().includes(searchText.toLowerCase()) || 
+    return agents.filter((a) => {
+      const matchesProvider =
+        selectedProvider === 'all' || a.provider === selectedProvider;
+      const matchesSearch =
+        searchText === '' ||
+        a.name.toLowerCase().includes(searchText.toLowerCase()) ||
         a.provider.toLowerCase().includes(searchText.toLowerCase());
       return matchesProvider && matchesSearch;
     });
@@ -61,12 +88,15 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
     setSelectedAgentSummary(agent);
     setLoading(true);
     try {
-      const meta = await resourceAgentsApi.getMetadata(agent.provider, agent.name);
+      const meta = await resourceAgentsApi.getMetadata(
+        agent.provider,
+        agent.name,
+      );
       setMetadata(meta);
       setStep(1);
       // Set default values
       const defaultValues: Record<string, string> = {};
-      meta.parameters.parameter.forEach(p => {
+      meta.parameters.parameter.forEach((p) => {
         if (p.content['@default']) {
           defaultValues[p['@name']] = p.content['@default'];
         }
@@ -86,7 +116,7 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
       const values = await form.validateFields();
       const instanceName = values.instance_name;
       const params: Record<string, string> = {};
-      
+
       // Filter out instance_name from params and ignore empty optional params
       Object.entries(values).forEach(([key, value]) => {
         if (key !== 'instance_name' && value !== undefined && value !== '') {
@@ -98,7 +128,7 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
         onAdd({
           name: `ocf:${selectedAgentSummary.provider}:${selectedAgentSummary.name}`,
           instance_name: instanceName,
-          params
+          params,
         });
         reset();
       }
@@ -129,7 +159,7 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
           selectedKeys={[selectedProvider]}
           onClick={({ key }) => setSelectedProvider(key)}
           style={{ height: '100%', borderRight: 0 }}
-          items={providers.map(p => ({
+          items={providers.map((p) => ({
             key: p,
             icon: <AppstoreOutlined />,
             label: p === 'all' ? 'All Providers' : p,
@@ -138,33 +168,37 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
       </Sider>
       <Content className="p-4 flex flex-col bg-white">
         <div className="mb-4">
-          <Search 
-            placeholder="Search agents..." 
-            allowClear 
-            onChange={e => setSearchText(e.target.value)} 
+          <Search
+            placeholder="Search agents..."
+            allowClear
+            onChange={(e) => setSearchText(e.target.value)}
             value={searchText}
           />
         </div>
         <div className="flex-1 overflow-auto">
-          <Table 
-            dataSource={filteredAgents} 
-            rowKey={record => `${record.provider}:${record.name}`}
+          <Table
+            dataSource={filteredAgents}
+            rowKey={(record) => `${record.provider}:${record.name}`}
             size="small"
             pagination={{ pageSize: 10, simple: true }}
             loading={loading}
             columns={[
               { title: 'Provider', dataIndex: 'provider', width: 100 },
               { title: 'Name', dataIndex: 'name' },
-              { 
-                title: 'Action', 
+              {
+                title: 'Action',
                 key: 'action',
                 width: 80,
                 render: (_, record) => (
-                  <Button type="link" size="small" onClick={() => handleAgentSelect(record)}>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => handleAgentSelect(record)}
+                  >
                     Select
                   </Button>
-                )
-              }
+                ),
+              },
             ]}
           />
         </div>
@@ -176,11 +210,17 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
     if (!metadata) return null;
 
     return (
-      <Form form={form} layout="vertical" className="max-h-[400px] overflow-auto pr-2">
+      <Form
+        form={form}
+        layout="vertical"
+        className="max-h-[400px] overflow-auto pr-2"
+      >
         <div className="mb-4 p-3 bg-gray-50 rounded">
           <Text strong>{metadata.name}</Text>
           <div className="text-gray-500 text-sm">{metadata.shortdesc.text}</div>
-          <div className="text-gray-400 text-xs mt-1">{metadata.longdesc.text}</div>
+          <div className="text-gray-400 text-xs mt-1">
+            {metadata.longdesc.text}
+          </div>
         </div>
 
         <Form.Item
@@ -192,23 +232,29 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
           <Input />
         </Form.Item>
 
-        <Divider orientation="left" plain>Parameters</Divider>
+        <Divider orientation="left" plain>
+          Parameters
+        </Divider>
 
-        {metadata.parameters.parameter.map(param => (
+        {metadata.parameters.parameter.map((param) => (
           <Form.Item
             key={param['@name']}
             name={param['@name']}
             label={
               <Space>
                 {param['@name']}
-                {param['@required'] === '1' && <span className="text-red-500">*</span>}
+                {param['@required'] === '1' && (
+                  <span className="text-red-500">*</span>
+                )}
                 <Tooltip title={param.longdesc.text}>
                   <InfoCircleOutlined className="text-gray-400" />
                 </Tooltip>
               </Space>
             }
             help={param.shortdesc.text}
-            rules={[{ required: param['@required'] === '1', message: 'Required' }]}
+            rules={[
+              { required: param['@required'] === '1', message: 'Required' },
+            ]}
           >
             {param.content['@type'] === 'boolean' ? (
               <Select>
@@ -236,13 +282,19 @@ export function OcfAgentModal({ visible, onCancel, onAdd }: OcfAgentModalProps) 
         step === 1 ? (
           <div className="flex justify-between">
             <Button onClick={() => setStep(0)}>Back</Button>
-            <Button type="primary" onClick={handleFinish}>Add Agent</Button>
+            <Button type="primary" onClick={handleFinish}>
+              Add Agent
+            </Button>
           </div>
         ) : null
       }
     >
-      <Steps current={step} items={[{ title: 'Select Agent' }, { title: 'Configure' }]} className="mb-4" />
-      
+      <Steps
+        current={step}
+        items={[{ title: 'Select Agent' }, { title: 'Configure' }]}
+        className="mb-4"
+      />
+
       {step === 0 ? renderAgentList() : renderConfigForm()}
     </Modal>
   );

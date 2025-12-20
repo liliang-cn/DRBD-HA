@@ -244,6 +244,12 @@ pub struct CreateHaProfileRequest {
     /// Optional: Desired size of the LVM volume in GB
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lvm_volume_size_gb: Option<u64>,
+    /// Optional: ID of the ZFS storage pool to create the volume in
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zfs_pool_id: Option<String>,
+    /// Optional: Desired size of the ZFS volume in GB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zfs_volume_size_gb: Option<u64>,
     /// Optional: DRBD port (required for LVM auto-creation)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drbd_port: Option<u16>,
