@@ -311,7 +311,7 @@ start = [
     "{{ promoter.mount_unit }}",
 {% endif %}
 {% if promoter.vip %}
-    "service-ip-{{ promoter.resource }}.service",
+    "ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }} nic={{ promoter.vip.interface }}",
 {% endif %}
 {% for agent in promoter.ocf_agents %}
     "{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}",
@@ -436,8 +436,8 @@ mod tests {
         assert!(output.contains("[promoter.resources.r0]"));
         assert!(output.contains("app.service"));
         assert!(output.contains("web.service"));
-        // VIP should be a systemd service
-        assert!(output.contains("service-ip-r0.service"));
+        // VIP should be in OCF format inside start list (ip, cidr_netmask, nic)
+        assert!(output.contains("ocf:heartbeat:IPaddr2 r0_vip ip=192.168.1.100 cidr_netmask=24 nic=eth0"));
         assert!(output.contains("runner = \"systemd\""));
     }
 

@@ -17,7 +17,7 @@ use crate::core::{
     service_override::ServiceOverrideGenerator,
     systemd_ctrl::{RemoteSystemdController, SystemdController},
     validator, IscsiGenerator, LvmProvider, NfsGenerator, NvmeOfGenerator, ServiceInitFactory,
-    StorageProvider, VipServiceGenerator,
+    StorageProvider,
 };
 use crate::error::{AppError, AppResult};
 use crate::models::{
@@ -1462,44 +1462,7 @@ pub async fn create_profile(
         }
     };
 
-    // Generate VIP service if needed
-    if let Some(vip) = &req.vip {
-        let vip_content = VipServiceGenerator::generate_content(&req.resource_name, vip);
-        let vip_path = VipServiceGenerator::unit_path(&req.resource_name);
-        
-        // Write locally
-        if let Some(parent) = std::path::Path::new(&vip_path).parent() {
-            if !parent.exists() {
-                 let _ = tokio::fs::create_dir_all(parent).await;
-            }
-        }
-        tokio::fs::write(&vip_path, &vip_content).await
-            .map_err(|e| AppError::Config(format!("Failed to write VIP service: {}", e)))?;
-        
-        generated_units.vip_service = Some(vip_path.clone());
-        
-        // Sync to remote nodes
-        let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
-        for node in &remote_nodes {
-            let credential = crate::core::SshCredential::Password("ignored".to_string());
-             state
-                .ssh_manager
-                .write_file(
-                    &node.ip,
-                    node.ssh_port,
-                    &node.ssh_user,
-                    &credential,
-                    &vip_path,
-                    &vip_content,
-                )
-                .await?;
-        }
-        
-        // Reload systemd locally
-        if let Ok(sys) = SystemdController::new().await {
-            let _ = sys.daemon_reload().await;
-        }
-    }
+
 
     state.send_progress(
         &operation_id,

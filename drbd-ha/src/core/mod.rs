@@ -21,7 +21,6 @@ pub mod storage;
 pub mod systemd_ctrl;
 pub mod transaction;
 pub mod validator;
-pub mod vip_service;
 
 pub use cluster_sync::{ClusterSync, HaSyncConfig};
 pub use db::Database;
@@ -38,4 +37,3 @@ pub use service_override::{ServiceOverrideGenerator, ServiceOverrideInfo};
 pub use shell_cmd::{run_shell_command, CommandOutput};
 pub use ssh_manager::{SshCredential, SshManager};
 pub use storage::{LvmProvider, StorageProvider};
-pub use vip_service::VipServiceGenerator;

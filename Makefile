@@ -27,7 +27,6 @@ release: build-ui
 	cargo build --workspace --release
 	@echo "Main release binary: target/release/drbd-ha"
 	@echo "Helper tool binary: target/release/ra-params"
-	@echo "Service IP manager binary: target/release/service-ip"
 
 # Run checks for the workspace
 check:
