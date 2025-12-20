@@ -285,7 +285,7 @@ pub async fn create_profile(
 ) -> AppResult<(StatusCode, Json<HaProfileCreateResponse>)> {
     let operation_id = uuid::Uuid::new_v4().to_string();
     let mut generated_units = GeneratedUnits::default(); // Initialize at function start
-    let mut migration_performed = false; // Track if migration was done
+    // Migration status is calculated below based on migration options
     let migration_result = None;
 
     state.send_progress(
@@ -323,7 +323,27 @@ pub async fn create_profile(
         }
     }
 
-    if let Some(vip) = &req.vip {
+    if let Some(vip) = &mut req.vip {
+        // If interface is empty, "auto", or default "eth0", try to detect actual interface
+        if vip.interface.is_empty() || vip.interface == "auto" || vip.interface == "eth0" {
+            if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
+                let mut interfaces = Vec::new();
+                for entry in entries.flatten() {
+                    if let Ok(name) = entry.file_name().into_string() {
+                        // Skip loopback and common virtual interfaces
+                        if name != "lo" && !name.starts_with("docker") && !name.starts_with("veth") && !name.starts_with("br-") {
+                            interfaces.push(name);
+                        }
+                    }
+                }
+                // Sort to have consistent selection (e.g. eth0 before eth1)
+                interfaces.sort();
+                if let Some(first) = interfaces.first() {
+                    tracing::info!("Auto-detected VIP interface: {} (was {})", first, vip.interface);
+                    vip.interface = first.clone();
+                }
+            }
+        }
         validator::validate_ip_address(&vip.address)?;
         validator::validate_netmask(vip.netmask)?;
     }
@@ -627,38 +647,25 @@ pub async fn create_profile(
         }
     }
 
-    let _start_services = match req.ha_type {
+    // Store OCF exportfs config for NFS to use in the second pass
+    let mut ocf_exportfs_cache: Option<String> = None;
+
+    // Check if migration will be performed to skip storage initialization
+    let migration_performed = if matches!(req.ha_type, HaType::Generic | HaType::Nfs) {
+        if let Some(ref migration_opts) = req.migration {
+            migration_opts.migrate_data
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    // First pass: handle storage initialization and service setup
+    // Service overrides will be generated in the second pass after migration logic
+    match req.ha_type {
         HaType::Generic => {
-            state.send_progress(
-                &operation_id,
-                "create_ha_profile",
-                Some(&req.name),
-                30,
-                "Generating service overrides...",
-                false,
-                None,
-            );
-            if let Some(mount_unit) = &generated_units.mount_unit {
-                let override_infos = ServiceOverrideGenerator::generate_for_services(
-                    &req.services,
-                    mount_unit,
-                    &req.name,
-                )
-                .await?;
-
-                for info in override_infos {
-                    generated_units.service_overrides.push(ServiceOverride {
-                        service_name: info.service_name.clone(),
-                        override_dir: info.override_dir,
-                        override_path: info.override_path,
-                    });
-                }
-                messages.push(format!(
-                    "Generated {} service override(s)",
-                    req.services.len()
-                ));
-            }
-
+            // Storage initialization for Generic services
             if req.lvm_pool_id.is_some() && !migration_performed {
                 state.send_progress(
                     &operation_id,
@@ -740,8 +747,6 @@ pub async fn create_profile(
             } else if req.lvm_pool_id.is_some() && migration_performed {
                  tracing::info!("Skipping standard storage initialization because migration was performed");
             }
-
-            req.services.clone()
         }
         HaType::Nfs => {
             state.send_progress(
@@ -857,20 +862,12 @@ pub async fn create_profile(
 
             // Calculate FSID and generate OCF resource string
             let fsid = NfsGenerator::generate_fsid(&req.resource_name);
-            let ocf_exportfs = NfsGenerator::generate_ocf_exportfs(
+            ocf_exportfs_cache = Some(NfsGenerator::generate_ocf_exportfs(
                 &req.resource_name,
                 &req.mount_point,
                 nfs_config,
                 fsid,
-            );
-
-            // Correct startup order for NFS HA: VIP -> Filesystem -> nfs-server -> exportfs
-            let services = vec![
-                "nfs-server.service".to_string(),
-                ocf_exportfs,
-            ];
-
-            services
+            ));
         }
         HaType::Iscsi => {
             state.send_progress(
@@ -914,7 +911,6 @@ pub async fn create_profile(
                 }
                 drop(creds);
                 messages.push("Configured iSCSI Target on all nodes".to_string());
-                vec!["target.service".to_string()]
             } else {
                 return Err(AppError::Validation(
                     "iSCSI configuration or VIP missing".to_string(),
@@ -962,14 +958,13 @@ pub async fn create_profile(
                 }
                 drop(creds);
                 messages.push("Configured NVMe-oF Target on all nodes".to_string());
-                vec![]
             } else {
                 return Err(AppError::Validation(
                     "NVMe-oF configuration or VIP missing".to_string(),
                 ));
             }
         }
-    };
+    }
 
     if matches!(req.ha_type, HaType::Generic | HaType::Nfs) {
         if let Some(ref migration_opts) = req.migration {
@@ -1165,7 +1160,6 @@ pub async fn create_profile(
                         }
 
                         messages.push("Data migration completed successfully".to_string());
-                        migration_performed = true;
                     }
                     Err(e) => {
                         state.send_progress(
@@ -1184,7 +1178,7 @@ pub async fn create_profile(
         }
     }
 
-    // 4. Configure Service Overrides & Storage Initialization (Standard Path)
+    // 4. Configure Service Overrides and determine startup services
     let _start_services = match req.ha_type {
         HaType::Generic => {
             state.send_progress(
@@ -1217,21 +1211,6 @@ pub async fn create_profile(
                 ));
             }
 
-            if req.lvm_pool_id.is_some() && !migration_performed {
-                state.send_progress(
-                    &operation_id,
-                    "create_ha_profile",
-                    Some(&req.name),
-                    35,
-                    "Initializing service storage...",
-                    false,
-                    None,
-                );
-                // ... (standard setup logic) ...
-            } else if req.lvm_pool_id.is_some() && migration_performed {
-                 tracing::info!("Skipping standard storage initialization because migration was performed");
-            }
-
             req.services.clone()
         }
         HaType::Nfs => {
@@ -1240,225 +1219,44 @@ pub async fn create_profile(
                 "create_ha_profile",
                 Some(&req.name),
                 30,
-                "Configuring NFS...",
+                "Generating service overrides...",
                 false,
                 None,
             );
-            let nfs_config = req
-                .nfs
-                .as_ref()
-                .ok_or_else(|| AppError::Validation("NFS configuration missing".to_string()))?;
 
-            if req.lvm_pool_id.is_some() && !migration_performed {
-                state.send_progress(
-                    &operation_id,
-                    "create_ha_profile",
-                    Some(&req.name),
-                    35,
-                    "Initializing NFS state storage...",
-                    false,
-                    None,
-                );
-
-                run_shell_command(
-                    &format!("drbdadm primary {}", req.resource_name),
-                    "Promote for NFS setup",
+            // Generate service overrides for NFS
+            if let Some(mount_unit) = &generated_units.mount_unit {
+                let override_infos = ServiceOverrideGenerator::generate_for_services(
+                    &vec!["nfs-server.service".to_string()],
+                    mount_unit,
+                    &req.name,
                 )
                 .await?;
 
-                let mkfs_cmd = format!(
-                    "mkfs.{} /dev/drbd{}",
-                    req.fs_type,
-                    drbd_minor
-                );
-                run_shell_command(&mkfs_cmd, "Create filesystem for NFS state").await?;
-
-                run_shell_command(
-                    &format!("mkdir -p {}", req.mount_point),
-                    "Create mount point",
-                )
-                .await?;
-                run_shell_command(
-                    &format!(
-                        "mount /dev/drbd{} {}",
-                        drbd_minor,
-                        req.mount_point
-                    ),
-                    "Mount for NFS setup",
-                )
-                .await?;
-
-                if let Err(e) = NfsGenerator::setup_nfs_state(&req.mount_point).await {
-                    let _ =
-                        run_shell_command(&format!("umount {}", req.mount_point), "Cleanup umount")
-                            .await;
-                    let _ = run_shell_command(
-                        &format!("drbdadm secondary {}", req.resource_name),
-                        "Cleanup secondary",
-                    )
-                    .await;
-                    return Err(e);
+                for info in override_infos {
+                    generated_units.service_overrides.push(ServiceOverride {
+                        service_name: info.service_name.clone(),
+                        override_dir: info.override_dir,
+                        override_path: info.override_path,
+                    });
                 }
-
-                run_shell_command(
-                    &format!("umount {}", req.mount_point),
-                    "Unmount after NFS setup",
-                )
-                .await?;
-                run_shell_command(
-                    &format!("drbdadm secondary {}", req.resource_name),
-                    "Demote after NFS setup",
-                )
-                .await?;
-
-                let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
-                for node in &remote_nodes {
-                    let credential = crate::core::SshCredential::Password("ignored".to_string());
-                    let remote_cmd = format!(
-                        "systemctl stop nfs-server && \
-                            [ -d /var/lib/nfs ] && [ ! -L /var/lib/nfs ] && mv /var/lib/nfs /var/lib/nfs.bak || true && \
-                            rm -rf /var/lib/nfs && \
-                            ln -s {}/.nfs_state /var/lib/nfs",
-                        req.mount_point
-                    );
-                    state
-                        .ssh_manager
-                        .execute(
-                            &node.ip,
-                            node.ssh_port,
-                            &node.ssh_user,
-                            &credential,
-                            &remote_cmd,
-                        )
-                        .await?;
-                }
-            } else if req.lvm_pool_id.is_some() && migration_performed {
-                tracing::info!("Skipping NFS storage initialization because migration was performed");
+                messages.push("Generated service override(s) for nfs-server".to_string());
             }
 
-            state.send_progress(
-                &operation_id,
-                "create_ha_profile",
-                Some(&req.name),
-                40,
-                "Configuring OCF Exportfs...",
-                false,
-                None,
-            );
-
-            // Calculate FSID and generate OCF resource string
-            let fsid = NfsGenerator::generate_fsid(&req.resource_name);
-            let ocf_exportfs = NfsGenerator::generate_ocf_exportfs(
-                &req.resource_name,
-                &req.mount_point,
-                nfs_config,
-                fsid,
-            );
+            // Use the cached OCF exportfs config from the first pass
+            let ocf_exportfs = ocf_exportfs_cache.ok_or_else(|| AppError::Validation("OCF Exportfs configuration not generated".to_string()))?;
 
             // Correct startup order for NFS HA: VIP -> Filesystem -> nfs-server -> exportfs
-            let services = vec![
+            vec![
                 "nfs-server.service".to_string(),
                 ocf_exportfs,
-            ];
-
-            services
+            ]
         }
         HaType::Iscsi => {
-            state.send_progress(
-                &operation_id,
-                "create_ha_profile",
-                Some(&req.name),
-                30,
-                "Configuring iSCSI Target...",
-                false,
-                None,
-            );
-            if let (Some(iscsi_config), Some(vip)) = (&req.iscsi, &req.vip) {
-                let drbd_dev = format!("/dev/drbd{}", req.drbd_minor.unwrap_or(0));
-
-                let real_setup_cmds = IscsiGenerator::generate_setup_commands(
-                    &req.resource_name,
-                    &drbd_dev,
-                    iscsi_config,
-                    &vip.address,
-                );
-
-                let creds = state.credentials.read().await;
-                for node in &all_nodes {
-                    let cmd_str = real_setup_cmds.join(" && ");
-                    if node.is_local {
-                        run_shell_command(&cmd_str, "Setup iSCSI Target locally").await?;
-                    } else {
-                        let credential =
-                            crate::core::SshCredential::Password("ignored".to_string());
-                        state
-                            .ssh_manager
-                            .execute(
-                                &node.ip,
-                                node.ssh_port,
-                                &node.ssh_user,
-                                &credential,
-                                &cmd_str,
-                            )
-                            .await?;
-                    }
-                }
-                drop(creds);
-                messages.push("Configured iSCSI Target on all nodes".to_string());
-                vec!["target.service".to_string()]
-            } else {
-                return Err(AppError::Validation(
-                    "iSCSI configuration or VIP missing".to_string(),
-                ));
-            }
+            vec!["target.service".to_string()]
         }
         HaType::NvmeOf => {
-            state.send_progress(
-                &operation_id,
-                "create_ha_profile",
-                Some(&req.name),
-                30,
-                "Configuring NVMe-oF Target...",
-                false,
-                None,
-            );
-            if let (Some(nvmeof_config), Some(vip)) = (&req.nvmeof, &req.vip) {
-                let drbd_dev = format!("/dev/drbd{}", req.drbd_minor.unwrap_or(0));
-                let setup_cmds = NvmeOfGenerator::generate_setup_commands(
-                    &req.resource_name,
-                    &drbd_dev,
-                    nvmeof_config,
-                    &vip.address,
-                );
-
-                let creds = state.credentials.read().await;
-                for node in &all_nodes {
-                    let cmd_str = setup_cmds.join(" && ");
-                    if node.is_local {
-                        run_shell_command(&cmd_str, "Setup NVMe-oF Target locally").await?;
-                    } else {
-                        let credential =
-                            crate::core::SshCredential::Password("ignored".to_string());
-                        state
-                            .ssh_manager
-                            .execute(
-                                &node.ip,
-                                node.ssh_port,
-                                &node.ssh_user,
-                                &credential,
-                                &cmd_str,
-                            )
-                            .await?;
-                    }
-                }
-                drop(creds);
-                messages.push("Configured NVMe-oF Target on all nodes".to_string());
-                vec![]
-            } else {
-                return Err(AppError::Validation(
-                    "NVMe-oF configuration or VIP missing".to_string(),
-                ));
-            }
+            vec![]
         }
     };
 

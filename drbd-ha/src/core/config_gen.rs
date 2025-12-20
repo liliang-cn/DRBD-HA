@@ -80,6 +80,20 @@ pub struct PromoterPluginConfig {
     /// Filesystem type (required for OCF strategy)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fs_type: Option<String>,
+
+    // --- Advanced Options ---
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dependencies_as: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_as: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_quorum_loss: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_nodes: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_nodes_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sleep_before_promote_factor: Option<u32>,
 }
 
 /// OCF Agent configuration
@@ -217,6 +231,12 @@ impl ConfigGenerator {
             mount_strategy: Some(format!("{:?}", profile.mount_strategy).to_lowercase()),
             mount_point: Some(profile.mount_point.clone()),
             fs_type: Some(profile.fs_type.clone()),
+            dependencies_as: profile.promoter.dependencies_as.clone(),
+            target_as: profile.promoter.target_as.clone(),
+            on_quorum_loss: profile.promoter.on_quorum_loss.clone(),
+            preferred_nodes: profile.promoter.preferred_nodes.clone(),
+            preferred_nodes_policy: profile.promoter.preferred_nodes_policy.clone(),
+            sleep_before_promote_factor: profile.promoter.sleep_before_promote_factor,
         }
     }
 
@@ -323,6 +343,13 @@ start = [
 runner = "systemd"
 stop-services-on-exit = {{ promoter.stop_services_on_exit }}
 on-drbd-demote-failure = "{{ promoter.on_drbd_demote_failure }}"
+{% if promoter.dependencies_as %}dependencies-as = "{{ promoter.dependencies_as }}"{% endif %}
+{% if promoter.target_as %}target-as = "{{ promoter.target_as }}"{% endif %}
+{% if promoter.on_quorum_loss %}on-quorum-loss = "{{ promoter.on_quorum_loss }}"{% endif %}
+{% if promoter.preferred_nodes %}preferred-nodes = [{% for node in promoter.preferred_nodes %}"{{ node }}"{% if not loop.last %}, {% endif %}{% endfor %}]{% endif %}
+{% if promoter.preferred_nodes_policy %}preferred-nodes-policy = "{{ promoter.preferred_nodes_policy }}"{% endif %}
+{% if promoter.sleep_before_promote_factor %}sleep-before-promote-factor = {{ promoter.sleep_before_promote_factor }}{% endif %}
+{% if promoter.mount_strategy %}# Mount strategy: {{ promoter.mount_strategy }}{% endif %}
 "#;
 
 /// Paths for DRBD configuration files
@@ -427,9 +454,15 @@ mod tests {
                 interface: "eth0".to_string(),
             }),
             ocf_agents: vec![],
-            mount_strategy: None,
-            mount_point: None,
-            fs_type: None,
+            dependencies_as: Some("Wants".to_string()),
+            target_as: Some("Requires".to_string()),
+            on_quorum_loss: Some("freeze".to_string()),
+            preferred_nodes: Some(vec!["node1".to_string(), "node2".to_string()]),
+            preferred_nodes_policy: Some("always".to_string()),
+            sleep_before_promote_factor: Some(2),
+            mount_strategy: Some("systemd".to_string()),
+            mount_point: Some("/mnt/data".to_string()),
+            fs_type: Some("xfs".to_string()),
         };
 
         let output = gen.generate_promoter(&config).unwrap();
@@ -439,6 +472,14 @@ mod tests {
         // VIP should be in OCF format inside start list (ip, cidr_netmask, nic)
         assert!(output.contains("ocf:heartbeat:IPaddr2 r0_vip ip=192.168.1.100 cidr_netmask=24 nic=eth0"));
         assert!(output.contains("runner = \"systemd\""));
+
+        // Check new fields
+        assert!(output.contains("dependencies-as = \"Wants\""));
+        assert!(output.contains("target-as = \"Requires\""));
+        assert!(output.contains("on-quorum-loss = \"freeze\""));
+        assert!(output.contains("preferred-nodes = [\"node1\", \"node2\"]"));
+        assert!(output.contains("preferred-nodes-policy = \"always\""));
+        assert!(output.contains("sleep-before-promote-factor = 2"));
     }
 
     #[test]
