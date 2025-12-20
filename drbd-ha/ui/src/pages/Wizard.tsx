@@ -421,6 +421,16 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           services: haValues.services || [],
           ocf_agents: haValues.ocf_agents || [],
           auto_disable_services: true,
+          // Advanced Promoter Settings
+          preferred_nodes: haValues.preferred_nodes,
+          preferred_nodes_policy: haValues.preferred_nodes_policy,
+          sleep_before_promote_factor: haValues.sleep_before_promote_factor,
+          dependencies_as: haValues.dependencies_as,
+          target_as: haValues.target_as,
+          on_quorum_loss: haValues.on_quorum_loss,
+          on_demote_failure: haValues.on_demote_failure,
+          mount_strategy: haValues.mount_strategy,
+          
           vip: haValues.vip_address
             ? {
                 address: haValues.vip_address,
