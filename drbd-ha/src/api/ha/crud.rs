@@ -9,6 +9,28 @@ use drbd_utils::parse_drbdadm_status;
 use std::sync::Arc;
 use tracing::info;
 
+/// Get the actual device name for a DRBD resource from its configuration file
+async fn get_drbd_device_for_resource(resource_name: &str, _db: &crate::core::db::Database) -> Option<String> {
+    let config_path = format!("/etc/drbd.d/{}.res", resource_name);
+
+    match tokio::fs::read_to_string(&config_path).await {
+        Ok(content) => {
+            for line in content.lines() {
+                let trimmed_line = line.trim();
+                if trimmed_line.starts_with("device ") {
+                    let device_part = trimmed_line
+                        .strip_prefix("device ")
+                        .unwrap_or("")
+                        .trim_end_matches(';');
+                    return Some(device_part.to_string());
+                }
+            }
+            None
+        }
+        Err(_) => None,
+    }
+}
+
 use crate::core::{
     cluster_sync::{ClusterSync, HaSyncConfig},
     config_gen::{ConfigGenerator, ConfigPaths, NodeConfig, ResourceConfig},
@@ -396,8 +418,12 @@ pub async fn create_profile(
                     .map(|s| s.is_empty())
                     .unwrap_or(true)
             {
-                // Try to detect device path, fallback to standard convention
-                let drbd_device = format!("/dev/drbd{}", drbd_minor);
+                // Get the actual device name from the DRBD resource configuration
+                let drbd_device = get_drbd_device_for_resource(&req.resource_name, &state.db).await
+                    .unwrap_or_else(|| {
+                        // Fallback to standard convention if detection fails
+                        format!("/dev/drbd{}", drbd_minor)
+                    });
                 agent.params.insert("device".to_string(), drbd_device);
             }
 
@@ -911,7 +937,11 @@ pub async fn create_profile(
                 "Manual Filesystem OCF agent detected, skipping systemd mount unit generation"
             );
             // We still need to record the expected DRBD device for other operations
-            generated_units.drbd_device = Some(format!("/dev/drbd{}", drbd_minor));
+            generated_units.drbd_device = Some(
+                get_drbd_device_for_resource(&req.resource_name, &state.db)
+                    .await
+                    .unwrap_or_else(|| format!("/dev/drbd{}", drbd_minor))
+            );
         }
     }
 
