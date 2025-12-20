@@ -6,7 +6,7 @@
 [promoter.resources.redis-data]
 start = [
   "var-lib-redis.mount",
-  "ocf:heartbeat:IPaddr2 redis-data_vip cidr_netmask=24 ip=192.168.123.197 nic=eth0",
+  "service-ip-redis-data.service",
   "redis-server.service",
 ]
 runner = "systemd"

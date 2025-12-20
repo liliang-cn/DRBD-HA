@@ -6,7 +6,7 @@
 [promoter.resources.linstor_db]
 start = [
   "var-lib-linstor.mount",
-  "ocf:heartbeat:IPaddr2 service_ip cidr_netmask=24 ip=192.168.123.200 nic=eth0",
+  "service-ip-linstor_db.service",
   "linstor-controller.service",
   "frpc.service",
 ]

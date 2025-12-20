@@ -309,6 +309,8 @@ pub struct GeneratedUnits {
     pub drbd_device: Option<String>,
     /// Service override paths (keyed by service name)
     pub service_overrides: Vec<ServiceOverride>,
+    /// Generated VIP service name (e.g., "service-ip-mysql_data.service")
+    pub vip_service: Option<String>,
 }
 
 /// Information about a service override
