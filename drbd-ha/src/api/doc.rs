@@ -11,6 +11,7 @@ use crate::models::{
     drbd::{Path as DrbdPath, *},
     ha::{DataMigrationOptions, *},
     storage::*,
+    wizard::*,
 };
 
 // Import handlers (aliased to avoid conflict with models modules)
@@ -19,6 +20,7 @@ use crate::api::{
     dashboard as dashboard_api,
     ha::{self as ha_api, ImportProfilesRequest, ImportProfilesResponse}, // Import DTOs here
     storage as storage_api,
+    wizard as wizard_api,
 };
 
 #[derive(OpenApi)]
@@ -45,6 +47,14 @@ use crate::api::{
         // HA
         ha_api::list_unmanaged_profiles,
         ha_api::import_profiles,
+
+        // Wizard
+        wizard_api::list_wizard_sessions,
+        wizard_api::create_wizard_session,
+        wizard_api::get_wizard_session,
+        wizard_api::update_wizard_session,
+        wizard_api::delete_wizard_session,
+        wizard_api::save_wizard_step,
     ),
     components(
         schemas(
@@ -70,12 +80,16 @@ use crate::api::{
             // Storage
             StoragePool, Volume, CreateStoragePoolRequest, CreateStoragePoolResponse, ListStoragePoolResponse,
             CreateVolumeRequest, CreateVolumeResponse,
+
+            // Wizard
+            WizardSession, WizardSessionRequest, WizardMode,
         )
     ),
     tags(
         (name = "cluster", description = "Cluster node management"),
         (name = "dashboard", description = "System overview"),
         (name = "storage", description = "LVM storage pool management"),
+        (name = "wizard", description = "Wizard session management"),
     )
 )]
 pub struct ApiDoc;

@@ -5,3 +5,4 @@ export { nodesApi } from './nodes';
 export { resourcesApi } from './resources';
 export { servicesApi } from './services';
 export { storageApi } from './storage';
+export { wizardApi } from './wizard';

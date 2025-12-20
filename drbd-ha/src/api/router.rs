@@ -2,7 +2,7 @@
 
 use axum::{
     middleware,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Router,
 };
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use super::{
     cluster, dashboard, doc::ApiDoc, ha, metrics, middleware::auth_middleware, resource, sse,
-    storage, ui,
+    storage, ui, wizard,
 };
 use crate::state::AppState;
 
@@ -89,6 +89,13 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Systemd service listing (for HA service selection)
         .route("/services", get(ha::list_services))
         .route("/services/available", get(ha::list_available_services))
+        // Wizard session management
+        .route("/wizard/sessions", get(wizard::list_wizard_sessions))
+        .route("/wizard/sessions", post(wizard::create_wizard_session))
+        .route("/wizard/sessions/{id}", get(wizard::get_wizard_session))
+        .route("/wizard/sessions/{id}", delete(wizard::delete_wizard_session))
+        .route("/wizard/sessions/{id}", put(wizard::update_wizard_session))
+        .route("/wizard/sessions/{id}/step/{step_number}", post(wizard::save_wizard_step))
         // SSE event streams
         .route("/events/resources", get(sse::resource_status_stream))
         .route("/events/nodes", get(sse::node_status_stream))

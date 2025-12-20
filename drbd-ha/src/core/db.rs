@@ -5,7 +5,7 @@
 use crate::error::{AppError, AppResult};
 use crate::models::{
     GeneratedUnits, HaProfile, HaProfileStatus, HaType, IscsiConfig, MountStrategy, NfsConfig, Node, NodeStatus,
-    NvmeOfConfig, OcfAgentConfig, PromoterSettings, StoragePool, VipConfig, Volume,
+    NvmeOfConfig, OcfAgentConfig, PromoterSettings, StoragePool, VipConfig, Volume, WizardSession,
 };
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -218,6 +218,28 @@ impl Database {
                     CREATE INDEX IF NOT EXISTS idx_volumes_pool_id ON volumes(pool_id);
 
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_volumes_name_pool ON volumes(name, pool_id);
+
+
+                    -- Wizard Sessions table for step persistence
+
+                    CREATE TABLE IF NOT EXISTS wizard_sessions (
+
+                        id TEXT PRIMARY KEY,
+
+                        mode TEXT NOT NULL CHECK (mode IN ('service', 'storage')),
+
+                        current_step INTEGER NOT NULL DEFAULT 0,
+
+                        step_data TEXT NOT NULL DEFAULT '{}',
+
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+
+                    );
+
+
+                    CREATE INDEX IF NOT EXISTS idx_wizard_sessions_updated ON wizard_sessions(updated_at);
 
                     "#,
 
@@ -928,6 +950,170 @@ impl Database {
         )
         .optional()
         .map_err(|e| AppError::Config(format!("Failed to get volume by DRBD resource name: {}", e)))
+    }
+
+    // ==================== Wizard Session Operations ====================
+
+    /// Insert a new wizard session
+    pub fn insert_wizard_session(&self, session: &WizardSession) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let step_data_json = serde_json::to_string(&session.step_data)
+            .map_err(|e| AppError::Config(format!("Failed to serialize step data: {}", e)))?;
+        let mode_str = match session.mode {
+            crate::models::WizardMode::Service => "service",
+            crate::models::WizardMode::Storage => "storage",
+        };
+
+        conn.execute(
+            r#"INSERT INTO wizard_sessions (id, mode, current_step, step_data, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+            params![
+                session.id,
+                mode_str,
+                session.current_step as i32,
+                step_data_json,
+                session.created_at.to_rfc3339(),
+                session.updated_at.to_rfc3339(),
+            ],
+        )
+        .map_err(|e| AppError::Config(format!("Failed to insert wizard session: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get a wizard session by ID
+    pub fn get_wizard_session(&self, id: &str) -> AppResult<Option<WizardSession>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, mode, current_step, step_data, created_at, updated_at FROM wizard_sessions WHERE id = ?1",
+            params![id],
+            |row| {
+                let mode_str: String = row.get(1)?;
+                let mode = match mode_str.as_str() {
+                    "service" => crate::models::WizardMode::Service,
+                    "storage" => crate::models::WizardMode::Storage,
+                    _ => crate::models::WizardMode::Service, // Default fallback
+                };
+
+                let step_data_str: String = row.get(3)?;
+                let step_data: serde_json::Value = serde_json::from_str(&step_data_str)
+                    .map_err(|_| rusqlite::Error::InvalidColumnType(3, "step_data".to_string(), rusqlite::types::Type::Text))?;
+
+                let created_at_str: String = row.get(4)?;
+                let updated_at_str: String = row.get(5)?;
+
+                Ok(WizardSession {
+                    id: row.get(0)?,
+                    mode,
+                    current_step: row.get::<_, i32>(2)? as u32,
+                    step_data,
+                    created_at: DateTime::parse_from_rfc3339(&created_at_str)
+                        .map_err(|_| rusqlite::Error::InvalidColumnType(4, "created_at".to_string(), rusqlite::types::Type::Text))?
+                        .with_timezone(&Utc),
+                    updated_at: DateTime::parse_from_rfc3339(&updated_at_str)
+                        .map_err(|_| rusqlite::Error::InvalidColumnType(5, "updated_at".to_string(), rusqlite::types::Type::Text))?
+                        .with_timezone(&Utc),
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| AppError::Config(format!("Failed to get wizard session: {}", e)))
+    }
+
+    /// Update an existing wizard session
+    pub fn update_wizard_session(&self, session: &WizardSession) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let step_data_json = serde_json::to_string(&session.step_data)
+            .map_err(|e| AppError::Config(format!("Failed to serialize step data: {}", e)))?;
+        let mode_str = match session.mode {
+            crate::models::WizardMode::Service => "service",
+            crate::models::WizardMode::Storage => "storage",
+        };
+
+        conn.execute(
+            r#"UPDATE wizard_sessions SET
+                mode = ?1,
+                current_step = ?2,
+                step_data = ?3,
+                updated_at = ?4
+            WHERE id = ?5
+            "#,
+            params![
+                mode_str,
+                session.current_step as i32,
+                step_data_json,
+                session.updated_at.to_rfc3339(),
+                session.id,
+            ],
+        )
+        .map_err(|e| AppError::Config(format!("Failed to update wizard session: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get recent wizard sessions for a mode
+    pub fn get_recent_wizard_sessions(&self, mode: &crate::models::WizardMode, limit: i32) -> AppResult<Vec<WizardSession>> {
+        let conn = self.conn.lock().unwrap();
+        let mode_str = match mode {
+            crate::models::WizardMode::Service => "service",
+            crate::models::WizardMode::Storage => "storage",
+        };
+
+        let mut stmt = conn
+            .prepare(
+                r#"SELECT id, mode, current_step, step_data, created_at, updated_at
+                FROM wizard_sessions
+                WHERE mode = ?1
+                ORDER BY updated_at DESC
+                LIMIT ?2"#
+            )
+            .map_err(|e| AppError::Config(format!("Failed to prepare query: {}", e)))?;
+
+        let sessions = stmt
+            .query_map(params![mode_str, limit], |row| {
+                let mode_str: String = row.get(1)?;
+                let mode = match mode_str.as_str() {
+                    "service" => crate::models::WizardMode::Service,
+                    "storage" => crate::models::WizardMode::Storage,
+                    _ => crate::models::WizardMode::Service,
+                };
+
+                let step_data_str: String = row.get(3)?;
+                let step_data: serde_json::Value = serde_json::from_str(&step_data_str)
+                    .map_err(|_| rusqlite::Error::InvalidColumnType(3, "step_data".to_string(), rusqlite::types::Type::Text))?;
+
+                let created_at_str: String = row.get(4)?;
+                let updated_at_str: String = row.get(5)?;
+
+                Ok(WizardSession {
+                    id: row.get(0)?,
+                    mode,
+                    current_step: row.get::<_, i32>(2)? as u32,
+                    step_data,
+                    created_at: DateTime::parse_from_rfc3339(&created_at_str)
+                        .map_err(|_| rusqlite::Error::InvalidColumnType(4, "created_at".to_string(), rusqlite::types::Type::Text))?
+                        .with_timezone(&Utc),
+                    updated_at: DateTime::parse_from_rfc3339(&updated_at_str)
+                        .map_err(|_| rusqlite::Error::InvalidColumnType(5, "updated_at".to_string(), rusqlite::types::Type::Text))?
+                        .with_timezone(&Utc),
+                })
+            })
+            .map_err(|e| AppError::Config(format!("Failed to query wizard sessions: {}", e)))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Config(format!("Failed to collect wizard sessions: {}", e)))?;
+
+        Ok(sessions)
+    }
+
+    /// Delete a wizard session
+    pub fn delete_wizard_session(&self, id: &str) -> AppResult<bool> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn
+            .execute("DELETE FROM wizard_sessions WHERE id = ?1", params![id])
+            .map_err(|e| AppError::Config(format!("Failed to delete wizard session: {}", e)))?;
+
+        Ok(rows > 0)
     }
 }
 
