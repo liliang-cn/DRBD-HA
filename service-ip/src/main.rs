@@ -192,3 +192,32 @@ fn send_gratuitous_arp(iface_name: &str, vip: Ipv4Addr) -> Result<()> {
     
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_args_parsing_valid() {
+        let args = Args::try_parse_from(["service-ip", "--ip", "192.168.1.1/24", "--dev", "eth0"]).unwrap();
+        assert_eq!(args.ip, "192.168.1.1/24");
+        assert_eq!(args.dev, "eth0");
+    }
+
+    #[test]
+    fn test_args_parsing_missing_dev() {
+        let result = Args::try_parse_from(["service-ip", "--ip", "192.168.1.1/24"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ip_network_parsing() {
+        let ip_str = "192.168.1.1/24";
+        let net: IpNetwork = ip_str.parse().unwrap();
+        assert!(matches!(net, IpNetwork::V4(_)));
+        if let IpNetwork::V4(v4) = net {
+             assert_eq!(v4.ip().to_string(), "192.168.1.1");
+             assert_eq!(v4.prefix(), 24);
+        }
+    }
+}
