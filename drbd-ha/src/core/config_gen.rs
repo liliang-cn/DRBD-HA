@@ -153,13 +153,13 @@ impl ConfigGenerator {
         req: &CreateResourceRequest,
         nodes: &[(String, String, String)], // (hostname, ip, disk)
     ) -> ResourceConfig {
-        // Generate random device number (1000-9999) to avoid /dev/drbd0 conflicts
+        // Generate device number (0-9999) using hash to avoid conflicts
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
         req.name.hash(&mut hasher);
-        let device_num = (hasher.finish() % 9000) + 1000; // Hash name to get 1000-9999
+        let device_num = hasher.finish() % 10000; // Hash name to get 0-9999
 
         let mut config = ResourceConfig {
             name: req.name.clone(),
