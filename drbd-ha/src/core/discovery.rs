@@ -137,6 +137,7 @@ impl ReactorDiscovery {
                             nfs: nfs_config,
                             iscsi: iscsi_config,
                             nvmeof: nvmeof_config,
+                            ocf_agents: Vec::new(),
                         };
                         discovered.push(profile);
                     }

@@ -419,6 +419,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           mount_point: haValues.mount_point,
           fs_type: haValues.fs_type || 'xfs',
           services: haValues.services || [],
+          ocf_agents: haValues.ocf_agents || [],
           auto_disable_services: true,
           vip: haValues.vip_address
             ? {

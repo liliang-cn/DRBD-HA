@@ -33,6 +33,7 @@ drbd-utils = { path = "../drbd-utils" }
 drbd-reactor-utils = { path = "../drbd-reactor-utils" }
 systemd-utils = { path = "../systemd-utils" }
 drbd-migration = { path = "../drbd-migration" }
+ra-params = { path = "../ra-params" }
 
 # Systemd D-Bus
 zbus = "5"

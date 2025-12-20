@@ -5,7 +5,7 @@
 use crate::error::{AppError, AppResult};
 use crate::models::{
     GeneratedUnits, HaProfile, HaProfileStatus, HaType, IscsiConfig, NfsConfig, Node, NodeStatus,
-    NvmeOfConfig, PromoterSettings, StoragePool, VipConfig, Volume,
+    NvmeOfConfig, OcfAgentConfig, PromoterSettings, StoragePool, VipConfig, Volume,
 };
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -126,6 +126,8 @@ impl Database {
 
                         nvmeof_config TEXT,
 
+                        ocf_agents TEXT,
+
                         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
                         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -244,6 +246,18 @@ impl Database {
             .execute_batch(
                 r#"
             ALTER TABLE ha_profiles ADD COLUMN iscsi_config TEXT;
+            "#,
+            )
+            .is_err()
+        {
+            // Column likely already exists, ignore error
+        }
+
+        // Migration 4: Add ocf_agents column if it doesn't exist
+        if conn
+            .execute_batch(
+                r#"
+            ALTER TABLE ha_profiles ADD COLUMN ocf_agents TEXT;
             "#,
             )
             .is_err()
@@ -468,13 +482,16 @@ impl Database {
             None
         };
 
+        let ocf_agents_json = serde_json::to_string(&profile.ocf_agents)
+            .map_err(|e| AppError::Config(format!("Failed to serialize ocf_agents: {}", e)))?;
+
         conn.execute(
             r#"INSERT INTO ha_profiles (
                 id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface, 
                 services, stop_on_demote, on_demote_failure, status, generated_units,
-                ha_type, nfs_config, iscsi_config, nvmeof_config
+                ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
             "#,
             params![
                 profile.id,
@@ -494,6 +511,7 @@ impl Database {
                 nfs_config,
                 iscsi_config,
                 nvmeof_config,
+                ocf_agents_json,
             ],
         )
         .map_err(|e| AppError::Config(format!("Failed to insert HA profile: {}", e)))?;
@@ -508,7 +526,7 @@ impl Database {
             r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents
             FROM ha_profiles WHERE id = ?1
             "#,
             params![id],
@@ -526,7 +544,7 @@ impl Database {
             r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents
             FROM ha_profiles WHERE name = ?1
             "#,
             params![name],
@@ -545,7 +563,7 @@ impl Database {
                 r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents
             FROM ha_profiles
             "#,
             )
@@ -612,6 +630,9 @@ impl Database {
             None
         };
 
+        let ocf_agents_json = serde_json::to_string(&profile.ocf_agents)
+            .map_err(|e| AppError::Config(format!("Failed to serialize ocf_agents: {}", e)))?;
+
         conn.execute(
             r#"UPDATE ha_profiles SET
                 name = ?1,
@@ -630,8 +651,9 @@ impl Database {
                 nfs_config = ?14,
                 iscsi_config = ?15,
                 nvmeof_config = ?16,
+                ocf_agents = ?17,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?17
+            WHERE id = ?18
             "#,
             params![
                 profile.name,
@@ -650,6 +672,7 @@ impl Database {
                 nfs_config,
                 iscsi_config,
                 nvmeof_config,
+                ocf_agents_json,
                 profile.id,
             ],
         )
@@ -909,7 +932,7 @@ fn row_to_ha_profile(row: &rusqlite::Row) -> AppResult<HaProfile> {
     // 0: id, 1: name, 2: resource_name, 3: mount_point, 4: fs_type
     // 5: vip_address, 6: vip_netmask, 7: vip_interface
     // 8: services, 9: stop_on_demote, 10: on_demote_failure, 11: status, 12: generated_units
-    // 13: ha_type, 14: nfs_config, 15: iscsi_config, 16: nvmeof_config
+    // 13: ha_type, 14: nfs_config, 15: iscsi_config, 16: nvmeof_config, 17: ocf_agents
 
     let services_json: String = row.get(8).map_err(|e| AppError::Config(e.to_string()))?;
     let services: Vec<String> = serde_json::from_str(&services_json)
@@ -960,6 +983,13 @@ fn row_to_ha_profile(row: &rusqlite::Row) -> AppResult<HaProfile> {
         .flatten()
         .and_then(|j| serde_json::from_str::<NvmeOfConfig>(&j).ok());
 
+    let ocf_agents = row
+        .get::<_, Option<String>>(17)
+        .ok()
+        .flatten()
+        .and_then(|j| serde_json::from_str::<Vec<OcfAgentConfig>>(&j).ok())
+        .unwrap_or_default();
+
     Ok(HaProfile {
         id: row.get(0).map_err(|e| AppError::Config(e.to_string()))?,
         name: row.get(1).map_err(|e| AppError::Config(e.to_string()))?,
@@ -969,6 +999,7 @@ fn row_to_ha_profile(row: &rusqlite::Row) -> AppResult<HaProfile> {
             .get::<_, String>(4)
             .unwrap_or_else(|_| "xfs".to_string()),
         vip,
+        ocf_agents,
         promoter: PromoterSettings {
             services,
             stop_on_demote: row
@@ -1063,6 +1094,7 @@ mod tests {
             nfs: None,
             iscsi: None,
             nvmeof: None,
+            ocf_agents: Vec::new(),
         };
 
         // Insert

@@ -1,6 +1,7 @@
 //! High Availability profile data models
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::ToSchema;
 
 /// HA Profile Type
@@ -12,6 +13,17 @@ pub enum HaType {
     Nfs,
     Iscsi,
     NvmeOf,
+}
+
+/// OCF Agent configuration
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct OcfAgentConfig {
+    /// Agent name (e.g., "ocf:heartbeat:IPaddr2")
+    pub name: String,
+    /// Unique instance name (e.g., "r0_vip")
+    pub instance_name: String,
+    /// Agent parameters
+    pub params: HashMap<String, String>,
 }
 
 /// NFS Configuration
@@ -58,6 +70,9 @@ pub struct HaProfile {
     pub fs_type: String,
     /// Virtual IP address (optional)
     pub vip: Option<VipConfig>,
+    /// OCF Resource Agents (optional)
+    #[serde(default)]
+    pub ocf_agents: Vec<OcfAgentConfig>,
     /// Promoter configuration
     pub promoter: PromoterSettings,
     /// Profile status
@@ -156,6 +171,9 @@ pub struct CreateHaProfileRequest {
     pub services: Vec<String>,
     /// Virtual IP configuration (optional)
     pub vip: Option<VipConfig>,
+    /// OCF Resource Agents (optional)
+    #[serde(default)]
+    pub ocf_agents: Vec<OcfAgentConfig>,
     /// Whether to stop services on demotion
     #[serde(default = "default_true")]
     pub stop_on_demote: bool,

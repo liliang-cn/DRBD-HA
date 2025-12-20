@@ -1429,6 +1429,7 @@ pub async fn create_profile(
         mount_point: req.mount_point.clone(),
         fs_type: req.fs_type.clone(),
         vip: req.vip.clone(),
+        ocf_agents: req.ocf_agents.clone(),
         promoter: PromoterSettings {
             services: req.services.clone(),
             stop_on_demote: req.stop_on_demote,

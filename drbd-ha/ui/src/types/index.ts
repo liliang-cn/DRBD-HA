@@ -126,6 +126,12 @@ export interface NvmeOfConfig {
   trsvcid: string;
 }
 
+export interface OcfAgentConfig {
+  name: string;
+  instance_name: string;
+  params: Record<string, string>;
+}
+
 export interface HaProfile {
   id: string;
   name: string;
@@ -134,6 +140,7 @@ export interface HaProfile {
   mount_point: string;
   fs_type: string;
   vip: VipConfig | null;
+  ocf_agents?: OcfAgentConfig[];
   promoter: {
     services: string[];
     stop_on_demote: boolean;
@@ -206,6 +213,7 @@ export interface CreateHaProfileRequest {
   fs_type?: string;
   services: string[];
   vip?: VipConfig;
+  ocf_agents?: OcfAgentConfig[];
   stop_on_demote?: boolean;
   on_demote_failure?: string;
   dependencies_as?: string;

@@ -77,6 +77,9 @@ pub struct PromoterPluginConfig {
     pub stop_services_on_exit: bool,
     pub on_drbd_demote_failure: String,
     pub vip: Option<VipPluginConfig>,
+    /// Generic OCF Agents to start
+    #[serde(default)]
+    pub ocf_agents: Vec<OcfAgentConfig>,
 
     // --- Advanced Options ---
     pub dependencies_as: Option<String>,
@@ -85,6 +88,14 @@ pub struct PromoterPluginConfig {
     pub preferred_nodes: Option<Vec<String>>,
     pub preferred_nodes_policy: Option<String>,
     pub sleep_before_promote_factor: Option<u32>,
+}
+
+/// OCF Agent configuration
+#[derive(Debug, Clone, Serialize)]
+pub struct OcfAgentConfig {
+    pub name: String,          // e.g., "ocf:heartbeat:IPaddr2"
+    pub instance_name: String, // e.g., "r0_vip"
+    pub params: HashMap<String, String>,
 }
 
 /// VIP configuration for drbd-reactor promoter
@@ -189,7 +200,7 @@ const PROMOTER_TEMPLATE: &str = r#"# drbd-reactor promoter configuration
 
 [[promoter]]
 [promoter.resources.{{ promoter.resource }}]
-start = [{% if promoter.mount_unit %}"{{ promoter.mount_unit }}", {% endif %}{% if promoter.vip %}"ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }} nic={{ promoter.vip.interface }}", {% endif %}{% for service in promoter.start %}"{{ service }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+start = [{% if promoter.mount_unit %}"{{ promoter.mount_unit }}", {% endif %}{% if promoter.vip %}"ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }} nic={{ promoter.vip.interface }}", {% endif %}{% for agent in promoter.ocf_agents %}"{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}", {% endfor %}{% for service in promoter.start %}"{{ service }}"{% if not loop.last %}, {% endif %}{% endfor %}]
 runner = "systemd"
 stop-services-on-exit = {{ promoter.stop_services_on_exit }}
 on-drbd-demote-failure = "{{ promoter.on_drbd_demote_failure }}"

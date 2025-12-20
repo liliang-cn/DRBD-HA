@@ -94,8 +94,10 @@ impl From<drbd_migration::error::MigrationError> for AppError {
     }
 }
 
+use utoipa::ToSchema;
+
 /// Error response body for API
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ErrorResponse {
     pub error: String,
     pub message: String,

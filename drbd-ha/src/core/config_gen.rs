@@ -68,6 +68,17 @@ pub struct PromoterPluginConfig {
     pub stop_services_on_exit: bool,
     pub on_drbd_demote_failure: String,
     pub vip: Option<VipPluginConfig>,
+    /// Generic OCF Agents to start
+    #[serde(default)]
+    pub ocf_agents: Vec<OcfAgentConfig>,
+}
+
+/// OCF Agent configuration
+#[derive(Debug, Clone, Serialize)]
+pub struct OcfAgentConfig {
+    pub name: String,
+    pub instance_name: String,
+    pub params: HashMap<String, String>,
 }
 
 /// VIP configuration for drbd-reactor promoter
@@ -151,6 +162,17 @@ impl ConfigGenerator {
         // Get mount unit from generated_units if available
         let mount_unit = profile.generated_units.mount_unit.clone();
 
+        // Map OCF agents
+        let ocf_agents = profile
+            .ocf_agents
+            .iter()
+            .map(|a| OcfAgentConfig {
+                name: a.name.clone(),
+                instance_name: a.instance_name.clone(),
+                params: a.params.clone(),
+            })
+            .collect();
+
         PromoterPluginConfig {
             resource: profile.resource_name.clone(),
             mount_unit,
@@ -158,6 +180,7 @@ impl ConfigGenerator {
             stop_services_on_exit: profile.promoter.stop_on_demote,
             on_drbd_demote_failure: profile.promoter.on_demote_failure.clone(),
             vip,
+            ocf_agents,
         }
     }
 }
@@ -219,7 +242,7 @@ const PROMOTER_TEMPLATE: &str = r#"# drbd-reactor promoter configuration
 
 [[promoter]]
 [promoter.resources.{{ promoter.resource }}]
-start = [{% if promoter.mount_unit %}"{{ promoter.mount_unit }}", {% endif %}{% if promoter.vip %}"ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip cidr_netmask={{ promoter.vip.netmask }} ip={{ promoter.vip.address }}", {% endif %}{% for service in promoter.start %}"{{ service }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+start = [{% if promoter.mount_unit %}"{{ promoter.mount_unit }}", {% endif %}{% if promoter.vip %}"ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip cidr_netmask={{ promoter.vip.netmask }} ip={{ promoter.vip.address }}", {% endif %}{% for agent in promoter.ocf_agents %}"{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}", {% endfor %}{% for service in promoter.start %}"{{ service }}"{% if not loop.last %}, {% endif %}{% endfor %}]
 runner = "systemd"
 stop-services-on-exit = {{ promoter.stop_services_on_exit }}
 on-drbd-demote-failure = "{{ promoter.on_drbd_demote_failure }}"

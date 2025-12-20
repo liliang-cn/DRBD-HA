@@ -76,6 +76,12 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Discovery and Import
         .route("/ha/unmanaged", get(ha::list_unmanaged_profiles))
         .route("/ha/import", post(ha::import_profiles))
+        // Resource Agent management
+        .route("/ha/resource-agents", get(ha::list_resource_agents))
+        .route(
+            "/ha/resource-agents/{provider}/{agent}",
+            get(ha::get_resource_agent_metadata),
+        )
         // drbd-reactor management
         .route("/ha/reactor/status", get(ha::reactor_status))
         .route("/ha/reactor/reload", post(ha::reload_reactor))

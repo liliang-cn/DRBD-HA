@@ -1,5 +1,6 @@
 import type { FormInstance } from 'antd';
 import {
+  Button,
   Card,
   Checkbox,
   Col,
@@ -7,14 +8,17 @@ import {
   Form,
   Input,
   InputNumber,
+  List,
   Radio,
   Row,
   Select,
   Space,
   Typography,
 } from 'antd';
-import { useEffect } from 'react';
-import type { HaType, ServiceFileInfo } from '@/types';
+import { useEffect, useState } from 'react';
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import type { HaType, OcfAgentConfig, ServiceFileInfo } from '@/types';
+import { OcfAgentModal } from './OcfAgentModal';
 
 const { Text } = Typography;
 
@@ -42,6 +46,8 @@ export function HaConfigStep({
   resources,
   services,
 }: HaConfigStepProps) {
+  const [showAgentModal, setShowAgentModal] = useState(false);
+
   // Set default values when type changes
   useEffect(() => {
     if (haType === 'iscsi' && !form.getFieldValue('iscsi_iqn')) {
@@ -299,6 +305,67 @@ export function HaConfigStep({
             </Col>
           </Row>
         </div>
+
+        {/* --- OCF Agents --- */}
+        <Divider>Additional Resource Agents</Divider>
+        <Form.List name="ocf_agents">
+          {(fields, { add, remove }) => (
+            <>
+              {fields.length > 0 && (
+                <List
+                  bordered
+                  className="mb-4 bg-white"
+                  dataSource={fields}
+                  renderItem={(field, index) => {
+                    const agent = form.getFieldValue(['ocf_agents', field.name]) as OcfAgentConfig;
+                    return (
+                      <List.Item
+                        actions={[
+                          <Button
+                            key="delete"
+                            type="text"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => remove(field.name)}
+                          />,
+                        ]}
+                      >
+                        <List.Item.Meta
+                          title={`${agent.name} (${agent.instance_name})`}
+                          description={
+                            <Space size="small" wrap>
+                              {Object.entries(agent.params).map(([k, v]) => (
+                                <Text key={k} type="secondary" style={{ fontSize: '12px' }}>
+                                  {k}={v}
+                                </Text>
+                              ))}
+                            </Space>
+                          }
+                        />
+                      </List.Item>
+                    );
+                  }}
+                />
+              )}
+              <Button
+                type="dashed"
+                onClick={() => setShowAgentModal(true)}
+                block
+                icon={<PlusOutlined />}
+              >
+                Add OCF Agent
+              </Button>
+              <OcfAgentModal
+                visible={showAgentModal}
+                onCancel={() => setShowAgentModal(false)}
+                onAdd={(agent) => {
+                  add(agent);
+                  setShowAgentModal(false);
+                }}
+              />
+            </>
+          )}
+        </Form.List>
 
         {/* Data Migration - Only for File-based protocols */}
         {!isBlockProtocol && (
