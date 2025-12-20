@@ -4,20 +4,20 @@ version = "1.0.0"
 edition = "2021"
 
 [dependencies]
-# 异步运行时，工业标准
+# Async runtime
 tokio = { version = "1", features = ["full"] }
-# 命令行参数解析
+# CLI argument parsing
 clap = { version = "4", features = ["derive"] }
-# 错误处理
+# Error handling
 anyhow = "1.0"
-# 日志
+# Logging
 log = "0.4"
 env_logger = "0.10"
-# IP/CIDR 解析
+# IP/CIDR parsing
 ipnetwork = "0.20"
-# 内核 Netlink 通信 (替代 ip 命令)
+# Netlink communication (replaces 'ip' command)
 rtnetlink = "0.13"
 netlink-packet-route = "0.17"
 futures = "0.3"
-# 底层网络包构造 (替代 arping)
+# Low-level packet construction (replaces 'arping')
 pnet = "0.34"

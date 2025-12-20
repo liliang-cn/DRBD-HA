@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
 
     info!("Starting Service-IP Manager for {} on {}", args.ip, args.dev);
 
-    // 1. 获取网卡 Index
+    // 1. Get interface index
     let (connection, handle, _) = new_connection()?;
     tokio::spawn(connection);
     
@@ -54,16 +54,16 @@ async fn main() -> Result<()> {
         .context(format!("Interface {} not found", args.dev))?;
     let iface_idx = link.header.index;
 
-    // 2. 启动/守护循环
+    // 2. Start/Daemon loop
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                // 检查 IP 是否存在
+                // Check if IP exists
                 match check_ip_exists(&handle, iface_idx, vip_addr).await {
                     Ok(true) => {
-                        // IP 存在，一切正常
+                        // IP exists, everything is fine
                     },
                     Ok(false) => {
                         warn!("VIP {} missing on {}, adding it now...", vip_addr, args.dev);
@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
                 }
             }
             
-            // 3. 优雅退出信号处理
+            // 3. Graceful shutdown signal handling
             _ = signal::ctrl_c() => {
                 info!("Signal received, shutting down...");
                 break;
@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    // 退出清理：移除 IP
+    // Cleanup: Remove IP before exit
     info!("Removing VIP {} before exit.", vip_addr);
     let _ = del_ip(&handle, iface_idx, vip_net).await;
 
