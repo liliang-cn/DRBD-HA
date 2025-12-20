@@ -153,11 +153,14 @@ impl ConfigGenerator {
         req: &CreateResourceRequest,
         nodes: &[(String, String, String)], // (hostname, ip, disk)
     ) -> ResourceConfig {
+        // Generate a random device number (1000-9999) to avoid conflicts with minor numbers
+        let device_num = (req.minor % 9000) + 1000; // Map minor (0-99999) to device (1000-9999)
+
         let mut config = ResourceConfig {
             name: req.name.clone(),
             port: req.port,
             minor: req.minor,
-            device: format!("/dev/drbd{}", req.minor),
+            device: format!("/dev/drbd{}", device_num),
             auto_promote: req.auto_promote,
             ..Default::default()
         };

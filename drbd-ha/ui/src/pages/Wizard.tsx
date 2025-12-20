@@ -279,14 +279,11 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         } catch {}
       });
 
-      // Auto-calculate next available port and minor
+      // Auto-generate random port and minor numbers
       const usedMinors = resources.flatMap((r) =>
         r.devices.map((d) => d.minor),
       );
-      const maxMinor = usedMinors.length > 0 ? Math.max(...usedMinors) : -1;
-      const nextMinor = maxMinor + 1;
 
-      // Random port between 7000-8000 as requested
       // Use ref to ensure we only generate it once per step entry
       if (generatedPortRef.current === null) {
         const nextPort = Math.floor(Math.random() * (8000 - 7000 + 1)) + 7000;
@@ -294,7 +291,23 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         resourceForm.setFieldsValue({ port: nextPort });
       }
 
-      resourceForm.setFieldsValue({ minor: nextMinor });
+      // Generate random minor number (0-99999) and check for conflicts
+      let randomMinor: number;
+      let attempts = 0;
+      const maxAttempts = 1000;
+
+      do {
+        randomMinor = Math.floor(Math.random() * 100000); // 0-99999
+        attempts++;
+      } while (usedMinors.includes(randomMinor) && attempts < maxAttempts);
+
+      if (attempts >= maxAttempts) {
+        console.error('Failed to generate unique minor number after 1000 attempts');
+        // Fallback to sequential assignment
+        randomMinor = usedMinors.length > 0 ? Math.max(...usedMinors) + 1 : 0;
+      }
+
+      resourceForm.setFieldsValue({ minor: randomMinor });
     }
     if (step === 2) {
       // Refresh resources list when entering step 2

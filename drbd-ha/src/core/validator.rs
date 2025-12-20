@@ -135,14 +135,52 @@ pub fn validate_port(port: u16) -> AppResult<()> {
     Ok(())
 }
 
-/// Validate DRBD minor number
+/// Validate DRBD minor number and check for conflicts
 pub fn validate_minor(minor: u32) -> AppResult<()> {
-    if minor > 1048575 {
+    // Check range (0-99999 as recommended for random allocation)
+    if minor > 99999 {
         return Err(AppError::Validation(format!(
-            "DRBD minor {} exceeds maximum (1048575)",
+            "DRBD minor {} exceeds recommended maximum (99999)",
             minor
         )));
     }
+
+    Ok(())
+}
+
+/// Check if DRBD minor number conflicts with existing resources
+pub async fn validate_minor_unique(minor: u32) -> AppResult<()> {
+    // Check against current DRBD status to detect conflicts
+    let cmd = crate::core::drbd_cmd::DrbdCmd::status_cmd();
+
+    match crate::core::run_shell_command(&cmd, "Check DRBD status for minor conflicts").await {
+        Ok(output) => {
+            if output.success() {
+                // Parse DRBD status to find existing minors
+                for line in output.stdout.lines() {
+                    // Look for minor number in DRBD status output
+                    // Format example: "nfs_data role:Primary"
+                    if let Some(minor_str) = line.strip_suffix(" role:Primary")
+                        .or_else(|| line.strip_suffix(" role:Secondary"))
+                        .or_else(|| line.strip_suffix(" role:Unknown")) {
+                        if let Ok(existing_minor) = minor_str.parse::<u32>() {
+                            if existing_minor == minor {
+                                return Err(AppError::Validation(format!(
+                                    "DRBD minor {} is already in use by existing resource",
+                                    minor
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            // Log warning but don't fail the validation if drbdadm status fails
+            tracing::warn!("Failed to check DRBD status for minor conflicts: {}", e);
+        }
+    }
+
     Ok(())
 }
 

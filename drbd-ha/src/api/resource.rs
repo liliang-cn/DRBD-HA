@@ -110,6 +110,7 @@ pub async fn create_resource(
     validator::validate_resource_name(&req.name)?;
     validator::validate_port(req.port)?;
     validator::validate_minor(req.minor)?;
+    validator::validate_minor_unique(req.minor).await?;
 
     if req.node_disks.is_empty() {
         return Err(AppError::Validation(
