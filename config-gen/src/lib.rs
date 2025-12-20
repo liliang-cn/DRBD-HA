@@ -80,6 +80,15 @@ pub struct PromoterPluginConfig {
     /// Generic OCF Agents to start
     #[serde(default)]
     pub ocf_agents: Vec<OcfAgentConfig>,
+    /// Mount strategy: "systemd" (default) or "ocf"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mount_strategy: Option<String>,
+    /// Mount point (required for OCF strategy)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mount_point: Option<String>,
+    /// Filesystem type (required for OCF strategy)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fs_type: Option<String>,
 
     // --- Advanced Options ---
     pub dependencies_as: Option<String>,
@@ -200,7 +209,24 @@ const PROMOTER_TEMPLATE: &str = r#"# drbd-reactor promoter configuration
 
 [[promoter]]
 [promoter.resources.{{ promoter.resource }}]
-start = [{% if promoter.mount_unit %}"{{ promoter.mount_unit }}", {% endif %}{% if promoter.vip %}"ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }} nic={{ promoter.vip.interface }}", {% endif %}{% for agent in promoter.ocf_agents %}"{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}", {% endfor %}{% for service in promoter.start %}"{{ service }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+start = [
+{% if promoter.mount_strategy == "ocf" %}
+    {# OCF Filesystem Agent for advanced HA scenarios - use drbd device with proper fallback #}
+    "ocf:heartbeat:Filesystem {{ promoter.resource }}_fs device=/dev/drbd/by-{{ promoter.resource }}/0 directory={{ promoter.mount_point }} fstype={{ promoter.fs_type }} run_fsck=no force_unmount=true",
+{% elif promoter.mount_unit %}
+    {# Systemd mount unit (default) #}
+    "{{ promoter.mount_unit }}",
+{% endif %}
+{% if promoter.vip %}
+    "ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }} nic={{ promoter.vip.interface }}",
+{% endif %}
+{% for agent in promoter.ocf_agents %}
+    "{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}",
+{% endfor %}
+{% for service in promoter.start %}
+    "{{ service }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+]
 runner = "systemd"
 stop-services-on-exit = {{ promoter.stop_services_on_exit }}
 on-drbd-demote-failure = "{{ promoter.on_drbd_demote_failure }}"
@@ -210,6 +236,7 @@ on-drbd-demote-failure = "{{ promoter.on_drbd_demote_failure }}"
 {% if promoter.preferred_nodes %}preferred-nodes = [{% for node in promoter.preferred_nodes %}"{{ node }}"{% if not loop.last %}, {% endif %}{% endfor %}]{% endif %}
 {% if promoter.preferred_nodes_policy %}preferred-nodes-policy = "{{ promoter.preferred_nodes_policy }}"{% endif %}
 {% if promoter.sleep_before_promote_factor %}sleep-before-promote-factor = {{ promoter.sleep_before_promote_factor }}{% endif %}
+{% if promoter.mount_strategy %}# Mount strategy: {{ promoter.mount_strategy }}{% endif %}
 "#;
 
 /// Paths for DRBD configuration files
@@ -313,12 +340,16 @@ mod tests {
                 netmask: 24,
                 interface: "eth0".to_string(),
             }),
+            ocf_agents: vec![],
             dependencies_as: Some("Wants".to_string()),
             target_as: Some("Requires".to_string()),
             on_quorum_loss: Some("freeze".to_string()),
             preferred_nodes: Some(vec!["node1".to_string(), "node2".to_string()]),
             preferred_nodes_policy: Some("always".to_string()),
             sleep_before_promote_factor: Some(2),
+            mount_strategy: Some("systemd".to_string()),
+            mount_point: Some("/mnt/data".to_string()),
+            fs_type: Some("xfs".to_string()),
         };
 
         let output = gen.generate_promoter(&config).unwrap();

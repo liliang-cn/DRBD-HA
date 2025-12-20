@@ -222,6 +222,7 @@ export interface CreateHaProfileRequest {
   preferred_nodes?: string[];
   preferred_nodes_policy?: string;
   sleep_before_promote_factor?: number;
+  mount_strategy?: 'systemd' | 'ocf';
   auto_disable_services?: boolean;
   lvm_pool_id?: string;
   lvm_volume_size_gb?: number;

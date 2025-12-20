@@ -4,6 +4,7 @@
 #![allow(clippy::incompatible_msrv)]
 
 use crate::error::{AppError, AppResult};
+use crate::models::OcfAgentConfig;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -229,6 +230,67 @@ pub fn is_drbd_device(device: &str) -> bool {
 pub fn check_device_in_use(holders_output: &str) -> bool {
     // /sys/block/sdX/holders/ will have entries if device is in use
     !holders_output.trim().is_empty()
+}
+
+/// Validate OCF agents configuration
+pub fn validate_ocf_agents(agents: &[OcfAgentConfig]) -> AppResult<()> {
+    if agents.is_empty() {
+        return Ok(());
+    }
+
+    let ocf_root = std::env::var("OCF_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/usr/lib/ocf"));
+
+    for agent_config in agents {
+        let parts: Vec<&str> = agent_config.name.split(':').collect();
+        // Expect ocf:provider:agent
+        if parts.len() != 3 || parts[0] != "ocf" {
+            return Err(AppError::Validation(format!(
+                "Invalid OCF agent name '{}'. Expected format: ocf:provider:agent",
+                agent_config.name
+            )));
+        }
+        let provider = parts[1];
+        let agent_name = parts[2];
+
+        let agent_path = ocf_root
+            .join("resource.d")
+            .join(provider)
+            .join(agent_name);
+        if !agent_path.exists() {
+            return Err(AppError::Validation(format!(
+                "OCF agent '{}' not found at {:?}",
+                agent_config.name, agent_path
+            )));
+        }
+
+        match ra_params::get_agent_metadata(&agent_path) {
+            Ok((metadata, _)) => {
+                for param in metadata.parameters.parameters {
+                    if (param.required == "1" || param.required == "true")
+                        && param.content.default.is_empty()
+                    {
+                        // It is required and has no default value.
+                        // Must be present in agent_config.params
+                        if !agent_config.params.contains_key(&param.name) {
+                            return Err(AppError::Validation(format!(
+                                "Missing required parameter '{}' for agent '{}'",
+                                param.name, agent_config.name
+                            )));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(AppError::Validation(format!(
+                    "Failed to get metadata for agent '{}': {}",
+                    agent_config.name, e
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

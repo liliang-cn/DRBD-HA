@@ -3,7 +3,7 @@
 //! Generates DRBD resource files and drbd-reactor TOML configurations.
 
 use crate::error::{AppError, AppResult};
-use crate::models::{CreateResourceRequest, HaProfile};
+use crate::models::{CreateResourceRequest, HaProfile, MountStrategy};
 use serde::Serialize;
 use std::collections::HashMap;
 use tera::{Context, Tera};
@@ -71,6 +71,15 @@ pub struct PromoterPluginConfig {
     /// Generic OCF Agents to start
     #[serde(default)]
     pub ocf_agents: Vec<OcfAgentConfig>,
+    /// Mount strategy: "systemd" (default) or "ocf"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mount_strategy: Option<String>,
+    /// Mount point (required for OCF strategy)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mount_point: Option<String>,
+    /// Filesystem type (required for OCF strategy)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fs_type: Option<String>,
 }
 
 /// OCF Agent configuration
@@ -163,7 +172,7 @@ impl ConfigGenerator {
         let mount_unit = profile.generated_units.mount_unit.clone();
 
         // Map OCF agents
-        let ocf_agents = profile
+        let mut ocf_agents = profile
             .ocf_agents
             .iter()
             .map(|a| OcfAgentConfig {
@@ -171,7 +180,31 @@ impl ConfigGenerator {
                 instance_name: a.instance_name.clone(),
                 params: a.params.clone(),
             })
-            .collect();
+            .collect::<Vec<OcfAgentConfig>>();
+
+        // For Storage HA with OCF mount strategy, add filesystem agent with auto-detected device path
+        if profile.mount_strategy == MountStrategy::Ocf {
+            let detected_device = Self::detect_drbd_device_path(&profile.resource_name)
+                .unwrap_or_else(|| format!("/dev/drbd/by-{}/0", profile.resource_name));
+
+            // Add Filesystem OCF agent with detected device path
+            let filesystem_agent = OcfAgentConfig {
+                name: "ocf:heartbeat:Filesystem".to_string(),
+                instance_name: format!("{}_fs", profile.resource_name),
+                params: {
+                    let mut params = HashMap::new();
+                    params.insert("device".to_string(), detected_device);
+                    params.insert("directory".to_string(), profile.mount_point.clone());
+                    params.insert("fstype".to_string(), profile.fs_type.clone());
+                    params.insert("run_fsck".to_string(), "no".to_string());
+                    params.insert("force_unmount".to_string(), "true".to_string());
+                    params
+                },
+            };
+
+            // Add filesystem agent as the first OCF agent
+            ocf_agents.insert(0, filesystem_agent);
+        }
 
         PromoterPluginConfig {
             resource: profile.resource_name.clone(),
@@ -181,7 +214,31 @@ impl ConfigGenerator {
             on_drbd_demote_failure: profile.promoter.on_demote_failure.clone(),
             vip,
             ocf_agents,
+            mount_strategy: Some(format!("{:?}", profile.mount_strategy).to_lowercase()),
+            mount_point: Some(profile.mount_point.clone()),
+            fs_type: Some(profile.fs_type.clone()),
         }
+    }
+
+    /// Detect the actual DRBD device path for a given resource name
+    /// This function tries multiple naming conventions to find the correct device path
+    fn detect_drbd_device_path(resource_name: &str) -> Option<String> {
+        // Try different device path naming conventions
+        let possible_paths = vec![
+            format!("/dev/drbd/by-{}/0", resource_name),
+            format!("/dev/drbd{}", resource_name.parse::<u32>().unwrap_or(0)),
+            format!("/dev/drbd/by-res/{}/0", resource_name),
+        ];
+
+        for path in possible_paths {
+            if std::path::Path::new(&path).exists() {
+                return Some(path);
+            }
+        }
+
+        // If no existing device found, return the default convention
+        // This allows for cases where the device will be created later
+        Some(format!("/dev/drbd/by-{}/0", resource_name))
     }
 }
 
@@ -242,7 +299,23 @@ const PROMOTER_TEMPLATE: &str = r#"# drbd-reactor promoter configuration
 
 [[promoter]]
 [promoter.resources.{{ promoter.resource }}]
-start = [{% if promoter.mount_unit %}"{{ promoter.mount_unit }}", {% endif %}{% if promoter.vip %}"ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip cidr_netmask={{ promoter.vip.netmask }} ip={{ promoter.vip.address }}", {% endif %}{% for agent in promoter.ocf_agents %}"{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}", {% endfor %}{% for service in promoter.start %}"{{ service }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+start = [
+{% if promoter.mount_strategy | default(value="systemd") == "ocf" %}
+    {# OCF Filesystem Agent and other OCF agents are dynamically added below #}
+{% elif promoter.mount_unit %}
+    {# Systemd mount unit (default) #}
+    "{{ promoter.mount_unit }}",
+{% endif %}
+{% if promoter.vip %}
+    "ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip cidr_netmask={{ promoter.vip.netmask }} ip={{ promoter.vip.address }}",
+{% endif %}
+{% for agent in promoter.ocf_agents %}
+    "{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}",
+{% endfor %}
+{% for service in promoter.start %}
+    "{{ service }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+]
 runner = "systemd"
 stop-services-on-exit = {{ promoter.stop_services_on_exit }}
 on-drbd-demote-failure = "{{ promoter.on_drbd_demote_failure }}"
@@ -349,6 +422,10 @@ mod tests {
                 netmask: 24,
                 interface: "eth0".to_string(),
             }),
+            ocf_agents: vec![],
+            mount_strategy: None,
+            mount_point: None,
+            fs_type: None,
         };
 
         let output = gen.generate_promoter(&config).unwrap();
@@ -358,6 +435,37 @@ mod tests {
         // VIP should be in OCF format inside start list (cidr_netmask before ip)
         assert!(output.contains("ocf:heartbeat:IPaddr2 r0_vip cidr_netmask=24 ip=192.168.1.100"));
         assert!(output.contains("runner = \"systemd\""));
+    }
+
+    #[test]
+    fn test_generate_promoter_with_ocf_agents() {
+        let gen = ConfigGenerator::new().unwrap();
+
+        let mut params = HashMap::new();
+        params.insert("ip".to_string(), "10.0.0.1".to_string());
+        params.insert("cidr_netmask".to_string(), "24".to_string());
+
+        let config = PromoterPluginConfig {
+            resource: "r0".to_string(),
+            mount_unit: None,
+            start: vec![],
+            stop_services_on_exit: true,
+            on_drbd_demote_failure: "reboot".to_string(),
+            vip: None,
+            ocf_agents: vec![OcfAgentConfig {
+                name: "ocf:heartbeat:IPaddr2".to_string(),
+                instance_name: "r0_vip".to_string(),
+                params,
+            }],
+            mount_strategy: None,
+            mount_point: None,
+            fs_type: None,
+        };
+
+        let output = gen.generate_promoter(&config).unwrap();
+        assert!(output.contains("ocf:heartbeat:IPaddr2 r0_vip"));
+        assert!(output.contains("ip=10.0.0.1"));
+        assert!(output.contains("cidr_netmask=24"));
     }
 
     #[test]

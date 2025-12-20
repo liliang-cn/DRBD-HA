@@ -281,7 +281,7 @@ async fn fetch_profile_details(
 /// POST /api/v1/ha/profiles
 pub async fn create_profile(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<CreateHaProfileRequest>,
+    Json(mut req): Json<CreateHaProfileRequest>,
 ) -> AppResult<(StatusCode, Json<HaProfileCreateResponse>)> {
     let operation_id = uuid::Uuid::new_v4().to_string();
     let mut generated_units = GeneratedUnits::default(); // Initialize at function start
@@ -327,7 +327,7 @@ pub async fn create_profile(
     let profile_id = uuid::Uuid::new_v4().to_string();
     let all_nodes = state.db.get_all_nodes()?;
 
-    // Resolve DRBD port and minor early to prevent conflicts
+    // Resolve DRBD port and minor early to prevent conflicts and for param injection
     let drbd_port = if let Some(p) = req.drbd_port {
         p
     } else {
@@ -339,6 +339,36 @@ pub async fn create_profile(
     } else {
         super::utils::find_next_free_drbd_minor().await?
     };
+
+    // Auto-configure manual Filesystem OCF agent if present
+    // This allows users to add 'Filesystem' via the manual agent list and have it auto-configured
+    // with the correct DRBD device path, avoiding the need to manually type it.
+    let mut manual_filesystem_agent_present = false;
+    for agent in &mut req.ocf_agents {
+        if agent.name == "ocf:heartbeat:Filesystem" {
+            manual_filesystem_agent_present = true;
+            
+            // Auto-fill 'device' if missing or empty
+            if !agent.params.contains_key("device") || agent.params.get("device").map(|s| s.is_empty()).unwrap_or(true) {
+                // Try to detect device path, fallback to standard convention
+                let drbd_device = format!("/dev/drbd{}", drbd_minor);
+                agent.params.insert("device".to_string(), drbd_device);
+            }
+            
+            // Auto-fill 'directory' if missing or empty
+            if !agent.params.contains_key("directory") || agent.params.get("directory").map(|s| s.is_empty()).unwrap_or(true) {
+                agent.params.insert("directory".to_string(), req.mount_point.clone());
+            }
+            
+            // Auto-fill 'fstype' if missing or empty
+            if !agent.params.contains_key("fstype") || agent.params.get("fstype").map(|s| s.is_empty()).unwrap_or(true) {
+                agent.params.insert("fstype".to_string(), req.fs_type.clone());
+            }
+        }
+    }
+
+    // Validate OCF agents after potential injection
+    validator::validate_ocf_agents(&req.ocf_agents)?;
 
     if let (Some(pool_id), Some(volume_size_gb)) = (&req.lvm_pool_id, &req.lvm_volume_size_gb) {
         state.send_progress(
@@ -559,23 +589,31 @@ pub async fn create_profile(
     let extra_sync_files: Vec<(String, String)> = Vec::new();
 
     if matches!(req.ha_type, HaType::Generic | HaType::Nfs) {
-        state.send_progress(
-            &operation_id,
-            "create_ha_profile",
-            Some(&req.name),
-            20,
-            "Generating systemd mount unit...",
-            false,
-            None,
-        );
-        let mount_info =
-            MountUnitGenerator::generate(&req.resource_name, &req.mount_point, &req.fs_type)
-                .await?;
+        // Only generate systemd mount unit if we are NOT using a manual Filesystem OCF agent
+        // and NOT using OCF mount strategy (which is handled by ConfigGenerator automatically)
+        if !manual_filesystem_agent_present && req.mount_strategy != crate::models::MountStrategy::Ocf {
+            state.send_progress(
+                &operation_id,
+                "create_ha_profile",
+                Some(&req.name),
+                20,
+                "Generating systemd mount unit...",
+                false,
+                None,
+            );
+            let mount_info =
+                MountUnitGenerator::generate(&req.resource_name, &req.mount_point, &req.fs_type)
+                    .await?;
 
-        generated_units.mount_unit = Some(mount_info.unit_name.clone());
-        generated_units.mount_unit_path = Some(mount_info.unit_path.clone());
-        generated_units.drbd_device = Some(mount_info.device_path.clone());
-        messages.push(format!("Generated mount unit: {}", mount_info.unit_name));
+            generated_units.mount_unit = Some(mount_info.unit_name.clone());
+            generated_units.mount_unit_path = Some(mount_info.unit_path.clone());
+            generated_units.drbd_device = Some(mount_info.device_path.clone());
+            messages.push(format!("Generated mount unit: {}", mount_info.unit_name));
+        } else if manual_filesystem_agent_present {
+            tracing::info!("Manual Filesystem OCF agent detected, skipping systemd mount unit generation");
+             // We still need to record the expected DRBD device for other operations
+            generated_units.drbd_device = Some(format!("/dev/drbd{}", drbd_minor));
+        }
     }
 
     let _start_services = match req.ha_type {
@@ -815,10 +853,11 @@ pub async fn create_profile(
                 fsid,
             );
 
-            // Add exportfs OCF agent to services list
-            // Order: nfs-server -> exportfs
-            let mut services = vec!["nfs-server.service".to_string()];
-            services.push(ocf_exportfs);
+            // Correct startup order for NFS HA: VIP -> Filesystem -> nfs-server -> exportfs
+            let services = vec![
+                "nfs-server.service".to_string(),
+                ocf_exportfs,
+            ];
 
             services
         }
@@ -1305,10 +1344,11 @@ pub async fn create_profile(
                 fsid,
             );
 
-            // Add exportfs OCF agent to services list
-            // Order: nfs-server -> exportfs
-            let mut services = vec!["nfs-server.service".to_string()];
-            services.push(ocf_exportfs);
+            // Correct startup order for NFS HA: VIP -> Filesystem -> nfs-server -> exportfs
+            let services = vec![
+                "nfs-server.service".to_string(),
+                ocf_exportfs,
+            ];
 
             services
         }
@@ -1428,12 +1468,19 @@ pub async fn create_profile(
         resource_name: req.resource_name.clone(),
         mount_point: req.mount_point.clone(),
         fs_type: req.fs_type.clone(),
+        mount_strategy: req.mount_strategy.clone(),
         vip: req.vip.clone(),
         ocf_agents: req.ocf_agents.clone(),
         promoter: PromoterSettings {
             services: req.services.clone(),
             stop_on_demote: req.stop_on_demote,
             on_demote_failure: req.on_demote_failure.clone(),
+            preferred_nodes: req.preferred_nodes.clone(),
+            preferred_nodes_policy: req.preferred_nodes_policy.clone(),
+            sleep_before_promote_factor: req.sleep_before_promote_factor,
+            dependencies_as: req.dependencies_as.clone(),
+            target_as: req.target_as.clone(),
+            on_quorum_loss: req.on_quorum_loss.clone(),
         },
         status: HaProfileStatus::Unknown,
         active_node: None,

@@ -68,6 +68,9 @@ pub struct HaProfile {
     /// Filesystem type (xfs, ext4, btrfs)
     #[serde(default = "default_fs_type")]
     pub fs_type: String,
+    /// Mount strategy for storage (systemd or ocf)
+    #[serde(default)]
+    pub mount_strategy: MountStrategy,
     /// Virtual IP address (optional)
     pub vip: Option<VipConfig>,
     /// OCF Resource Agents (optional)
@@ -102,6 +105,24 @@ pub struct PromoterSettings {
     /// Action on demote failure: "reboot", "force", or "ignore"
     #[serde(default = "default_on_demote_failure")]
     pub on_demote_failure: String,
+    /// Preferred nodes list (ordered by priority)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_nodes: Option<Vec<String>>,
+    /// Preferred nodes policy: "always" or "start-only"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_nodes_policy: Option<String>,
+    /// Sleep before promote factor (multiplier for promotion delay)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sleep_before_promote_factor: Option<u32>,
+    /// Dependency type between services (Requires, Wants, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dependencies_as: Option<String>,
+    /// Target dependency type
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_as: Option<String>,
+    /// Action on quorum loss
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_quorum_loss: Option<String>,
 }
 
 impl Default for PromoterSettings {
@@ -110,6 +131,12 @@ impl Default for PromoterSettings {
             services: Vec::new(),
             stop_on_demote: true,
             on_demote_failure: "reboot".to_string(),
+            preferred_nodes: None,
+            preferred_nodes_policy: None,
+            sleep_before_promote_factor: None,
+            dependencies_as: None,
+            target_as: None,
+            on_quorum_loss: None,
         }
     }
 }
@@ -180,6 +207,27 @@ pub struct CreateHaProfileRequest {
     /// Action on demote failure: "reboot", "force", or "ignore"
     #[serde(default = "default_on_demote_failure")]
     pub on_demote_failure: String,
+    /// Preferred nodes list (ordered by priority)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_nodes: Option<Vec<String>>,
+    /// Preferred nodes policy: "always" or "start-only"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_nodes_policy: Option<String>,
+    /// Sleep before promote factor (multiplier for promotion delay)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sleep_before_promote_factor: Option<u32>,
+    /// Dependency type between services (Requires, Wants, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dependencies_as: Option<String>,
+    /// Target dependency type
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_as: Option<String>,
+    /// Action on quorum loss
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_quorum_loss: Option<String>,
+    /// Mount strategy for the storage (systemd or ocf)
+    #[serde(default)]
+    pub mount_strategy: MountStrategy,
     /// Whether to automatically disable the managed services (systemctl disable)
     /// This prevents services from starting before DRBD is mounted after reboot
     #[serde(default = "default_true")]
@@ -224,6 +272,17 @@ pub struct DataMigrationOptions {
     /// Whether to preserve file permissions and ownership
     #[serde(default = "default_true")]
     pub preserve_permissions: bool,
+}
+
+/// Mount strategy for HA profiles
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum MountStrategy {
+    /// Use systemd mount units (recommended for most use cases)
+    #[default]
+    Systemd,
+    /// Use OCF Filesystem agent (advanced HA features)
+    Ocf,
 }
 
 impl Default for DataMigrationOptions {

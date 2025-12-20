@@ -26,7 +26,7 @@ struct ResourceSection {
 pub struct ReactorDiscovery;
 
 use crate::models::{
-    GeneratedUnits, HaProfile, HaProfileStatus, HaType, IscsiConfig, NfsConfig, NvmeOfConfig,
+    GeneratedUnits, HaProfile, HaProfileStatus, HaType, IscsiConfig, MountStrategy, NfsConfig, NvmeOfConfig,
     PromoterSettings,
 };
 use anyhow::Result;
@@ -125,11 +125,18 @@ impl ReactorDiscovery {
                             resource_name,
                             mount_point: "".to_string(), // Cannot determine reliably
                             fs_type: "xfs".to_string(),  // Default guess
+                            mount_strategy: MountStrategy::Systemd, // Default guess
                             vip: None,                   // Hard to parse from systemd override args
                             promoter: PromoterSettings {
                                 services,
                                 stop_on_demote,
                                 on_demote_failure,
+                                preferred_nodes: None,
+                                preferred_nodes_policy: None,
+                                sleep_before_promote_factor: None,
+                                dependencies_as: None,
+                                target_as: None,
+                                on_quorum_loss: None,
                             },
                             status: HaProfileStatus::Unknown,
                             active_node: None,

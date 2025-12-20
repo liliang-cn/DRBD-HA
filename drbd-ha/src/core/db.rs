@@ -4,7 +4,7 @@
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    GeneratedUnits, HaProfile, HaProfileStatus, HaType, IscsiConfig, NfsConfig, Node, NodeStatus,
+    GeneratedUnits, HaProfile, HaProfileStatus, HaType, IscsiConfig, MountStrategy, NfsConfig, Node, NodeStatus,
     NvmeOfConfig, OcfAgentConfig, PromoterSettings, StoragePool, VipConfig, Volume,
 };
 use chrono::{DateTime, Utc};
@@ -127,6 +127,21 @@ impl Database {
                         nvmeof_config TEXT,
 
                         ocf_agents TEXT,
+
+                        -- Preferred Nodes and advanced promoter settings
+                        preferred_nodes TEXT,
+
+                        preferred_nodes_policy TEXT,
+
+                        sleep_before_promote_factor INTEGER,
+
+                        dependencies_as TEXT,
+
+                        target_as TEXT,
+
+                        on_quorum_loss TEXT,
+
+                        mount_strategy TEXT DEFAULT 'systemd',
 
                         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -487,11 +502,14 @@ impl Database {
 
         conn.execute(
             r#"INSERT INTO ha_profiles (
-                id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface, 
+                id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                 services, stop_on_demote, on_demote_failure, status, generated_units,
-                ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents
+                ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents,
+                preferred_nodes, preferred_nodes_policy, sleep_before_promote_factor,
+                dependencies_as, target_as, on_quorum_loss, mount_strategy
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                    ?19, ?20, ?21, ?22, ?23, ?24, ?25)
             "#,
             params![
                 profile.id,
@@ -512,6 +530,14 @@ impl Database {
                 iscsi_config,
                 nvmeof_config,
                 ocf_agents_json,
+                // Preferred nodes and advanced settings
+                profile.promoter.preferred_nodes.as_ref().map(|nodes| serde_json::to_string(nodes).unwrap_or_default()),
+                profile.promoter.preferred_nodes_policy.as_deref(),
+                profile.promoter.sleep_before_promote_factor.map(|v| v as i32),
+                profile.promoter.dependencies_as.as_deref(),
+                profile.promoter.target_as.as_deref(),
+                profile.promoter.on_quorum_loss.as_deref(),
+                format!("{:?}", profile.mount_strategy).to_lowercase(),
             ],
         )
         .map_err(|e| AppError::Config(format!("Failed to insert HA profile: {}", e)))?;
@@ -526,7 +552,7 @@ impl Database {
             r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents, mount_strategy
             FROM ha_profiles WHERE id = ?1
             "#,
             params![id],
@@ -544,7 +570,7 @@ impl Database {
             r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents, mount_strategy
             FROM ha_profiles WHERE name = ?1
             "#,
             params![name],
@@ -563,7 +589,7 @@ impl Database {
                 r#"
             SELECT id, name, resource_name, mount_point, fs_type, vip_address, vip_netmask, vip_interface,
                    services, stop_on_demote, on_demote_failure, status, generated_units,
-                   ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents
+                   ha_type, nfs_config, iscsi_config, nvmeof_config, ocf_agents, mount_strategy
             FROM ha_profiles
             "#,
             )
@@ -990,6 +1016,44 @@ fn row_to_ha_profile(row: &rusqlite::Row) -> AppResult<HaProfile> {
         .and_then(|j| serde_json::from_str::<Vec<OcfAgentConfig>>(&j).ok())
         .unwrap_or_default();
 
+    // Parse preferred nodes and advanced promoter settings
+    let preferred_nodes = row
+        .get::<_, Option<String>>(18)
+        .ok()
+        .flatten()
+        .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok());
+
+    let preferred_nodes_policy = row
+        .get::<_, Option<String>>(19)
+        .ok()
+        .flatten();
+
+    let sleep_before_promote_factor = row
+        .get::<_, Option<i32>>(20)
+        .ok()
+        .flatten()
+        .map(|v| v as u32);
+
+    let dependencies_as = row
+        .get::<_, Option<String>>(21)
+        .ok()
+        .flatten();
+
+    let target_as = row
+        .get::<_, Option<String>>(22)
+        .ok()
+        .flatten();
+
+    let on_quorum_loss = row
+        .get::<_, Option<String>>(23)
+        .ok()
+        .flatten();
+
+    // Parse mount strategy
+    let mount_strategy_str: String = row.get(24).unwrap_or_else(|_| "systemd".to_string());
+    let mount_strategy = serde_json::from_str::<MountStrategy>(&format!("\"{}\"", mount_strategy_str))
+        .unwrap_or(MountStrategy::Systemd);
+
     Ok(HaProfile {
         id: row.get(0).map_err(|e| AppError::Config(e.to_string()))?,
         name: row.get(1).map_err(|e| AppError::Config(e.to_string()))?,
@@ -998,6 +1062,7 @@ fn row_to_ha_profile(row: &rusqlite::Row) -> AppResult<HaProfile> {
         fs_type: row
             .get::<_, String>(4)
             .unwrap_or_else(|_| "xfs".to_string()),
+        mount_strategy,
         vip,
         ocf_agents,
         promoter: PromoterSettings {
@@ -1007,6 +1072,12 @@ fn row_to_ha_profile(row: &rusqlite::Row) -> AppResult<HaProfile> {
                 .map_err(|e| AppError::Config(e.to_string()))?
                 != 0,
             on_demote_failure: row.get(10).map_err(|e| AppError::Config(e.to_string()))?,
+            preferred_nodes,
+            preferred_nodes_policy,
+            sleep_before_promote_factor,
+            dependencies_as,
+            target_as,
+            on_quorum_loss,
         },
         status: parse_ha_profile_status(&row.get::<_, String>(11).unwrap_or_default()),
         active_node: None,
@@ -1078,6 +1149,7 @@ mod tests {
             resource_name: "r0".to_string(),
             mount_point: "/var/lib/mysql".to_string(),
             fs_type: "xfs".to_string(),
+            mount_strategy: crate::models::MountStrategy::Systemd,
             vip: Some(VipConfig {
                 address: "192.168.1.100".to_string(),
                 netmask: 24,
@@ -1087,6 +1159,7 @@ mod tests {
                 services: vec!["mysql.service".to_string()],
                 stop_on_demote: true,
                 on_demote_failure: "reboot".to_string(),
+                ..Default::default()
             },
             status: HaProfileStatus::Unknown,
             active_node: None,
