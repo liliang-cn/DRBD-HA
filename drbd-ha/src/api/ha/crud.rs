@@ -7,7 +7,7 @@ use drbd_migration::{DataMigration, MigrationConfig};
 use drbd_reactor_utils::DrbdReactorClient;
 use drbd_utils::parse_drbdadm_status;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::core::{
     cluster_sync::{ClusterSync, HaSyncConfig},
@@ -18,8 +18,7 @@ use crate::core::{
     service_override::ServiceOverrideGenerator,
     systemd_ctrl::{RemoteSystemdController, SystemdController},
     validator, IscsiGenerator, LvmProvider, NfsGenerator, NvmeOfGenerator, ServiceInitFactory,
-    StorageProvider,
-    ZfsProvider,
+    StorageProvider, ZfsProvider,
 };
 use crate::error::{AppError, AppResult};
 use crate::models::{
@@ -287,7 +286,7 @@ pub async fn create_profile(
 ) -> AppResult<(StatusCode, Json<HaProfileCreateResponse>)> {
     let operation_id = uuid::Uuid::new_v4().to_string();
     let mut generated_units = GeneratedUnits::default(); // Initialize at function start
-    // Migration status is calculated below based on migration options
+                                                         // Migration status is calculated below based on migration options
     let migration_result = None;
 
     state.send_progress(
@@ -333,7 +332,11 @@ pub async fn create_profile(
                 for entry in entries.flatten() {
                     if let Ok(name) = entry.file_name().into_string() {
                         // Skip loopback and common virtual interfaces
-                        if name != "lo" && !name.starts_with("docker") && !name.starts_with("veth") && !name.starts_with("br-") {
+                        if name != "lo"
+                            && !name.starts_with("docker")
+                            && !name.starts_with("veth")
+                            && !name.starts_with("br-")
+                        {
                             interfaces.push(name);
                         }
                     }
@@ -341,7 +344,11 @@ pub async fn create_profile(
                 // Sort to have consistent selection (e.g. eth0 before eth1)
                 interfaces.sort();
                 if let Some(first) = interfaces.first() {
-                    tracing::info!("Auto-detected VIP interface: {} (was {})", first, vip.interface);
+                    tracing::info!(
+                        "Auto-detected VIP interface: {} (was {})",
+                        first,
+                        vip.interface
+                    );
                     vip.interface = first.clone();
                 }
             }
@@ -380,22 +387,44 @@ pub async fn create_profile(
     for agent in &mut req.ocf_agents {
         if agent.name == "ocf:heartbeat:Filesystem" {
             manual_filesystem_agent_present = true;
-            
+
             // Auto-fill 'device' if missing or empty
-            if !agent.params.contains_key("device") || agent.params.get("device").map(|s| s.is_empty()).unwrap_or(true) {
+            if !agent.params.contains_key("device")
+                || agent
+                    .params
+                    .get("device")
+                    .map(|s| s.is_empty())
+                    .unwrap_or(true)
+            {
                 // Try to detect device path, fallback to standard convention
                 let drbd_device = format!("/dev/drbd{}", drbd_minor);
                 agent.params.insert("device".to_string(), drbd_device);
             }
-            
+
             // Auto-fill 'directory' if missing or empty
-            if !agent.params.contains_key("directory") || agent.params.get("directory").map(|s| s.is_empty()).unwrap_or(true) {
-                agent.params.insert("directory".to_string(), req.mount_point.clone());
+            if !agent.params.contains_key("directory")
+                || agent
+                    .params
+                    .get("directory")
+                    .map(|s| s.is_empty())
+                    .unwrap_or(true)
+            {
+                agent
+                    .params
+                    .insert("directory".to_string(), req.mount_point.clone());
             }
-            
+
             // Auto-fill 'fstype' if missing or empty
-            if !agent.params.contains_key("fstype") || agent.params.get("fstype").map(|s| s.is_empty()).unwrap_or(true) {
-                agent.params.insert("fstype".to_string(), req.fs_type.clone());
+            if !agent.params.contains_key("fstype")
+                || agent
+                    .params
+                    .get("fstype")
+                    .map(|s| s.is_empty())
+                    .unwrap_or(true)
+            {
+                agent
+                    .params
+                    .insert("fstype".to_string(), req.fs_type.clone());
             }
         }
     }
@@ -618,7 +647,9 @@ pub async fn create_profile(
         }
     }
     // Handle ZFS volume creation
-    else if let (Some(pool_id), Some(volume_size_gb)) = (&req.zfs_pool_id, &req.zfs_volume_size_gb) {
+    else if let (Some(pool_id), Some(volume_size_gb)) =
+        (&req.zfs_pool_id, &req.zfs_volume_size_gb)
+    {
         state.send_progress(
             &operation_id,
             "create_ha_profile",
@@ -855,7 +886,9 @@ pub async fn create_profile(
     if matches!(req.ha_type, HaType::Generic | HaType::Nfs) {
         // Only generate systemd mount unit if we are NOT using a manual Filesystem OCF agent
         // and NOT using OCF mount strategy (which is handled by ConfigGenerator automatically)
-        if !manual_filesystem_agent_present && req.mount_strategy != crate::models::MountStrategy::Ocf {
+        if !manual_filesystem_agent_present
+            && req.mount_strategy != crate::models::MountStrategy::Ocf
+        {
             state.send_progress(
                 &operation_id,
                 "create_ha_profile",
@@ -874,8 +907,10 @@ pub async fn create_profile(
             generated_units.drbd_device = Some(mount_info.device_path.clone());
             messages.push(format!("Generated mount unit: {}", mount_info.unit_name));
         } else if manual_filesystem_agent_present {
-            tracing::info!("Manual Filesystem OCF agent detected, skipping systemd mount unit generation");
-             // We still need to record the expected DRBD device for other operations
+            tracing::info!(
+                "Manual Filesystem OCF agent detected, skipping systemd mount unit generation"
+            );
+            // We still need to record the expected DRBD device for other operations
             generated_units.drbd_device = Some(format!("/dev/drbd{}", drbd_minor));
         }
     }
@@ -915,11 +950,7 @@ pub async fn create_profile(
                     "Promote for setup",
                 )
                 .await?;
-                let mkfs_cmd = format!(
-                    "mkfs.{} /dev/drbd{}",
-                    req.fs_type,
-                    drbd_minor
-                );
+                let mkfs_cmd = format!("mkfs.{} /dev/drbd{}", req.fs_type, drbd_minor);
                 run_shell_command(&mkfs_cmd, "Create filesystem").await?;
 
                 run_shell_command(
@@ -928,11 +959,7 @@ pub async fn create_profile(
                 )
                 .await?;
                 run_shell_command(
-                    &format!(
-                        "mount /dev/drbd{} {}",
-                        drbd_minor,
-                        req.mount_point
-                    ),
+                    &format!("mount /dev/drbd{} {}", drbd_minor, req.mount_point),
                     "Mount for setup",
                 )
                 .await?;
@@ -977,8 +1004,12 @@ pub async fn create_profile(
                     "Demote after setup",
                 )
                 .await?;
-            } else if (req.lvm_pool_id.is_some() || req.zfs_pool_id.is_some()) && migration_performed {
-                 tracing::info!("Skipping standard storage initialization because migration was performed");
+            } else if (req.lvm_pool_id.is_some() || req.zfs_pool_id.is_some())
+                && migration_performed
+            {
+                tracing::info!(
+                    "Skipping standard storage initialization because migration was performed"
+                );
             }
         }
         HaType::Nfs => {
@@ -1013,11 +1044,7 @@ pub async fn create_profile(
                 )
                 .await?;
 
-                let mkfs_cmd = format!(
-                    "mkfs.{} /dev/drbd{}",
-                    req.fs_type,
-                    drbd_minor
-                );
+                let mkfs_cmd = format!("mkfs.{} /dev/drbd{}", req.fs_type, drbd_minor);
                 run_shell_command(&mkfs_cmd, "Create filesystem for NFS state").await?;
 
                 run_shell_command(
@@ -1026,11 +1053,7 @@ pub async fn create_profile(
                 )
                 .await?;
                 run_shell_command(
-                    &format!(
-                        "mount /dev/drbd{} {}",
-                        drbd_minor,
-                        req.mount_point
-                    ),
+                    &format!("mount /dev/drbd{} {}", drbd_minor, req.mount_point),
                     "Mount for NFS setup",
                 )
                 .await?;
@@ -1079,8 +1102,12 @@ pub async fn create_profile(
                         )
                         .await?;
                 }
-            } else if (req.lvm_pool_id.is_some() || req.zfs_pool_id.is_some()) && migration_performed {
-                tracing::info!("Skipping NFS storage initialization because migration was performed");
+            } else if (req.lvm_pool_id.is_some() || req.zfs_pool_id.is_some())
+                && migration_performed
+            {
+                tracing::info!(
+                    "Skipping NFS storage initialization because migration was performed"
+                );
             }
 
             state.send_progress(
@@ -1215,7 +1242,7 @@ pub async fn create_profile(
                 // Stop services on all nodes (local and remote) to ensure data consistency
                 let remote_sys = RemoteSystemdController::new(state.ssh_manager.clone());
                 let credential = crate::core::SshCredential::Password("ignored".to_string());
-                
+
                 for service in &req.services {
                     for node in &all_nodes {
                         tracing::info!("Stopping service {} on {}", service, node.hostname);
@@ -1225,10 +1252,21 @@ pub async fn create_profile(
                             }
                         } else {
                             if let Err(e) = remote_sys
-                                .stop(&node.ip, node.ssh_port, &node.ssh_user, &credential, service)
+                                .stop(
+                                    &node.ip,
+                                    node.ssh_port,
+                                    &node.ssh_user,
+                                    &credential,
+                                    service,
+                                )
                                 .await
                             {
-                                tracing::warn!("Failed to stop service {} on {}: {}", service, node.hostname, e);
+                                tracing::warn!(
+                                    "Failed to stop service {} on {}: {}",
+                                    service,
+                                    node.hostname,
+                                    e
+                                );
                             }
                         }
                     }
@@ -1274,13 +1312,27 @@ pub async fn create_profile(
                         );
 
                         // Ensure remote nodes are Secondary
-                        let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
+                        let remote_nodes: Vec<_> =
+                            all_nodes.iter().filter(|n| !n.is_local).collect();
                         for node in &remote_nodes {
-                            let credential = crate::core::SshCredential::Password("ignored".to_string());
+                            let credential =
+                                crate::core::SshCredential::Password("ignored".to_string());
                             let cmd = format!("drbdadm secondary {}", req.resource_name);
-                            tracing::info!("Ensuring remote node {} is Secondary for {}", node.hostname, req.resource_name);
-                            if let Err(e) = state.ssh_manager.execute(&node.ip, node.ssh_port, &node.ssh_user, &credential, &cmd).await {
-                                tracing::warn!("Failed to set remote node {} to Secondary: {}", node.hostname, e);
+                            tracing::info!(
+                                "Ensuring remote node {} is Secondary for {}",
+                                node.hostname,
+                                req.resource_name
+                            );
+                            if let Err(e) = state
+                                .ssh_manager
+                                .execute(&node.ip, node.ssh_port, &node.ssh_user, &credential, &cmd)
+                                .await
+                            {
+                                tracing::warn!(
+                                    "Failed to set remote node {} to Secondary: {}",
+                                    node.hostname,
+                                    e
+                                );
                             }
                         }
 
@@ -1292,8 +1344,10 @@ pub async fn create_profile(
                                 Ok(status) => {
                                     // Optimization: If local node is Primary and UpToDate, we can proceed
                                     // while the sync continues in the background.
-                                    if status.local_role == "Primary" && status.local_disk_state == "UpToDate" {
-                                         state.send_progress(
+                                    if status.local_role == "Primary"
+                                        && status.local_disk_state == "UpToDate"
+                                    {
+                                        state.send_progress(
                                             &operation_id,
                                             "create_ha_profile",
                                             Some(&req.name),
@@ -1302,19 +1356,26 @@ pub async fn create_profile(
                                             false,
                                             None,
                                         );
-                                        
+
                                         // Spawn a background task to monitor full sync completion
                                         let bg_state = state.clone();
                                         let resource_name = req.resource_name.clone();
                                         let profile_name = req.name.clone();
                                         let bg_op_id = operation_id.clone();
-                                        
+
                                         tokio::spawn(async move {
                                             let mut attempts = 0;
                                             // Wait up to 30 minutes for background sync
                                             while attempts < 360 {
-                                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                                                match drbd_utils::get_drbd_sync_status(&resource_name).await {
+                                                tokio::time::sleep(
+                                                    tokio::time::Duration::from_secs(5),
+                                                )
+                                                .await;
+                                                match drbd_utils::get_drbd_sync_status(
+                                                    &resource_name,
+                                                )
+                                                .await
+                                                {
                                                     Ok(s) if s.is_fully_synced => {
                                                         bg_state.send_progress(
                                                             &bg_op_id,
@@ -1328,27 +1389,34 @@ pub async fn create_profile(
                                                         break;
                                                     }
                                                     Ok(s) => {
-                                                        // Optional: could send verbose debug progress events, 
+                                                        // Optional: could send verbose debug progress events,
                                                         // but main operation is already done.
                                                         // Just trace it.
                                                         if let Some(p) = s.sync_progress_percent {
-                                                            tracing::debug!("Background sync for {}: {:.2}%", resource_name, p);
+                                                            tracing::debug!(
+                                                                "Background sync for {}: {:.2}%",
+                                                                resource_name,
+                                                                p
+                                                            );
                                                         }
                                                     }
                                                     Err(e) => {
-                                                        tracing::warn!("Background sync check failed: {}", e);
+                                                        tracing::warn!(
+                                                            "Background sync check failed: {}",
+                                                            e
+                                                        );
                                                     }
                                                 }
                                                 attempts += 1;
                                             }
                                         });
-                                        
+
                                         break;
                                     }
 
                                     // If not yet Primary/UpToDate (e.g. inconsistent), report progress
                                     if status.is_fully_synced {
-                                         state.send_progress(
+                                        state.send_progress(
                                             &operation_id,
                                             "create_ha_profile",
                                             Some(&req.name),
@@ -1359,11 +1427,18 @@ pub async fn create_profile(
                                         );
                                         break;
                                     } else {
-                                        let msg = if let Some(percent) = status.sync_progress_percent {
-                                            format!("Waiting for local DRBD ready: {:.2}% synced", percent)
-                                        } else {
-                                            format!("Waiting for local DRBD ready (Status: {}/{})", status.local_role, status.local_disk_state)
-                                        };
+                                        let msg =
+                                            if let Some(percent) = status.sync_progress_percent {
+                                                format!(
+                                                    "Waiting for local DRBD ready: {:.2}% synced",
+                                                    percent
+                                                )
+                                            } else {
+                                                format!(
+                                                    "Waiting for local DRBD ready (Status: {}/{})",
+                                                    status.local_role, status.local_disk_state
+                                                )
+                                            };
 
                                         state.send_progress(
                                             &operation_id,
@@ -1477,13 +1552,12 @@ pub async fn create_profile(
             }
 
             // Use the cached OCF exportfs config from the first pass
-            let ocf_exportfs = ocf_exportfs_cache.ok_or_else(|| AppError::Validation("OCF Exportfs configuration not generated".to_string()))?;
+            let ocf_exportfs = ocf_exportfs_cache.ok_or_else(|| {
+                AppError::Validation("OCF Exportfs configuration not generated".to_string())
+            })?;
 
             // Correct startup order for NFS HA: VIP -> Filesystem -> nfs-server -> exportfs
-            vec![
-                "nfs-server.service".to_string(),
-                ocf_exportfs,
-            ]
+            vec!["nfs-server.service".to_string(), ocf_exportfs]
         }
         HaType::Iscsi => {
             vec!["target.service".to_string()]
@@ -1492,8 +1566,6 @@ pub async fn create_profile(
             vec![]
         }
     };
-
-
 
     state.send_progress(
         &operation_id,
@@ -1735,24 +1807,41 @@ pub async fn create_profile(
                     }
                 }
             } else {
-                tracing::warn!("Failed to initialize systemd controller for local drbd-reactor restart");
+                tracing::warn!(
+                    "Failed to initialize systemd controller for local drbd-reactor restart"
+                );
             }
         } else {
             // Remote node restart via SSH
             let cred = crate::core::SshCredential::Password("ignored".to_string());
             let restart_cmd = "sudo systemctl restart drbd-reactor.service";
 
-            match state.ssh_manager.execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, restart_cmd).await {
+            match state
+                .ssh_manager
+                .execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, restart_cmd)
+                .await
+            {
                 Ok(output) => {
                     if output.success() {
-                        info!("Successfully restarted drbd-reactor on remote node: {}", hostname);
+                        info!(
+                            "Successfully restarted drbd-reactor on remote node: {}",
+                            hostname
+                        );
                         successful_restarts += 1;
                     } else {
-                        tracing::warn!("Failed to restart drbd-reactor on remote node {}: {}", hostname, output.stderr);
+                        tracing::warn!(
+                            "Failed to restart drbd-reactor on remote node {}: {}",
+                            hostname,
+                            output.stderr
+                        );
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Failed to connect to remote node {} for drbd-reactor restart: {}", hostname, e);
+                    tracing::error!(
+                        "Failed to connect to remote node {} for drbd-reactor restart: {}",
+                        hostname,
+                        e
+                    );
                 }
             }
         }
@@ -1760,15 +1849,28 @@ pub async fn create_profile(
 
     // Update messages based on restart results
     if successful_restarts == total_nodes {
-        info!("Successfully restarted drbd-reactor on all {}/{} nodes", successful_restarts, total_nodes);
-        messages.push(format!("HA profile created and drbd-reactor restarted on all {} nodes", successful_restarts));
+        info!(
+            "Successfully restarted drbd-reactor on all {}/{} nodes",
+            successful_restarts, total_nodes
+        );
+        messages.push(format!(
+            "HA profile created and drbd-reactor restarted on all {} nodes",
+            successful_restarts
+        ));
 
         // Give drbd-reactor a moment to start up and read the new configuration
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
     } else {
-        tracing::warn!("drbd-reactor restart succeeded on only {}/{} nodes", successful_restarts, total_nodes);
-        messages.push(format!("HA profile created but drbd-reactor restart failed on {}/{} nodes",
-            total_nodes - successful_restarts, total_nodes));
+        tracing::warn!(
+            "drbd-reactor restart succeeded on only {}/{} nodes",
+            successful_restarts,
+            total_nodes
+        );
+        messages.push(format!(
+            "HA profile created but drbd-reactor restart failed on {}/{} nodes",
+            total_nodes - successful_restarts,
+            total_nodes
+        ));
     }
 
     state.send_progress(
@@ -2987,7 +3089,9 @@ pub async fn delete_profile(
                     }
                 }
             } else {
-                tracing::warn!("Failed to initialize systemd controller for local drbd-reactor restart");
+                tracing::warn!(
+                    "Failed to initialize systemd controller for local drbd-reactor restart"
+                );
             }
         } else if synced_nodes.contains(&node.hostname) {
             // Remote node restart via SSH (only if config sync was successful)
@@ -3001,25 +3105,45 @@ pub async fn delete_profile(
 
             let mut restart_success = true;
             for cmd in commands {
-                match state.ssh_manager.execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, cmd).await {
+                match state
+                    .ssh_manager
+                    .execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, cmd)
+                    .await
+                {
                     Ok(output) => {
                         if !output.success() {
-                            tracing::warn!("Failed to execute '{}' on remote node {}: {}", cmd, hostname, output.stderr);
+                            tracing::warn!(
+                                "Failed to execute '{}' on remote node {}: {}",
+                                cmd,
+                                hostname,
+                                output.stderr
+                            );
                             restart_success = false;
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Failed to connect to remote node {} for command '{}': {}", hostname, cmd, e);
+                        tracing::error!(
+                            "Failed to connect to remote node {} for command '{}': {}",
+                            hostname,
+                            cmd,
+                            e
+                        );
                         restart_success = false;
                     }
                 }
             }
 
             if restart_success {
-                info!("Successfully restarted drbd-reactor on remote node: {}", hostname);
+                info!(
+                    "Successfully restarted drbd-reactor on remote node: {}",
+                    hostname
+                );
                 successful_restarts += 1;
             } else {
-                tracing::warn!("Failed to restart drbd-reactor on remote node: {}", hostname);
+                tracing::warn!(
+                    "Failed to restart drbd-reactor on remote node: {}",
+                    hostname
+                );
             }
         }
     }
@@ -3027,7 +3151,10 @@ pub async fn delete_profile(
     // Give drbd-reactor a moment to start up and read the updated configuration
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    info!("drbd-reactor restart completed: {}/{} nodes successful", successful_restarts, total_nodes);
+    info!(
+        "drbd-reactor restart completed: {}/{} nodes successful",
+        successful_restarts, total_nodes
+    );
 
     state.send_progress(
         &operation_id,
