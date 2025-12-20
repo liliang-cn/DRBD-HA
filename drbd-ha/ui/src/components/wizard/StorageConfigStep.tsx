@@ -39,28 +39,20 @@ export function StorageConfigStep({
           <Input placeholder="ha-data" />
         </Form.Item>
 
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item
-              name="port"
-              label="DRBD Port"
-              rules={[{ required: true }]}
-              initialValue={7788}
-            >
-              <InputNumber min={1024} max={65535} className="w-full" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
-              name="minor"
-              label="Minor Number"
-              rules={[{ required: true }]}
-              initialValue={0}
-            >
-              <InputNumber min={0} className="w-full" />
-            </Form.Item>
-          </Col>
-        </Row>
+        <Form.Item
+          name="port"
+          label="DRBD Port"
+          rules={[{ required: true }]}
+          initialValue={7788}
+        >
+          <InputNumber min={1024} max={65535} className="w-full" />
+        </Form.Item>
+        <Form.Item
+          name="minor"
+          style={{ display: 'none' }} // Hidden field, always 0 for volume 0
+        >
+          <InputNumber min={0} />
+        </Form.Item>
 
         <Form.Item name="fs_type" label="Filesystem Type" initialValue="xfs">
           <Select

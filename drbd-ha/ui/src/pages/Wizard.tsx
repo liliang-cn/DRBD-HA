@@ -291,23 +291,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         resourceForm.setFieldsValue({ port: nextPort });
       }
 
-      // Generate random minor number (0-99999) and check for conflicts
-      let randomMinor: number;
-      let attempts = 0;
-      const maxAttempts = 1000;
-
-      do {
-        randomMinor = Math.floor(Math.random() * 100000); // 0-99999
-        attempts++;
-      } while (usedMinors.includes(randomMinor) && attempts < maxAttempts);
-
-      if (attempts >= maxAttempts) {
-        console.error('Failed to generate unique minor number after 1000 attempts');
-        // Fallback to sequential assignment
-        randomMinor = usedMinors.length > 0 ? Math.max(...usedMinors) + 1 : 0;
-      }
-
-      resourceForm.setFieldsValue({ minor: randomMinor });
+      // Minor 0 is standard for volume 0 in DRBD resources
+      resourceForm.setFieldsValue({ minor: 0 });
     }
     if (step === 2) {
       // Refresh resources list when entering step 2
