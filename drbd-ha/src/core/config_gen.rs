@@ -224,11 +224,15 @@ impl ConfigGenerator {
     /// This function tries multiple naming conventions to find the correct device path
     fn detect_drbd_device_path(resource_name: &str) -> Option<String> {
         // Try different device path naming conventions
-        let possible_paths = vec![
+        let mut possible_paths = vec![
             format!("/dev/drbd/by-{}/0", resource_name),
-            format!("/dev/drbd{}", resource_name.parse::<u32>().unwrap_or(0)),
             format!("/dev/drbd/by-res/{}/0", resource_name),
         ];
+
+        // Only add numeric fallback if resource name looks like a number or explicitly contains digits
+        if let Ok(minor) = resource_name.parse::<u32>() {
+             possible_paths.push(format!("/dev/drbd{}", minor));
+        }
 
         for path in possible_paths {
             if std::path::Path::new(&path).exists() {
@@ -236,9 +240,8 @@ impl ConfigGenerator {
             }
         }
 
-        // If no existing device found, return the default convention
-        // This allows for cases where the device will be created later
-        Some(format!("/dev/drbd/by-{}/0", resource_name))
+        // If no existing device found, return the by-res path as the safest default convention
+        Some(format!("/dev/drbd/by-res/{}/0", resource_name))
     }
 }
 
