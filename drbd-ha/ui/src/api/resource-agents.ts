@@ -1,4 +1,4 @@
-import { client } from './client';
+import { api } from './client';
 
 export interface AgentSummary {
   provider: string;
@@ -29,12 +29,12 @@ export interface Parameter {
 
 export const resourceAgentsApi = {
   list: async () => {
-    const { data } = await client.get<AgentSummary[]>('/ha/resource-agents');
+    const data = await api.get<AgentSummary[]>('/ha/resource-agents');
     return data;
   },
 
   getMetadata: async (provider: string, agent: string) => {
-    const { data } = await client.get<ResourceAgent>(
+    const data = await api.get<ResourceAgent>(
       `/ha/resource-agents/${provider}/${agent}`
     );
     return data;
