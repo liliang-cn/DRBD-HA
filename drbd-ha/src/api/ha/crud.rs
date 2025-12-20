@@ -310,6 +310,17 @@ pub async fn create_profile(
         for service in &req.services {
             validator::validate_service_name(service)?;
         }
+    } else {
+        // For non-Generic types, we override the services list to ensure it contains
+        // only the expected systemd services (and valid names), ignoring any UI garbage.
+        // This prevents "Invalid service name" errors during activation if the UI sent
+        // incomplete names (e.g. "nfs-server" without .service) or unrelated services.
+        match req.ha_type {
+            HaType::Nfs => req.services = vec!["nfs-server.service".to_string()],
+            HaType::Iscsi => req.services = vec!["target.service".to_string()],
+            HaType::NvmeOf => req.services = vec![], // NVMe-oF uses kernel target
+            _ => {}
+        }
     }
 
     if let Some(vip) = &req.vip {
