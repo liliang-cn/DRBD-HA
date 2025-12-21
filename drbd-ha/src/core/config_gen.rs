@@ -513,6 +513,12 @@ mod tests {
             mount_strategy: None,
             mount_point: None,
             fs_type: None,
+            dependencies_as: None,
+            target_as: None,
+            on_quorum_loss: None,
+            preferred_nodes: None,
+            preferred_nodes_policy: None,
+            sleep_before_promote_factor: None,
         };
 
         let output = gen.generate_promoter(&config).unwrap();

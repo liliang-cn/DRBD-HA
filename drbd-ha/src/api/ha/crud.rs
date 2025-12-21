@@ -10,6 +10,8 @@ use std::sync::Arc;
 use tracing::info;
 
 /// Get the actual device name for a DRBD resource from its configuration file
+/// Get DRBD device path for a resource by reading its configuration file
+/// This is the authoritative source for device names
 async fn get_drbd_device_for_resource(resource_name: &str, _db: &crate::core::db::Database) -> Option<String> {
     let config_path = format!("/etc/drbd.d/{}.res", resource_name);
 
@@ -25,9 +27,13 @@ async fn get_drbd_device_for_resource(resource_name: &str, _db: &crate::core::db
                     return Some(device_part.to_string());
                 }
             }
+            tracing::warn!("No device line found in DRBD config for {}", resource_name);
             None
         }
-        Err(_) => None,
+        Err(e) => {
+            tracing::debug!("Cannot read DRBD config for {}: {}", resource_name, e);
+            None
+        }
     }
 }
 
@@ -418,13 +424,21 @@ pub async fn create_profile(
                     .map(|s| s.is_empty())
                     .unwrap_or(true)
             {
-                // Get the actual device name from the DRBD resource configuration
-                let drbd_device = get_drbd_device_for_resource(&req.resource_name, &state.db).await
-                    .unwrap_or_else(|| {
-                        // Fallback to standard convention if detection fails
-                        format!("/dev/drbd{}", drbd_minor)
-                    });
-                agent.params.insert("device".to_string(), drbd_device);
+                // Device parameter must be explicitly set for filesystem agents
+                // If not provided, we'll get it from the DRBD resource configuration
+                if !agent.params.contains_key("device") {
+                    match get_drbd_device_for_resource(&req.resource_name, &state.db).await {
+                        Some(device) => {
+                            agent.params.insert("device".to_string(), device);
+                        }
+                        None => {
+                            return Err(AppError::Validation(format!(
+                                "DRBD resource '{}' not found. Cannot determine device path for Filesystem agent.",
+                                req.resource_name
+                            )));
+                        }
+                    }
+                }
             }
 
             // Auto-fill 'directory' if missing or empty
@@ -542,11 +556,20 @@ pub async fn create_profile(
         }
 
         let config_gen = ConfigGenerator::new()?;
+
+        // Generate device number (0-9999) using hash to avoid conflicts
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        req.resource_name.hash(&mut hasher);
+        let device_num = hasher.finish() % 10000; // Hash name to get 0-9999
+
         let resource_config = ResourceConfig {
             name: req.resource_name.clone(),
             port: drbd_port,
             minor: drbd_minor,
-            device: format!("/dev/drbd{}", drbd_minor),
+            device: format!("/dev/drbd{}", device_num),
             nodes: node_configs,
             auto_promote: false,
             ..Default::default()
@@ -768,11 +791,20 @@ pub async fn create_profile(
         }
 
         let config_gen = ConfigGenerator::new()?;
+
+        // Generate device number (0-9999) using hash to avoid conflicts
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        req.resource_name.hash(&mut hasher);
+        let device_num = hasher.finish() % 10000; // Hash name to get 0-9999
+
         let resource_config = ResourceConfig {
             name: req.resource_name.clone(),
             port: drbd_port,
             minor: drbd_minor,
-            device: format!("/dev/drbd{}", drbd_minor),
+            device: format!("/dev/drbd{}", device_num),
             nodes: node_configs,
             auto_promote: false,
             ..Default::default()
@@ -936,12 +968,18 @@ pub async fn create_profile(
             tracing::info!(
                 "Manual Filesystem OCF agent detected, skipping systemd mount unit generation"
             );
-            // We still need to record the expected DRBD device for other operations
-            generated_units.drbd_device = Some(
-                get_drbd_device_for_resource(&req.resource_name, &state.db)
-                    .await
-                    .unwrap_or_else(|| format!("/dev/drbd{}", drbd_minor))
-            );
+            // Record the actual DRBD device for other operations
+            match get_drbd_device_for_resource(&req.resource_name, &state.db).await {
+                Some(device) => {
+                    generated_units.drbd_device = Some(device);
+                }
+                None => {
+                    return Err(AppError::Validation(format!(
+                        "DRBD resource '{}' not found. Cannot determine device path.",
+                        req.resource_name
+                    )));
+                }
+            }
         }
     }
 
@@ -980,7 +1018,14 @@ pub async fn create_profile(
                     "Promote for setup",
                 )
                 .await?;
-                let mkfs_cmd = format!("mkfs.{} /dev/drbd{}", req.fs_type, drbd_minor);
+
+                // Get the actual DRBD device path for filesystem creation
+                let drbd_device = get_drbd_device_for_resource(&req.resource_name, &state.db).await
+                    .ok_or_else(|| AppError::Validation(format!(
+                        "DRBD resource '{}' not found. Cannot create filesystem on non-existent device.",
+                        req.resource_name
+                    )))?;
+                let mkfs_cmd = format!("mkfs.{} {}", req.fs_type, drbd_device);
                 run_shell_command(&mkfs_cmd, "Create filesystem").await?;
 
                 run_shell_command(
@@ -989,7 +1034,7 @@ pub async fn create_profile(
                 )
                 .await?;
                 run_shell_command(
-                    &format!("mount /dev/drbd{} {}", drbd_minor, req.mount_point),
+                    &format!("mount {} {}", drbd_device, req.mount_point),
                     "Mount for setup",
                 )
                 .await?;
@@ -1074,7 +1119,13 @@ pub async fn create_profile(
                 )
                 .await?;
 
-                let mkfs_cmd = format!("mkfs.{} /dev/drbd{}", req.fs_type, drbd_minor);
+                // Get the actual DRBD device path for filesystem creation
+                let drbd_device = get_drbd_device_for_resource(&req.resource_name, &state.db).await
+                    .ok_or_else(|| AppError::Validation(format!(
+                        "DRBD resource '{}' not found. Cannot create filesystem on non-existent device.",
+                        req.resource_name
+                    )))?;
+                let mkfs_cmd = format!("mkfs.{} {}", req.fs_type, drbd_device);
                 run_shell_command(&mkfs_cmd, "Create filesystem for NFS state").await?;
 
                 run_shell_command(
@@ -1083,7 +1134,7 @@ pub async fn create_profile(
                 )
                 .await?;
                 run_shell_command(
-                    &format!("mount /dev/drbd{} {}", drbd_minor, req.mount_point),
+                    &format!("mount {} {}", drbd_device, req.mount_point),
                     "Mount for NFS setup",
                 )
                 .await?;
@@ -1170,7 +1221,12 @@ pub async fn create_profile(
                 None,
             );
             if let (Some(iscsi_config), Some(vip)) = (&req.iscsi, &req.vip) {
-                let drbd_dev = format!("/dev/drbd{}", req.drbd_minor.unwrap_or(0));
+                // Get the actual DRBD device path for iSCSI setup
+                let drbd_dev = get_drbd_device_for_resource(&req.resource_name, &state.db).await
+                    .ok_or_else(|| AppError::Validation(format!(
+                        "DRBD resource '{}' not found. Cannot setup iSCSI on non-existent device.",
+                        req.resource_name
+                    )))?;
 
                 let real_setup_cmds = IscsiGenerator::generate_setup_commands(
                     &req.resource_name,
@@ -1218,7 +1274,12 @@ pub async fn create_profile(
                 None,
             );
             if let (Some(nvmeof_config), Some(vip)) = (&req.nvmeof, &req.vip) {
-                let drbd_dev = format!("/dev/drbd{}", req.drbd_minor.unwrap_or(0));
+                // Get the actual DRBD device path for NVMe-oF setup
+                let drbd_dev = get_drbd_device_for_resource(&req.resource_name, &state.db).await
+                    .ok_or_else(|| AppError::Validation(format!(
+                        "DRBD resource '{}' not found. Cannot setup NVMe-oF on non-existent device.",
+                        req.resource_name
+                    )))?;
                 let setup_cmds = NvmeOfGenerator::generate_setup_commands(
                     &req.resource_name,
                     &drbd_dev,

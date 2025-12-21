@@ -26,7 +26,13 @@ static MOUNT_POINT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^/[a-zA-Z0-9/_-]+$").unwrap());
 
 static SERVICE_NAME_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[a-zA-Z][a-zA-Z0-9_@-]*\.service$").unwrap());
+    LazyLock::new(|| {
+        // Support all systemd unit types: service, target, socket, device, mount, automount,
+        // swap, timer, path, slice, scope
+        // Note: systemd unit names can contain letters, digits, :, -, _, ., and @
+        // They can also contain * for device units (for glob patterns)
+        Regex::new(r"^[a-zA-Z0-9_:.@*\-]+\.(service|target|socket|device|mount|automount|swap|timer|path|slice|scope)$").unwrap()
+    });
 
 /// Validate DRBD resource name
 pub fn validate_resource_name(name: &str) -> AppResult<()> {
@@ -113,11 +119,11 @@ pub fn validate_mount_point(path: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// Validate systemd service name
+/// Validate systemd unit name
 pub fn validate_service_name(name: &str) -> AppResult<()> {
     if !SERVICE_NAME_RE.is_match(name) {
         return Err(AppError::Validation(format!(
-            "Invalid service name '{}'. Must end with .service and contain only alphanumeric, underscore, hyphen, or @",
+            "Invalid systemd unit name '{}'. Must end with a valid unit type (.service, .target, .socket, etc.)",
             name
         )));
     }
@@ -424,11 +430,26 @@ mod tests {
 
     #[test]
     fn test_validate_service_name() {
+        // Test valid service units
         assert!(validate_service_name("nginx.service").is_ok());
         assert!(validate_service_name("my-app.service").is_ok());
         assert!(validate_service_name("drbd-promote@r0.service").is_ok());
-        assert!(validate_service_name("nginx").is_err());
-        assert!(validate_service_name("bad;name.service").is_err());
+
+        // Test other valid systemd unit types
+        assert!(validate_service_name("network-online.target").is_ok());
+        assert!(validate_service_name("rpcbind.socket").is_ok());
+        assert!(validate_service_name("sys-devices-pci*.device").is_ok());
+        assert!(validate_service_name("data.mount").is_ok());
+        assert!(validate_service_name("home.automount").is_ok());
+        assert!(validate_service_name("swapfile.swap").is_ok());
+        assert!(validate_service_name("backup.timer").is_ok());
+        assert!(validate_service_name("monitoring.path").is_ok());
+        assert!(validate_service_name("system.slice").is_ok());
+
+        // Test invalid names
+        assert!(validate_service_name("nginx").is_err()); // missing unit type
+        assert!(validate_service_name("bad;name.service").is_err()); // invalid character
+        assert!(validate_service_name("service.invalid").is_err()); // unsupported unit type
     }
 
     #[test]

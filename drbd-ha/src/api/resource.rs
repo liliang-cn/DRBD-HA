@@ -441,11 +441,20 @@ pub async fn create_resource(
 
     // Generate configuration
     let config_gen = ConfigGenerator::new()?;
+
+    // Generate device number (0-9999) using hash to avoid conflicts
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    req.name.hash(&mut hasher);
+    let device_num = hasher.finish() % 10000; // Hash name to get 0-9999
+
     let resource_config = ResourceConfig {
         name: req.name.clone(),
         port: req.port,
-        minor: req.minor,
-        device: format!("/dev/drbd{}", req.minor),
+        minor: req.minor, // Always 0 for volume 0
+        device: format!("/dev/drbd{}", device_num), // Use random device number
         nodes: node_configs,
         auto_promote: false, // Hardcoded as requested
         ..Default::default()
