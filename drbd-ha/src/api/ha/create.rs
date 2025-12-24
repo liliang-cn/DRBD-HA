@@ -91,7 +91,9 @@ pub async fn create_profile(
         )));
     }
 
-    let profile_id = uuid::Uuid::new_v4().to_string();
+    // Use the profile name as the ID (instead of random UUID)
+    // This ensures the ID matches the config file name
+    let profile_id = req.name.clone();
     let all_nodes = state.node_store.get_all()?;
 
     let drbd_port = if let Some(p) = req.drbd_port {
