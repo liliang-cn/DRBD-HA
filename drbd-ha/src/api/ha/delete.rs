@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::core::{
     run_shell_command,
-    systemd_ctrl::{RemoteSystemdController, SystemdController},
+    systemd_ctrl::SystemdController,
     DrbdConfigPaths, ReactorConfigPaths,
 };
 use crate::error::{AppError, AppResult};
@@ -352,47 +352,6 @@ pub async fn delete_profile(
         "delete_ha_profile",
         Some(&profile.name),
         70,
-        "Re-enabling services...",
-        false,
-        None,
-    );
-
-    for service in &profile.promoter.services {
-        let _ = run_shell_command(
-            &format!("systemctl enable {}", service),
-            &format!("Enable service {}", service),
-        )
-        .await;
-    }
-
-    let remote_sys = RemoteSystemdController::new(state.ssh_manager.clone());
-    let credential = crate::core::SshCredential::Password("ignored".to_string());
-
-    for node in &all_nodes {
-        if !node.is_local {
-            for service in &profile.promoter.services {
-                let _ = remote_sys
-                    .enable(
-                        &node.ip,
-                        node.ssh_port,
-                        &node.ssh_user,
-                        &credential,
-                        service,
-                    )
-                    .await;
-            }
-        }
-    }
-
-    if let Ok(sys) = SystemdController::new().await {
-        let _ = sys.daemon_reload().await;
-    }
-
-    state.send_progress(
-        &operation_id,
-        "delete_ha_profile",
-        Some(&profile.name),
-        80,
         "Reloading drbd-reactor...",
         false,
         None,
