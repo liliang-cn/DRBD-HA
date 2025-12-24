@@ -4,14 +4,14 @@ set -e
 #############################################################################
 # DRBD HA Manager - Deployment Script
 #
-# This script automates the deployment of drbd-ha service:
-# - Checks system dependencies
-# - Builds UI and Backend
-# - Installs binary and configuration
-# - Sets up systemd service
-# - Starts the service
+# This script builds the project locally and deploys to a remote server.
 #
-# Usage: sudo ./scripts/deploy.sh [--skip-build] [--dev]
+# Usage: ./scripts/deploy.sh <user@host> [OPTIONS]
+#
+# Examples:
+#   ./scripts/deploy.sh root@192.168.1.100
+#   ./scripts/deploy.sh root@orange1 --skip-build
+#   ./scripts/deploy.sh root@orange1 --dev
 #############################################################################
 
 # Colors
@@ -22,13 +22,10 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-INSTALL_DIR="/opt/drbd-ha"
-CONFIG_DIR="/etc/drbd-ha"
-DATA_DIR="/var/lib/drbd-ha"
-LOG_DIR="/var/log/drbd-ha"
-SERVICE_NAME="drbd-ha"
+REMOTE_HOST=""
 BINARY_SOURCE="./target/release/drbd-ha"
 CONFIG_SOURCE="./drbd-ha/config/default.toml"
+INSTALL_SCRIPT_SOURCE="./scripts/install.sh"
 
 # Parse arguments
 SKIP_BUILD=false
@@ -44,87 +41,49 @@ for arg in "$@"; do
             BINARY_SOURCE="./target/debug/drbd-ha"
             shift
             ;;
+        -*)
+            echo "Unknown option: $arg"
+            echo "Usage: $0 <user@host> [--skip-build] [--dev]"
+            exit 1
+            ;;
         *)
+            if [[ -z "$REMOTE_HOST" ]]; then
+                REMOTE_HOST="$arg"
+            fi
+            shift
             ;;
     esac
 done
 
-echo -e "${BLUE}=== DRBD HA Manager - Deployment Script ===${NC}"
+# Check if remote host is provided
+if [[ -z "$REMOTE_HOST" ]]; then
+    echo -e "${RED}Error: Remote host not specified${NC}"
+    echo ""
+    echo "Usage: $0 <user@host> [OPTIONS]"
+    echo ""
+    echo "Arguments:"
+    echo "  user@host          Remote server (e.g., root@orange1, root@192.168.1.100)"
+    echo ""
+    echo "Options:"
+    echo "  --skip-build       Skip building, deploy existing binaries"
+    echo "  --dev              Build in debug mode"
+    echo ""
+    echo "Examples:"
+    echo "  $0 root@orange1                    # Build and deploy"
+    echo "  $0 root@orange1 --skip-build       # Deploy existing binaries"
+    echo "  $0 root@192.168.1.100 --dev        # Debug build"
+    exit 1
+fi
+
+echo -e "${BLUE}=== DRBD HA Manager - Remote Deployment ===${NC}"
+echo -e "Target: ${GREEN}$REMOTE_HOST${NC}"
 echo ""
 
 #############################################################################
-# 1. Check if running as root
+# 1. Check local prerequisites
 #############################################################################
-check_root() {
-    echo -e "${BLUE}[1/8] Checking privileges...${NC}"
-    if [ "$EUID" -ne 0 ]; then
-        echo -e "${RED}Error: This script must be run as root${NC}"
-        echo "Please run: sudo $0"
-        exit 1
-    fi
-    echo -e "${GREEN}✓ Running as root${NC}"
-    echo ""
-}
-
-#############################################################################
-# 2. Check system dependencies
-#############################################################################
-check_dependencies() {
-    echo -e "${BLUE}[2/8] Checking system dependencies...${NC}"
-
-    local missing_deps=()
-
-    # Check required commands
-    local commands=("lvm" "drbdsetup" "drbdadm" "systemctl" "ssh")
-    for cmd in "${commands[@]}"; do
-        if ! command -v "$cmd" &> /dev/null; then
-            missing_deps+=("$cmd")
-        fi
-    done
-
-    # Check drbd-reactor
-    if ! systemctl list-units --all | grep -q drbd-reactor; then
-        echo -e "${YELLOW}⚠ Warning: drbd-reactor service not found${NC}"
-        echo "  drbd-reactor is required for HA failover to work"
-        echo "  Install it from: https://github.com/LINBIT/drbd-reactor"
-    fi
-
-    # Check DRBD kernel module
-    if ! lsmod | grep -q drbd; then
-        echo -e "${YELLOW}⚠ Warning: DRBD kernel module not loaded${NC}"
-        echo "  Load it with: modprobe drbd"
-        echo "  Or install drbd-dkms package"
-    fi
-
-    if [ ${#missing_deps[@]} -gt 0 ]; then
-        echo -e "${RED}Error: Missing required dependencies:${NC}"
-        printf '  - %s\n' "${missing_deps[@]}"
-        echo ""
-        echo "Install them on Ubuntu/Debian:"
-        echo "  sudo apt-get install lvm2 drbd-utils drbd-dkms"
-        echo ""
-        echo "Install them on RHEL/CentOS:"
-        echo "  sudo yum install lvm2 drbd-utils drbd kmod-drbd"
-        exit 1
-    fi
-
-    echo -e "${GREEN}✓ All dependencies satisfied${NC}"
-    echo ""
-}
-
-#############################################################################
-# 3. Build project
-#############################################################################
-build_project() {
-    if [ "$SKIP_BUILD" = true ]; then
-        echo -e "${BLUE}[3/8] Building project...${NC}"
-        echo -e "${YELLOW}⊙ Skipping build (--skip-build flag)${NC}"
-        echo ""
-        return
-    fi
-
-    echo -e "${BLUE}[3/8] Building project (UI + Backend)...${NC}"
-    echo ""
+check_local_prerequisites() {
+    echo -e "${BLUE}[1/5] Checking local prerequisites...${NC}"
 
     # Check if Makefile exists
     if [ ! -f "Makefile" ]; then
@@ -133,7 +92,46 @@ build_project() {
         exit 1
     fi
 
-    # Build
+    # Check for scp
+    if ! command -v scp &> /dev/null; then
+        echo -e "${RED}Error: scp not found${NC}"
+        echo "Install it: sudo apt-get install openssh-client"
+        exit 1
+    fi
+
+    # Check for ssh
+    if ! command -v ssh &> /dev/null; then
+        echo -e "${RED}Error: ssh not found${NC}"
+        echo "Install it: sudo apt-get install openssh-client"
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓ Local prerequisites OK${NC}"
+    echo ""
+}
+
+#############################################################################
+# 2. Build project locally
+#############################################################################
+build_project() {
+    if [ "$SKIP_BUILD" = true ]; then
+        echo -e "${BLUE}[2/5] Building project...${NC}"
+        echo -e "${YELLOW}⊙ Skipping build (--skip-build flag)${NC}"
+
+        # Check if binary exists
+        if [ ! -f "$BINARY_SOURCE" ]; then
+            echo -e "${RED}Error: Binary not found at $BINARY_SOURCE${NC}"
+            echo "Build the project first: make release"
+            exit 1
+        fi
+        echo -e "${GREEN}✓ Using existing binary: $BINARY_SOURCE${NC}"
+        echo ""
+        return
+    fi
+
+    echo -e "${BLUE}[2/5] Building project locally (UI + Backend)...${NC}"
+    echo ""
+
     if [ "$BUILD_MODE" = "release" ]; then
         echo "Building release binaries..."
         make release
@@ -153,161 +151,80 @@ build_project() {
 }
 
 #############################################################################
-# 4. Create directories
+# 3. Test SSH connection
 #############################################################################
-create_directories() {
-    echo -e "${BLUE}[4/8] Creating directories...${NC}"
+test_ssh_connection() {
+    echo -e "${BLUE}[3/5] Testing SSH connection...${NC}"
 
-    mkdir -p "$INSTALL_DIR"
-    mkdir -p "$CONFIG_DIR"
-    mkdir -p "$DATA_DIR"
-    mkdir -p "$LOG_DIR"
+    echo "Testing connection to $REMOTE_HOST..."
+    if ssh -o ConnectTimeout=5 -o BatchMode=yes "$REMOTE_HOST" "echo ok" >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ SSH connection successful${NC}"
+    else
+        echo -e "${YELLOW}⚠ SSH connection test failed${NC}"
+        echo "  You may need to:"
+        echo "  1. Setup SSH keys: ssh-copy-id $REMOTE_HOST"
+        echo "  2. Or enter password when prompted"
+        echo ""
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Aborted."
+            exit 1
+        fi
+    fi
 
-    # Set permissions
-    chmod 700 "$CONFIG_DIR"
-    chmod 755 "$INSTALL_DIR"
-    chmod 755 "$DATA_DIR"
-    chmod 755 "$LOG_DIR"
-
-    echo -e "${GREEN}✓ Directories created:${NC}"
-    echo "  Install:  $INSTALL_DIR"
-    echo "  Config:   $CONFIG_DIR"
-    echo "  Data:     $DATA_DIR"
-    echo "  Logs:     $LOG_DIR"
     echo ""
 }
 
 #############################################################################
-# 5. Install binary
+# 4. Deploy files to remote
 #############################################################################
-install_binary() {
-    echo -e "${BLUE}[5/8] Installing binary...${NC}"
+deploy_files() {
+    echo -e "${BLUE}[4/5] Deploying files to remote...${NC}"
 
-    if [ ! -f "$BINARY_SOURCE" ]; then
-        echo -e "${RED}Error: Binary not found at $BINARY_SOURCE${NC}"
-        echo "Build the project first: make release"
-        exit 1
-    fi
+    # Create temporary directory on remote
+    echo "Creating temporary directory on $REMOTE_HOST..."
+    ssh "$REMOTE_HOST" "mkdir -p /tmp/drbd-ha-deploy"
 
     # Copy binary
-    cp "$BINARY_SOURCE" "$INSTALL_DIR/$SERVICE_NAME"
-    chmod +x "$INSTALL_DIR/$SERVICE_NAME"
+    echo "Copying binary to $REMOTE_HOST:/tmp/drbd-ha-deploy/..."
+    scp "$BINARY_SOURCE" "$REMOTE_HOST:/tmp/drbd-ha-deploy/drbd-ha"
+    echo -e "${GREEN}✓ Binary deployed${NC}"
 
-    echo -e "${GREEN}✓ Binary installed: $INSTALL_DIR/$SERVICE_NAME${NC}"
-    echo ""
-}
-
-#############################################################################
-# 6. Install/Update configuration
-#############################################################################
-install_config() {
-    echo -e "${BLUE}[6/8] Installing configuration...${NC}"
-
-    local config_file="$CONFIG_DIR/config.toml"
-
+    # Copy config
     if [ -f "$CONFIG_SOURCE" ]; then
-        # Backup existing config
-        if [ -f "$config_file" ]; then
-            cp "$config_file" "${config_file}.backup.$(date +%Y%m%d%H%M%S)"
-            echo -e "${YELLOW}⊙ Backed up existing config${NC}"
-        fi
-
-        # Copy new config
-        cp "$CONFIG_SOURCE" "$config_file"
-        echo -e "${GREEN}✓ Configuration installed: $config_file${NC}"
+        echo "Copying configuration to $REMOTE_HOST:/tmp/drbd-ha-deploy/..."
+        scp "$CONFIG_SOURCE" "$REMOTE_HOST:/tmp/drbd-ha-deploy/config.toml"
+        echo -e "${GREEN}✓ Configuration deployed${NC}"
     else
-        # Create minimal config
-        cat > "$config_file" << EOF
-[server]
-host = "0.00.0.0"
-port = 3373
-
-[log]
-level = "info"
-file = "$LOG_DIR/drbd-ha.log"
-EOF
-        echo -e "${YELLOW}⊙ Created minimal configuration${NC}"
+        echo -e "${YELLOW}⊙ Config file not found, will use default on remote${NC}"
     fi
+
+    # Copy install script
+    echo "Copying install script to $REMOTE_HOST:/tmp/drbd-ha-deploy/..."
+    scp "$INSTALL_SCRIPT_SOURCE" "$REMOTE_HOST:/tmp/drbd-ha-deploy/install.sh"
+    ssh "$REMOTE_HOST" "chmod +x /tmp/drbd-ha-deploy/install.sh"
+    echo -e "${GREEN}✓ Install script deployed${NC}"
 
     echo ""
 }
 
 #############################################################################
-# 7. Create systemd service
+# 5. Run install script on remote
 #############################################################################
-create_service() {
-    echo -e "${BLUE}[7/8] Creating systemd service...${NC}"
-
-    local service_file="/etc/systemd/system/${SERVICE_NAME}.service"
-
-    cat > "$service_file" << EOF
-[Unit]
-Description=DRBD HA Manager Service
-Documentation=https://github.com/LINBIT/drbd-ha
-After=network.target drbd-reactor.service
-Wants=drbd-reactor.service
-
-[Service]
-Type=simple
-User=root
-Group=root
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/$SERVICE_NAME --config $CONFIG_DIR/config.toml
-Restart=always
-RestartSec=3
-StandardOutput=journal
-StandardError=journal
-
-# Security
-NoNewPrivileges=true
-PrivateTmp=true
-
-# Resource limits
-LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    # Reload systemd
-    systemctl daemon-reload
-
-    echo -e "${GREEN}✓ Systemd service created: $service_file${NC}"
+run_remote_install() {
+    echo -e "${BLUE}[5/5] Running install script on remote...${NC}"
     echo ""
-}
+    echo "Executing: ssh $REMOTE_HOST 'sudo /tmp/drbd-ha-deploy/install.sh'"
+    echo ""
 
-#############################################################################
-# 8. Start service
-#############################################################################
-start_service() {
-    echo -e "${BLUE}[8/8] Starting service...${NC}"
+    ssh "$REMOTE_HOST" "sudo /tmp/drbd-ha-deploy/install.sh"
 
-    # Enable service
-    systemctl enable "$SERVICE_NAME"
-
-    # Check if service is already running
-    if systemctl is-active --quiet "$SERVICE_NAME"; then
-        echo "Service is already running, restarting..."
-        systemctl restart "$SERVICE_NAME"
-    else
-        systemctl start "$SERVICE_NAME"
-    fi
-
-    # Check status
-    sleep 2
-    if systemctl is-active --quiet "$SERVICE_NAME"; then
-        echo -e "${GREEN}✓ Service started successfully${NC}"
-        echo ""
-        echo "Service status:"
-        systemctl status "$SERVICE_NAME" --no-pager -l
-    else
-        echo -e "${RED}✗ Failed to start service${NC}"
-        echo ""
-        echo "Check logs:"
-        echo "  journalctl -u $SERVICE_NAME -n 50"
-        echo "  cat $LOG_DIR/drbd-ha.log"
-        exit 1
-    fi
+    # Cleanup
+    echo ""
+    echo "Cleaning up temporary files..."
+    ssh "$REMOTE_HOST" "rm -rf /tmp/drbd-ha-deploy"
+    echo -e "${GREEN}✓ Cleanup complete${NC}"
 }
 
 #############################################################################
@@ -315,30 +232,31 @@ start_service() {
 #############################################################################
 show_summary() {
     echo ""
-    echo -e "${GREEN}=== Deployment Complete ===${NC}"
+    echo -e "${GREEN}=== Remote Deployment Complete ===${NC}"
     echo ""
-    echo -e "${BLUE}Installation Locations:${NC}"
-    echo "  Binary:   $INSTALL_DIR/$SERVICE_NAME"
-    echo "  Config:   $CONFIG_DIR/config.toml"
-    echo "  Logs:     $LOG_DIR/drbd-ha.log"
+    echo -e "${BLUE}Target:${NC} $REMOTE_HOST"
     echo ""
-    echo -e "${BLUE}Service Commands:${NC}"
-    echo "  Start:    systemctl start $SERVICE_NAME"
-    echo "  Stop:     systemctl stop $SERVICE_NAME"
-    echo "  Restart:  systemctl restart $SERVICE_NAME"
-    echo "  Status:   systemctl status $SERVICE_NAME"
-    echo "  Logs:     journalctl -u $SERVICE_NAME -f"
+    echo -e "${BLUE}Remote Locations:${NC}"
+    echo "  Binary:   /opt/drbd-ha/drbd-ha"
+    echo "  Config:   /etc/drbd-ha/config.toml"
+    echo "  Logs:     /var/log/drbd-ha/drbd-ha.log"
+    echo ""
+    echo -e "${BLUE}Remote Service Commands:${NC}"
+    echo "  ssh $REMOTE_HOST 'systemctl start drbd-ha'"
+    echo "  ssh $REMOTE_HOST 'systemctl stop drbd-ha'"
+    echo "  ssh $REMOTE_HOST 'systemctl restart drbd-ha'"
+    echo "  ssh $REMOTE_HOST 'systemctl status drbd-ha'"
+    echo "  ssh $REMOTE_HOST 'journalctl -u drbd-ha -f'"
     echo ""
     echo -e "${BLUE}Web Interface:${NC}"
-    echo "  URL:      http://localhost:3373"
-    echo "  API Docs: http://localhost:3373/swagger-ui/"
+    # Extract IP from user@host format
+    local ip=$(echo "$REMOTE_HOST" | cut -d@ -f2)
+    echo "  URL:      http://$ip:3373"
+    echo "  API Docs: http://$ip:3373/swagger-ui/"
     echo ""
     echo -e "${YELLOW}Next Steps:${NC}"
-    echo "  1. Configure SSH access to cluster nodes:"
-    echo "     sudo ./scripts/setup-ssh.sh"
-    echo ""
+    echo "  1. Configure SSH access from $REMOTE_HOST to cluster nodes"
     echo "  2. Add nodes via Web UI or API"
-    echo ""
     echo "  3. Create DRBD resources and HA profiles"
     echo ""
 }
@@ -347,14 +265,11 @@ show_summary() {
 # Main execution
 #############################################################################
 main() {
-    check_root
-    check_dependencies
+    check_local_prerequisites
     build_project
-    create_directories
-    install_binary
-    install_config
-    create_service
-    start_service
+    test_ssh_connection
+    deploy_files
+    run_remote_install
     show_summary
 }
 

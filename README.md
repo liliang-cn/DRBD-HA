@@ -5,9 +5,9 @@ A modern, Rust-based High Availability management system for DRBD, LVM, and Syst
 ## Features
 
 *   **Cluster Management**: Manage multiple nodes via SSH.
-*   **Storage Management**: Create LVM Volume Groups and Logical Volumes across the cluster.
+*   **Storage Management**: Create LVM Volume Groups and Logical Volumes (with thin pool support) and ZFS volumes across the cluster.
 *   **DRBD Resources**: Create, initialize, and manage DRBD resources automatically.
-*   **High Availability**: Define HA profiles (Generic, NFS, iSCSI, NVMe-oF) that automatically failover using `drbd-reactor`.
+*   **High Availability**: Define HA profiles for systemd services that automatically failover using `drbd-reactor`.
 *   **Configuration Discovery**: Automatically discover and import existing `drbd-reactor` configurations from `/etc/drbd-reactor.d/`.
 *   **Observability**: Real-time dashboard, dual-channel logging (console + file), and Swagger API documentation.
 
@@ -26,26 +26,42 @@ A modern, Rust-based High Availability management system for DRBD, LVM, and Syst
 
 ### Quick Deployment (Recommended)
 
-The easiest way to deploy drbd-ha is using the automated deployment script:
+The easiest way to deploy drbd-ha is using the automated deployment script that builds locally and deploys to remote servers:
 
 ```bash
-# Deploy everything (build + install + start service)
-sudo ./scripts/deploy.sh
+# Deploy to remote server (builds locally, installs remotely)
+./scripts/deploy.sh root@orange1
 
-# Or skip build if you already have binaries
-sudo ./scripts/deploy.sh --skip-build
+# Deploy pre-built binaries (skip build)
+./scripts/deploy.sh root@orange1 --skip-build
 
-# For development mode (debug build)
-sudo ./scripts/deploy.sh --dev
+# Debug build
+./scripts/deploy.sh root@orange1 --dev
+
+# Deploy to multiple servers
+for host in orange1 orange2 orange3; do
+    ./scripts/deploy.sh root@$host
+done
 ```
 
 The deployment script will:
-1. Check system dependencies (lvm2, drbd-utils, drbd-reactor, systemd)
-2. Build UI and Backend (unless `--skip-build` is used)
-3. Install binary to `/opt/drbd-ha/`
-4. Create directories (`/etc/drbd-ha`, `/var/lib/drbd-ha`, `/var/log/drbd-ha`)
-5. Install configuration file
-6. Create and start systemd service
+1. **Build locally** (unless `--skip-build` is used)
+   - Compiles Rust backend
+   - Builds React UI
+   - Embeds UI into binary
+2. **Transfer files via SCP** to remote server
+   - Binary → `/tmp/drbd-ha-deploy/drbd-ha`
+   - Config → `/tmp/drbd-ha-deploy/config.toml`
+   - Install script → `/tmp/drbd-ha-deploy/install.sh`
+3. **Execute install script** on remote server via SSH
+   - Creates directories (`/opt/drbd-ha`, `/etc/drbd-ha`, `/var/lib/drbd-ha`, `/var/log/drbd-ha`)
+   - Installs binary to `/opt/drbd-ha/drbd-ha`
+   - Creates systemd service
+   - Starts the service
+
+**Requirements:**
+- **Local Machine**: Makefile, ssh/scp commands, SSH access to remote server
+- **Remote Server**: Root/sudo privileges, Linux with systemd, lvm2, drbd-utils, drbd-reactor
 
 ### Manual Installation
 

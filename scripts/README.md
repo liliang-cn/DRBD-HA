@@ -2,42 +2,109 @@
 
 This directory contains helper scripts for deploying and managing the DRBD HA Manager service.
 
+## Quick Start
+
+```bash
+# Deploy to remote server (builds locally, installs remotely)
+./scripts/deploy.sh root@orange1
+
+# Deploy to multiple servers
+./scripts/deploy.sh root@orange1
+./scripts/deploy.sh root@orange2
+./scripts/deploy.sh root@orange3
+```
+
 ## Scripts
 
-### deploy.sh - Automated Deployment
+### deploy.sh - Build and Deploy (Local Machine)
 
-Deploys the DRBD HA Manager service with all necessary components.
+Builds the project **locally** and deploys to a **remote server**.
 
 **Usage:**
 ```bash
-sudo ./scripts/deploy.sh [OPTIONS]
+./scripts/deploy.sh <user@host> [OPTIONS]
 ```
+
+**Arguments:**
+- `user@host` - Remote server (required)
+  - Examples: `root@orange1`, `admin@192.168.1.100`
 
 **Options:**
 - `--skip-build` - Skip building, use existing binaries
 - `--dev` - Build in debug mode instead of release
 
+**Examples:**
+```bash
+# Build and deploy to orange1
+./scripts/deploy.sh root@orange1
+
+# Deploy pre-built binaries (skip build)
+./scripts/deploy.sh root@orange1 --skip-build
+
+# Debug build
+./scripts/deploy.sh root@192.168.1.100 --dev
+
+# Deploy to multiple servers
+for host in orange1 orange2 orange3; do
+    ./scripts/deploy.sh root@$host
+done
+```
+
+**What it does:**
+1. **Builds locally** (unless `--skip-build`)
+   - Compiles Rust backend
+   - Builds React UI
+   - Embeds UI into binary
+
+2. **Checks SSH connectivity** to remote server
+
+3. **Transfers files via SCP**
+   - Binary → `/tmp/drbd-ha-deploy/drbd-ha`
+   - Config → `/tmp/drbd-ha-deploy/config.toml`
+   - Install script → `/tmp/drbd-ha-deploy/install.sh`
+
+4. **Executes install script** on remote server
+   - Runs `sudo /tmp/drbd-ha-deploy/install.sh` via SSH
+   - Cleans up temporary files
+
+**Requirements (Local):**
+- Makefile (run from project root)
+- `ssh` and `scp` commands
+- SSH access to remote server (password or key-based)
+
+**Requirements (Remote):**
+- Root or sudo privileges
+- Linux with systemd
+- `lvm2`, `drbd-utils`, `drbd-reactor` installed
+
+---
+
+### install.sh - Remote Installation (Remote Server)
+
+Installs the DRBD HA Manager service **on the remote server**.
+
+**Usage:**
+```bash
+sudo ./install.sh
+```
+
+**Note:** This script is typically executed automatically by `deploy.sh`. You would only run it manually if you have copied the files to the remote server yourself.
+
 **What it does:**
 1. Checks if running as root
 2. Verifies system dependencies (lvm2, drbd-utils, drbd-reactor, systemd)
-3. Builds UI and Backend (unless `--skip-build`)
-4. Creates directories (`/opt/drbd-ha`, `/etc/drbd-ha`, `/var/lib/drbd-ha`, `/var/log/drbd-ha`)
-5. Installs binary to `/opt/drbd-ha/drbd-ha`
-6. Installs/updates configuration file
-7. Creates systemd service (`/etc/systemd/system/drbd-ha.service`)
-8. Enables and starts the service
+3. Creates directories (`/opt/drbd-ha`, `/etc/drbd-ha`, `/var/lib/drbd-ha`, `/var/log/drbd-ha`)
+4. Installs binary from `/tmp/drbd-ha-deploy/drbd-ha` to `/opt/drbd-ha/drbd-ha`
+5. Installs configuration from `/tmp/drbd-ha-deploy/config.toml` to `/etc/drbd-ha/config.toml`
+6. Creates systemd service (`/etc/systemd/system/drbd-ha.service`)
+7. Enables and starts the service
 
-**Examples:**
-```bash
-# Full deployment (build + install + start)
-sudo ./scripts/deploy.sh
+**Requirements:**
+- Must run as root (via sudo)
+- Binary and config must be in `/tmp/drbd-ha-deploy/`
+- Linux with systemd
 
-# Install pre-built binaries
-sudo ./scripts/deploy.sh --skip-build
-
-# Development mode (debug build)
-sudo ./scripts/deploy.sh --dev
-```
+---
 
 ### uninstall.sh - Remove Service
 
@@ -71,6 +138,8 @@ sudo ./scripts/uninstall.sh
 sudo ./scripts/uninstall.sh --purge-all
 ```
 
+---
+
 ### setup-ssh.sh - SSH Key Setup
 
 Configures passwordless SSH access from the manager node to cluster nodes.
@@ -91,6 +160,58 @@ sudo ./scripts/setup-ssh.sh
 - Prompts for list of node IPs/hostnames
 - Copies SSH keys to each node
 - Verifies passwordless access
+
+## Deployment Workflow
+
+The deployment process is split into two scripts for clear separation of concerns:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Local Machine                                │
+│  ┌─────────────┐     ┌──────────────┐     ┌──────────────────────┐  │
+│  │ Makefile    │────▶│  cargo build │────▶│  target/release/     │  │
+│  │  (UI+Backend)│     │   (Release)  │     │    drbd-ha           │  │
+│  └─────────────┘     └──────────────┘     └──────────────────────┘  │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  ./scripts/deploy.sh root@orange1                          │  │
+│  │    │                                                       │  │
+│  │    ├── Build project (make release)                        │  │
+│  │    ├── Test SSH connection                                 │  │
+│  │    └── SCP files ─────────────────────────────────┐       │  │
+│  └────────────────────────────────────────────────────┼───────┘  │
+└───────────────────────────────────────────────────────┼─────────┘
+                                                        │
+                                                        ▼ SCP
+┌─────────────────────────────────────────────────────────────────┐
+│                      Remote Server (orange1)                     │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  /tmp/drbd-ha-deploy/                                      │  │
+│  │    ├── drbd-ha          (binary)                          │  │
+│  │    ├── config.toml      (configuration)                   │  │
+│  │    └── install.sh       (installation script)             │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  sudo ./install.sh                                        │  │
+│  │    │                                                       │  │
+│  │    ├── Create directories                                 │  │
+│  │    ├── Copy binary → /opt/drbd-ha/drbd-ha                │  │
+│  │    ├── Copy config → /etc/drbd-ha/config.toml            │  │
+│  │    ├── Create systemd service                            │  │
+│  │    └── Start service                                      │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  Final Locations:                                          │  │
+│  │    /opt/drbd-ha/drbd-ha       (binary)                    │  │
+│  │    /etc/drbd-ha/config.toml   (configuration)             │  │
+│  │    /etc/systemd/system/drbd-ha.service                   │  │
+│  │    /var/lib/drbd-ha/          (data)                      │  │
+│  │    /var/log/drbd-ha/          (logs)                      │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+```
 
 ## Installation Paths
 
@@ -175,18 +296,24 @@ If build fails:
 3. Clean and rebuild:
    ```bash
    make clean
-   sudo ./scripts/deploy.sh
+   ./scripts/deploy.sh root@orange1
    ```
 
-### Permission denied errors
+### SSH connection issues
 
-The scripts must be run as root because they:
-- Install system files
-- Create systemd services
-- Start/stop services
-- Access DRBD and LVM commands
+If `deploy.sh` cannot connect to remote server:
 
-Always use `sudo` when running deployment scripts.
+1. Test SSH manually:
+   ```bash
+   ssh root@orange1
+   ```
+
+2. Setup SSH keys:
+   ```bash
+   ssh-copy-id root@orange1
+   ```
+
+3. If using password authentication, enter password when prompted
 
 ## Development Workflow
 
@@ -194,21 +321,38 @@ For development iterations:
 
 ```bash
 # 1. Initial deployment (release mode)
-sudo ./scripts/deploy.sh
+./scripts/deploy.sh root@orange1
 
 # 2. Make code changes
 vim drbd-ha/src/...
 
 # 3. Quick update (skip build, use existing binary)
-sudo ./scripts/deploy.sh --skip-build
+./scripts/deploy.sh root@orange1 --skip-build
 
 # 4. Or for development mode
-sudo ./scripts/deploy.sh --dev
+./scripts/deploy.sh root@orange1 --dev
+```
+
+## Multi-Server Deployment
+
+To deploy to multiple servers:
+
+```bash
+# Sequential deployment
+for host in orange1 orange2 orange3; do
+    ./scripts/deploy.sh root@$host
+done
+
+# Parallel deployment (using background jobs)
+for host in orange1 orange2 orange3; do
+    ./scripts/deploy.sh root@$host &
+done
+wait  # Wait for all deployments to complete
 ```
 
 ## Security Considerations
 
-- **SSH Keys**: The `setup-ssh.sh` script configures passwordless SSH access. Keep private keys secure.
+- **SSH Keys**: Setup passwordless SSH access for automated deployments. Keep private keys secure.
 - **Root Access**: The service runs as root because it needs to manage DRBD, LVM, and systemd.
 - **Firewall**: Port 3373 is exposed. Configure firewall rules as needed.
 - **Configuration**: The config file may contain sensitive data. Set appropriate permissions:
