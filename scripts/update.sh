@@ -188,8 +188,8 @@ update_remote_service() {
     ssh "$REMOTE_HOST" "sudo systemctl stop $SERVICE_NAME" || true
     echo -e "${GREEN}✓ Service stopped${NC}"
 
-    # Create temp directory
-    ssh "$REMOTE_HOST" "sudo mkdir -p /tmp/drbd-ha-update"
+    # Create temp directory (without sudo so we can write to it)
+    ssh "$REMOTE_HOST" "mkdir -p /tmp/drbd-ha-update"
 
     # Copy new binary
     echo "Copying new binary to $REMOTE_HOST..."
@@ -217,7 +217,7 @@ update_remote_service() {
     ssh "$REMOTE_HOST" "
         sudo cp /tmp/drbd-ha-update/$SERVICE_NAME $INSTALL_DIR/$SERVICE_NAME
         sudo chmod +x $INSTALL_DIR/$SERVICE_NAME
-        sudo rm -rf /tmp/drbd-ha-update
+        rm -rf /tmp/drbd-ha-update
     "
     echo -e "${GREEN}✓ Binary installed${NC}"
 
