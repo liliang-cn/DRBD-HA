@@ -146,21 +146,25 @@ async fn fetch_profile_details(
     let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
     let nodes = state.node_store.get_all()?;
 
+    // Find the Primary (active) node from DRBD status
+    // If local is Primary, active = local. If local is Secondary, find Primary in peers.
     let active_node_from_drbd = if let Some(ref status) = local_drbd_status {
         if status.role == "Primary" {
             Some(local_hostname.clone())
         } else {
-            // Check peers for Primary
+            // Local is Secondary, find Primary in peers
             status.peers.iter()
                 .find(|p| p.role == "Primary")
                 .map(|p| p.name.clone())
         }
     } else {
+        // DRBD status not available, try drbd-reactor as fallback
         None
     };
 
     // Step 2: Execute drbdadm status AND drbd-reactorctl status on the ACTIVE node
-    let (drbd, active_node, reactor_status_raw) = if let Some(ref active_hostname) = active_node_from_drbd {
+    // Track whether DRBD status is from local or remote node
+    let (drbd, active_node, reactor_status_raw, drbd_from_local) = if let Some(ref active_hostname) = active_node_from_drbd {
         // Find the active node from node store
         if let Some(active_node_obj) = nodes.iter().find(|n| &n.hostname == active_hostname) {
             if active_node_obj.is_local || &active_node_obj.hostname == &local_hostname {
@@ -174,7 +178,7 @@ async fn fetch_profile_details(
                     .and_then(|(statuses, _)| statuses.first())
                     .and_then(|s| s.active_node.clone());
 
-                (local_drbd_status, active_from_reactor.or_else(|| Some(active_hostname.clone())), reactor_raw)
+                (local_drbd_status, active_from_reactor.or_else(|| Some(active_hostname.clone())), reactor_raw, true)
             } else {
                 // Active node is remote, SSH to execute both commands there
                 tracing::info!("Active node is remote {}, getting status via SSH for {}", active_hostname, profile.resource_name);
@@ -237,8 +241,9 @@ async fn fetch_profile_details(
                 let (reactor_raw, active_from_reactor) = match reactor_result {
                     Ok(output) => {
                         let statuses = drbd_reactor_utils::parser::parse_reactor_status(&output.stdout, Some(&profile.name));
-                        let active = statuses.first().and_then(|s| s.active_node.clone());
-                        (Some(output.stdout), active)
+                        // When fetching from remote node, don't trust parsed "this node"
+                        // Use the actual remote hostname we already know is active
+                        (Some(output.stdout), Some(active_hostname.clone()))
                     }
                     Err(e) => {
                         tracing::warn!("Failed to get reactor status from {}: {}", active_hostname, e);
@@ -246,11 +251,11 @@ async fn fetch_profile_details(
                     }
                 };
 
-                (remote_drbd, active_from_reactor, reactor_raw)
+                (remote_drbd, active_from_reactor, reactor_raw, false)
             }
         } else {
             tracing::warn!("Active node {} not found in node store", active_hostname);
-            (local_drbd_status, Some(active_hostname.clone()), None)
+            (local_drbd_status, Some(active_hostname.clone()), None, true)
         }
     } else {
         // No active node from DRBD, use local status
@@ -262,7 +267,7 @@ async fn fetch_profile_details(
             .and_then(|(statuses, _)| statuses.first())
             .and_then(|s| s.active_node.clone());
 
-        (local_drbd_status, active_from_reactor, reactor_raw)
+        (local_drbd_status, active_from_reactor, reactor_raw, true)
     };
 
     let drbd_role = drbd.as_ref().map(|d| d.role.as_str());
@@ -467,6 +472,7 @@ async fn fetch_profile_details(
     // Build list of configured nodes from DRBD peers and node store
     let configured_nodes = if let Ok(nodes) = state.node_store.get_all() {
         let mut node_infos = Vec::new();
+        let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
 
         // Helper to convert DRBD role to display role
         let role_to_display = |role: &str| -> String {
@@ -477,26 +483,58 @@ async fn fetch_profile_details(
             }
         };
 
-        // Add local node
-        let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
-        if let Some(local_node) = nodes.iter().find(|n| n.is_local || n.hostname == local_hostname) {
-            node_infos.push(super::types::NodeConfigInfo {
-                hostname: local_node.hostname.clone(),
-                ip: local_node.ip.clone(),
-                peer_role: drbd_role.map(|r| role_to_display(r)),
-            });
-        }
-
-        // Add peer nodes from DRBD status
         if let Some(drbd_status) = &drbd {
-            for peer in &drbd_status.peers {
-                if let Some(node) = nodes.iter().find(|n| n.hostname == peer.name) {
+            if drbd_from_local {
+                // DRBD status from local node: add local + peers
+                if let Some(local_node) = nodes.iter().find(|n| n.is_local || n.hostname == local_hostname) {
                     node_infos.push(super::types::NodeConfigInfo {
-                        hostname: node.hostname.clone(),
-                        ip: node.ip.clone(),
-                        peer_role: Some(role_to_display(&peer.role)),
+                        hostname: local_node.hostname.clone(),
+                        ip: local_node.ip.clone(),
+                        peer_role: Some(role_to_display(&drbd_status.role)),
                     });
                 }
+
+                // Add peer nodes from DRBD
+                for peer in &drbd_status.peers {
+                    if let Some(node) = nodes.iter().find(|n| n.hostname == peer.name) {
+                        node_infos.push(super::types::NodeConfigInfo {
+                            hostname: node.hostname.clone(),
+                            ip: node.ip.clone(),
+                            peer_role: Some(role_to_display(&peer.role)),
+                        });
+                    }
+                }
+            } else {
+                // DRBD status from remote node: use all nodes from DRBD (local is in peers)
+                // drbd_status.role is the remote node's role (Primary/Active)
+                // Add the remote node first
+                if let Some(remote_node) = nodes.iter().find(|n| n.hostname == active_node.as_deref().unwrap_or("")) {
+                    node_infos.push(super::types::NodeConfigInfo {
+                        hostname: remote_node.hostname.clone(),
+                        ip: remote_node.ip.clone(),
+                        peer_role: Some(role_to_display(&drbd_status.role)),
+                    });
+                }
+
+                // Add all peers from DRBD (this includes the local node and other peers)
+                for peer in &drbd_status.peers {
+                    if let Some(node) = nodes.iter().find(|n| n.hostname == peer.name) {
+                        node_infos.push(super::types::NodeConfigInfo {
+                            hostname: node.hostname.clone(),
+                            ip: node.ip.clone(),
+                            peer_role: Some(role_to_display(&peer.role)),
+                        });
+                    }
+                }
+            }
+        } else {
+            // Fallback: just add local node if no DRBD status
+            if let Some(local_node) = nodes.iter().find(|n| n.is_local || n.hostname == local_hostname) {
+                node_infos.push(super::types::NodeConfigInfo {
+                    hostname: local_node.hostname.clone(),
+                    ip: local_node.ip.clone(),
+                    peer_role: drbd_role.map(|r| role_to_display(r)),
+                });
             }
         }
 
