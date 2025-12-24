@@ -4,7 +4,6 @@
 
 use axum::{extract::{Path, State}, Json};
 use drbd_reactor_utils::DrbdReactorClient;
-use drbd_utils::parse_drbdadm_status;
 use std::sync::Arc;
 
 use crate::core::{
@@ -106,28 +105,69 @@ async fn fetch_profile_details(
         .ok_or_else(|| crate::error::AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
 
     // Step 1: Get DRBD status to determine which node is Primary (active)
-    // We need to execute drbdadm status on the active node
-    // First try to get active node info from local DRBD status
+    // Use drbdsetup status --json for complete status including connection state
     let local_drbd_status = {
-        let cmd = format!("drbdadm status {} 2>/dev/null", profile.resource_name);
+        let cmd = format!("drbdsetup status {} --json 2>/dev/null", profile.resource_name);
         let output = run_shell_command(
             &cmd,
-            &format!("Get local drbdadm status for {}", profile.resource_name),
+            &format!("Get local DRBD status for {}", profile.resource_name),
         )
         .await?;
 
-        tracing::debug!("drbdadm status exit_code: {}, stdout: {}", output.exit_code,
+        tracing::debug!("drbdsetup status exit_code: {}, stdout: {}",
+            output.exit_code,
             if output.stdout.is_empty() { "(empty)".to_string() } else { output.stdout.clone() });
 
         if output.success() && !output.stdout.is_empty() {
-            let parsed = parse_drbdadm_status(&output.stdout, &profile.resource_name);
-            if parsed.is_none() {
-                tracing::warn!("Failed to parse drbdadm status for resource '{}', stdout: {}",
-                    profile.resource_name, output.stdout);
+            // Parse JSON output from drbdsetup
+            match drbd_utils::parse_drbd_status(&output.stdout) {
+                Ok(resources) => {
+                    // Find our resource
+                    if let Some(resource) = resources.iter().find(|r| r.name == profile.resource_name) {
+                        // Convert ResourceStatus to DrbdResourceStatus
+                        let peers = resource.connections.iter().map(|conn| {
+                            let peer_device = conn.peer_devices.first();
+                            drbd_utils::DrbdPeerStatus {
+                                name: conn.name.clone(),
+                                role: conn.peer_role.clone().unwrap_or_else(|| {
+                                    // Try to infer from peer-device state
+                                    if peer_device.map(|p| p.replication_state.contains("Target")).unwrap_or(false) {
+                                        "Secondary".to_string()
+                                    } else {
+                                        "Unknown".to_string()
+                                    }
+                                }),
+                                peer_disk: peer_device
+                                    .map(|p| p.peer_disk_state.clone())
+                                    .unwrap_or_else(|| "Unknown".to_string()),
+                                connection: Some(conn.connection_state.clone()),
+                                replication: peer_device
+                                    .map(|p| p.replication_state.clone()),
+                                sync_percent: peer_device.and_then(|p| p.percent_in_sync),
+                            }
+                        }).collect();
+
+                        Some(drbd_utils::DrbdResourceStatus {
+                            resource: resource.name.clone(),
+                            role: resource.role.clone(),
+                            disk: resource.devices.first()
+                                .map(|d| d.disk_state.clone())
+                                .unwrap_or_else(|| "Unknown".to_string()),
+                            open: true, // Assume open if resource is active
+                            peers,
+                        })
+                    } else {
+                        tracing::warn!("Resource '{}' not found in drbdsetup status output", profile.resource_name);
+                        None
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to parse drbdsetup JSON output: {}", e);
+                    None
+                }
             }
-            parsed
         } else {
-            tracing::warn!("drbdadm status failed or empty for resource '{}', exit_code: {}",
+            tracing::warn!("drbdsetup status failed or empty for resource '{}', exit_code: {}",
                 profile.resource_name, output.exit_code);
             None
         }
@@ -171,8 +211,8 @@ async fn fetch_profile_details(
                 tracing::info!("Active node is remote {}, getting status via SSH for {}", active_hostname, profile.resource_name);
                 let credential = SshCredential::Password("ignored".to_string());
 
-                // Execute drbdadm status on remote node
-                let drbd_cmd = format!("drbdadm status {} 2>/dev/null", profile.resource_name);
+                // Execute drbdsetup status --json on remote node
+                let drbd_cmd = format!("drbdsetup status {} --json 2>/dev/null", profile.resource_name);
                 let sudo_drbd_cmd = if active_node_obj.ssh_user != "root" {
                     format!("sudo {}", drbd_cmd)
                 } else {
@@ -188,13 +228,46 @@ async fn fetch_profile_details(
                 ).await {
                     Ok(output) => {
                         if !output.stdout.is_empty() {
-                            parse_drbdadm_status(&output.stdout, &profile.resource_name)
+                            // Parse JSON output from drbdsetup
+                            match drbd_utils::parse_drbd_status(&output.stdout) {
+                                Ok(resources) => {
+                                    if let Some(resource) = resources.iter().find(|r| r.name == profile.resource_name) {
+                                        let peers = resource.connections.iter().map(|conn| {
+                                            let peer_device = conn.peer_devices.first();
+                                            drbd_utils::DrbdPeerStatus {
+                                                name: conn.name.clone(),
+                                                role: conn.peer_role.clone().unwrap_or("Unknown".to_string()),
+                                                peer_disk: peer_device
+                                                    .map(|p| p.peer_disk_state.clone())
+                                                    .unwrap_or_else(|| "Unknown".to_string()),
+                                                connection: Some(conn.connection_state.clone()),
+                                                replication: peer_device
+                                                    .map(|p| p.replication_state.clone()),
+                                                sync_percent: peer_device.and_then(|p| p.percent_in_sync),
+                                            }
+                                        }).collect();
+
+                                        Some(drbd_utils::DrbdResourceStatus {
+                                            resource: resource.name.clone(),
+                                            role: resource.role.clone(),
+                                            disk: resource.devices.first()
+                                                .map(|d| d.disk_state.clone())
+                                                .unwrap_or_else(|| "Unknown".to_string()),
+                                            open: true,
+                                            peers,
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                }
+                                Err(_) => None
+                            }
                         } else {
                             None
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to get drbdadm status from {}: {}", active_hostname, e);
+                        tracing::warn!("Failed to get drbdsetup status from {}: {}", active_hostname, e);
                         None
                     }
                 };
