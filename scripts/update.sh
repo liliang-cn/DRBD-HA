@@ -185,11 +185,11 @@ update_remote_service() {
 
     # Stop the service
     echo "Stopping service on $REMOTE_HOST..."
-    ssh "$REMOTE_HOST" "systemctl stop $SERVICE_NAME" || true
+    ssh "$REMOTE_HOST" "sudo systemctl stop $SERVICE_NAME" || true
     echo -e "${GREEN}✓ Service stopped${NC}"
 
     # Create temp directory
-    ssh "$REMOTE_HOST" "mkdir -p /tmp/drbd-ha-update"
+    ssh "$REMOTE_HOST" "sudo mkdir -p /tmp/drbd-ha-update"
 
     # Copy new binary
     echo "Copying new binary to $REMOTE_HOST..."
@@ -204,7 +204,7 @@ update_remote_service() {
         # Backup existing config
         ssh "$REMOTE_HOST" "
             if [ -f /etc/drbd-ha/config.toml ]; then
-                cp /etc/drbd-ha/config.toml /etc/drbd-ha/config.toml.backup.\$(date +%Y%m%d%H%M%S)
+                sudo cp /etc/drbd-ha/config.toml /etc/drbd-ha/config.toml.backup.\$(date +%Y%m%d%H%M%S)
                 echo '  Backed up existing config'
             fi
         "
@@ -215,15 +215,15 @@ update_remote_service() {
     # Install new binary
     echo "Installing new binary..."
     ssh "$REMOTE_HOST" "
-        cp /tmp/drbd-ha-update/$SERVICE_NAME $INSTALL_DIR/$SERVICE_NAME
-        chmod +x $INSTALL_DIR/$SERVICE_NAME
-        rm -rf /tmp/drbd-ha-update
+        sudo cp /tmp/drbd-ha-update/$SERVICE_NAME $INSTALL_DIR/$SERVICE_NAME
+        sudo chmod +x $INSTALL_DIR/$SERVICE_NAME
+        sudo rm -rf /tmp/drbd-ha-update
     "
     echo -e "${GREEN}✓ Binary installed${NC}"
 
     # Update config if provided
     if [ -f "$CONFIG_SOURCE" ]; then
-        ssh "$REMOTE_HOST" "cp /tmp/drbd-ha-update/config.toml /etc/drbd-ha/config.toml"
+        ssh "$REMOTE_HOST" "sudo cp /tmp/drbd-ha-update/config.toml /etc/drbd-ha/config.toml"
         echo -e "${GREEN}✓ Configuration updated${NC}"
     fi
 
@@ -238,24 +238,24 @@ start_remote_service() {
 
     echo "Starting service on $REMOTE_HOST..."
     ssh "$REMOTE_HOST" "
-        systemctl daemon-reload
-        systemctl start $SERVICE_NAME
+        sudo systemctl daemon-reload
+        sudo systemctl start $SERVICE_NAME
         sleep 2
     "
 
     # Check status
     echo ""
-    if ssh "$REMOTE_HOST" "systemctl is-active --quiet $SERVICE_NAME"; then
+    if ssh "$REMOTE_HOST" "sudo systemctl is-active --quiet $SERVICE_NAME"; then
         echo -e "${GREEN}✓ Service updated and started successfully on $REMOTE_HOST${NC}"
         echo ""
         echo "Remote service status:"
-        ssh "$REMOTE_HOST" "systemctl status $SERVICE_NAME --no-pager -l"
+        ssh "$REMOTE_HOST" "sudo systemctl status $SERVICE_NAME --no-pager -l"
     else
         echo -e "${RED}✗ Failed to start service on $REMOTE_HOST${NC}"
         echo ""
         echo "Check remote logs:"
-        echo "  ssh $REMOTE_HOST 'journalctl -u $SERVICE_NAME -n 50'"
-        echo "  ssh $REMOTE_HOST 'cat /var/log/drbd-ha/drbd-ha.log'"
+        echo "  ssh $REMOTE_HOST 'sudo journalctl -u $SERVICE_NAME -n 50'"
+        echo "  ssh $REMOTE_HOST 'sudo cat /var/log/drbd-ha/drbd-ha.log'"
         exit 1
     fi
 
@@ -277,11 +277,11 @@ show_summary() {
     echo "  Logs:     /var/log/drbd-ha/drbd-ha.log"
     echo ""
     echo -e "${BLUE}Remote Service Commands:${NC}"
-    echo "  ssh $REMOTE_HOST 'systemctl start $SERVICE_NAME'"
-    echo "  ssh $REMOTE_HOST 'systemctl stop $SERVICE_NAME'"
-    echo "  ssh $REMOTE_HOST 'systemctl restart $SERVICE_NAME'"
-    echo "  ssh $REMOTE_HOST 'systemctl status $SERVICE_NAME'"
-    echo "  ssh $REMOTE_HOST 'journalctl -u $SERVICE_NAME -f'"
+    echo "  ssh $REMOTE_HOST 'sudo systemctl start $SERVICE_NAME'"
+    echo "  ssh $REMOTE_HOST 'sudo systemctl stop $SERVICE_NAME'"
+    echo "  ssh $REMOTE_HOST 'sudo systemctl restart $SERVICE_NAME'"
+    echo "  ssh $REMOTE_HOST 'sudo systemctl status $SERVICE_NAME'"
+    echo "  ssh $REMOTE_HOST 'sudo journalctl -u $SERVICE_NAME -f'"
     echo ""
     echo -e "${BLUE}Web Interface:${NC}"
     # Extract IP from user@host format
