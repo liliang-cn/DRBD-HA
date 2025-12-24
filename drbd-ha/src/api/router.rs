@@ -8,6 +8,7 @@ use axum::{
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
+use tower_http::compression::CompressionLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -145,6 +146,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
                 .allow_methods(Any)
                 .allow_headers(Any),
         )
+        .layer(CompressionLayer::new().gzip(true))
         .with_state(state)
         // Serve embedded UI - must be after API routes
         .route("/", get(ui::serve_index))
