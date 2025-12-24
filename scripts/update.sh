@@ -218,7 +218,6 @@ update_remote_service() {
     ssh "$REMOTE_HOST" "
         sudo cp /tmp/drbd-ha-update/$SERVICE_NAME $INSTALL_DIR/$SERVICE_NAME
         sudo chmod +x $INSTALL_DIR/$SERVICE_NAME
-        sudo rm -rf /tmp/drbd-ha-update
     "
     echo -e "${GREEN}✓ Binary installed${NC}"
 
@@ -227,6 +226,9 @@ update_remote_service() {
         ssh "$REMOTE_HOST" "sudo cp /tmp/drbd-ha-update/config.toml /etc/drbd-ha/config.toml"
         echo -e "${GREEN}✓ Configuration updated${NC}"
     fi
+
+    # Clean up temp directory
+    ssh "$REMOTE_HOST" "sudo rm -rf /tmp/drbd-ha-update"
 
     echo ""
 }
