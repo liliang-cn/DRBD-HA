@@ -191,23 +191,25 @@ pub async fn delete_profile(
         None,
     );
 
-    // Unmount on all nodes
-    for node in &all_nodes {
-        let mount_point = &profile.mount_point;
-        if node.is_local {
-            let umount_cmd = format!("umount {}", mount_point);
-            let _ = run_shell_command(&umount_cmd, "Unmount filesystem").await;
-        } else {
+    // Unmount on the active node only (where DRBD is mounted)
+    let mount_point = &profile.mount_point;
+    if local_primary {
+        // Local node is primary, unmount locally
+        let umount_cmd = format!("umount {}", mount_point);
+        let _ = run_shell_command(&umount_cmd, "Unmount filesystem on local node").await;
+    } else if let Some(ref remote_hostname) = remote_primary_node {
+        // Remote node is primary, SSH to unmount there
+        if let Some(active_node) = all_nodes.iter().find(|n| &n.hostname == remote_hostname) {
             let credential = crate::core::SshCredential::Password("ignored".to_string());
-            let umount_cmd = if node.ssh_user != "root" {
+            let umount_cmd = if active_node.ssh_user != "root" {
                 format!("sudo umount {}", mount_point)
             } else {
                 format!("umount {}", mount_point)
             };
             let _ = state.ssh_manager.execute(
-                &node.ip,
-                node.ssh_port,
-                &node.ssh_user,
+                &active_node.ip,
+                active_node.ssh_port,
+                &active_node.ssh_user,
                 &credential,
                 &umount_cmd,
             ).await;
@@ -379,6 +381,87 @@ pub async fn delete_profile(
             {
                 _successful_reloads += 1;
             }
+        }
+    }
+
+    state.send_progress(
+        &operation_id,
+        "delete_ha_profile",
+        Some(&profile.name),
+        80,
+        "Verifying deletion...",
+        false,
+        None,
+    );
+
+    // Verification steps
+    let mut verification_errors = Vec::new();
+
+    // 1. Verify DRBD resource is gone (check on local node)
+    tracing::info!("Verifying DRBD resource deletion...");
+    let verify_cmd = format!("drbdadm status {}", profile.resource_name);
+    match run_shell_command(&verify_cmd, "Verify DRBD resource deleted").await {
+        Ok(output) => {
+            if output.stdout.contains(&profile.resource_name) {
+                let msg = format!("DRBD resource {} still active after deletion", profile.resource_name);
+                tracing::warn!("{}", msg);
+                verification_errors.push(msg);
+            } else {
+                tracing::info!("DRBD resource {} successfully removed", profile.resource_name);
+            }
+        }
+        Err(_e) => {
+            // Command failed likely means resource doesn't exist, which is good
+            tracing::info!("DRBD resource {} not found (expected)", profile.resource_name);
+        }
+    }
+
+    // 2. Verify drbd-reactor profile is gone (check on local node)
+    tracing::info!("Verifying drbd-reactor profile deletion...");
+    let verify_reactor_cmd = format!("drbd-reactorctl status {}", profile.name);
+    match run_shell_command(&verify_reactor_cmd, "Verify reactor profile deleted").await {
+        Ok(output) => {
+            if output.stdout.contains(&profile.name) {
+                let msg = format!("drbd-reactor profile {} still active", profile.name);
+                tracing::warn!("{}", msg);
+                verification_errors.push(msg);
+            } else {
+                tracing::info!("drbd-reactor profile {} successfully removed", profile.name);
+            }
+        }
+        Err(_e) => {
+            // Command failed likely means profile doesn't exist, which is good
+            tracing::info!("drbd-reactor profile {} not found (expected)", profile.name);
+        }
+    }
+
+    // 3. Verify DRBD config file is deleted on local node
+    let drbd_config_path = DrbdConfigPaths::drbd_resource_path(&profile.resource_name);
+    if tokio::fs::metadata(&drbd_config_path).await.is_ok() {
+        let msg = format!("DRBD config file {} still exists", drbd_config_path);
+        tracing::warn!("{}", msg);
+        verification_errors.push(msg);
+    } else {
+        tracing::info!("DRBD config file {} successfully deleted", drbd_config_path);
+    }
+
+    // 4. Verify promoter config file is deleted on local node
+    let promoter_config_path = ReactorConfigPaths::promoter_path(&profile.name);
+    if tokio::fs::metadata(&promoter_config_path).await.is_ok() {
+        let msg = format!("Promoter config file {} still exists", promoter_config_path);
+        tracing::warn!("{}", msg);
+        verification_errors.push(msg);
+    } else {
+        tracing::info!("Promoter config file {} successfully deleted", promoter_config_path);
+    }
+
+    // Log verification results
+    if verification_errors.is_empty() {
+        tracing::info!("All verification checks passed for HA profile deletion");
+    } else {
+        tracing::warn!("HA profile deletion verification found {} issues:", verification_errors.len());
+        for error in &verification_errors {
+            tracing::warn!("  - {}", error);
         }
     }
 
