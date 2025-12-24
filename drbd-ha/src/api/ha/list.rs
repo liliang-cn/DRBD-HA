@@ -94,6 +94,7 @@ async fn fetch_profile_details(
     id_or_name: String,
 ) -> AppResult<Json<HaProfileDetailResponse>> {
     use crate::models::HaProfileStatus;
+    use crate::core::SshCredential;
 
     // Load profile from toml file
     let config_path = ConfigPaths::promoter_path(&id_or_name);
@@ -104,15 +105,7 @@ async fn fetch_profile_details(
     let profile = create_profile_from_toml(&id_or_name, &content)
         .ok_or_else(|| crate::error::AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
 
-    let (active_node, reactor_status_raw) = {
-        if let Ok((statuses, raw_output)) = DrbdReactorClient::status(Some(&profile.name)).await {
-            let active = statuses.first().and_then(|s| s.active_node.clone());
-            (active, Some(raw_output))
-        } else {
-            (None, None)
-        }
-    };
-
+    // Step 1: Get DRBD status to determine which node is Primary (active)
     let drbd = {
         let cmd = format!("drbdadm status {} 2>/dev/null", profile.resource_name);
         let output = run_shell_command(
@@ -128,6 +121,89 @@ async fn fetch_profile_details(
     };
 
     let drbd_role = drbd.as_ref().map(|d| d.role.as_str());
+
+    // Step 2: Determine the active node from DRBD role or reactor status
+    // First, get local hostname to check if we're on the active node
+    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+    let nodes = state.node_store.get_all()?;
+
+    // Determine active node: if local is Primary, active is local; otherwise, find the Primary peer
+    let active_node_from_drbd = if drbd_role == Some("Primary") {
+        Some(local_hostname.clone())
+    } else if let Some(drbd_status) = &drbd {
+        // Check if any peer is Primary
+        drbd_status.peers.iter()
+            .find(|p| p.role == "Primary")
+            .map(|p| p.name.clone())
+    } else {
+        None
+    };
+
+    // Step 3: Execute drbd-reactorctl status on the ACTIVE node
+    let (active_node, reactor_status_raw) = if let Some(ref active_hostname) = active_node_from_drbd {
+        // Find the active node from node store
+        if let Some(active_node_obj) = nodes.iter().find(|n| &n.hostname == active_hostname) {
+            if active_node_obj.is_local || &active_node_obj.hostname == &local_hostname {
+                // Active node is local, execute locally
+                tracing::info!("Executing drbd-reactorctl status {} locally (active node)", profile.name);
+                match DrbdReactorClient::status(Some(&profile.name)).await {
+                    Ok((statuses, raw_output)) => {
+                        let active = statuses.first().and_then(|s| s.active_node.clone());
+                        (active.or_else(|| Some(active_hostname.clone())), Some(raw_output))
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to get reactor status locally: {}", e);
+                        (Some(active_hostname.clone()), None)
+                    }
+                }
+            } else {
+                // Active node is remote, SSH to execute there
+                tracing::info!("Executing drbd-reactorctl status {} on remote node {}", profile.name, active_hostname);
+                let credential = SshCredential::Password("ignored".to_string());
+                let cmd = format!("drbd-reactorctl status {}", profile.name);
+                let sudo_cmd = if active_node_obj.ssh_user != "root" {
+                    format!("sudo {}", cmd)
+                } else {
+                    cmd
+                };
+
+                match state.ssh_manager.execute(
+                    &active_node_obj.ip,
+                    active_node_obj.ssh_port,
+                    &active_node_obj.ssh_user,
+                    &credential,
+                    &sudo_cmd,
+                ).await {
+                    Ok(output) => {
+                        // Parse the output
+                        let statuses = drbd_reactor_utils::parser::parse_reactor_status(&output.stdout, Some(&profile.name));
+                        let active = statuses.first().and_then(|s| s.active_node.clone());
+                        (active.or_else(|| Some(active_hostname.clone())), Some(output.stdout))
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to get reactor status from remote node {}: {}", active_hostname, e);
+                        (Some(active_hostname.clone()), None)
+                    }
+                }
+            }
+        } else {
+            tracing::warn!("Active node {} not found in node store", active_hostname);
+            (Some(active_hostname.clone()), None)
+        }
+    } else {
+        // No active node from DRBD, try local reactor status as fallback
+        tracing::info!("No active node determined from DRBD, trying local reactor status");
+        match DrbdReactorClient::status(Some(&profile.name)).await {
+            Ok((statuses, raw_output)) => {
+                let active = statuses.first().and_then(|s| s.active_node.clone());
+                (active, Some(raw_output))
+            }
+            Err(e) => {
+                tracing::warn!("Failed to get reactor status locally: {}", e);
+                (None, None)
+            }
+        }
+    };
 
     // Initialize service statuses from configured services
     let mut service_statuses: Vec<ServiceStatusInfo> = profile
