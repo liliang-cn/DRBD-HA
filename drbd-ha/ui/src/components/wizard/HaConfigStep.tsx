@@ -192,24 +192,28 @@ export function HaConfigStep({
           </Radio.Group>
         </Form.Item>
 
-  
+
         {/* --- Service Specific Fields (Generic) --- */}
         {haType === 'generic' && (
           <Form.Item
-            name="services"
-            label="Managed Services"
+            name="service"
+            label="Managed Service"
             rules={[
-              { required: true, message: 'Please select at least one service' },
+              { required: true, message: 'Please select a service' },
             ]}
-            help="Select systemd services to be managed by this HA profile. They will be started/stopped with the resource."
+            help="Select the systemd service to be managed by this HA profile. It will be started/stopped with the resource."
           >
             <Select
-              mode="tags"
-              placeholder="Select or type services (e.g. mysql, nginx)"
+              placeholder="Select or type a service (e.g. mysql, nginx)"
+              showSearch
+              allowClear
               options={services.map((s) => ({
                 value: s.name,
                 label: s.name,
               }))}
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
             />
           </Form.Item>
         )}

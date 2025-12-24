@@ -608,7 +608,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           resource_name: haValues.resource_name,
           mount_point: haValues.mount_point,
           fs_type: haValues.fs_type || 'xfs',
-          services: haValues.services || [],
+          services: haValues.service ? [haValues.service] : (haValues.services || []),
           ocf_agents: haValues.ocf_agents || [],
           auto_disable_services: true,
           // Advanced Promoter Settings
