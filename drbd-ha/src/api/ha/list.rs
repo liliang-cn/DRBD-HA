@@ -115,9 +115,20 @@ async fn fetch_profile_details(
             &format!("Get local drbdadm status for {}", profile.resource_name),
         )
         .await?;
+
+        tracing::debug!("drbdadm status exit_code: {}, stdout: {}", output.exit_code,
+            if output.stdout.is_empty() { "(empty)".to_string() } else { output.stdout.clone() });
+
         if output.success() && !output.stdout.is_empty() {
-            parse_drbdadm_status(&output.stdout, &profile.resource_name)
+            let parsed = parse_drbdadm_status(&output.stdout, &profile.resource_name);
+            if parsed.is_none() {
+                tracing::warn!("Failed to parse drbdadm status for resource '{}', stdout: {}",
+                    profile.resource_name, output.stdout);
+            }
+            parsed
         } else {
+            tracing::warn!("drbdadm status failed or empty for resource '{}', exit_code: {}",
+                profile.resource_name, output.exit_code);
             None
         }
     };

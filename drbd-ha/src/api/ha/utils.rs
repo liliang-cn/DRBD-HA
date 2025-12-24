@@ -230,17 +230,37 @@ pub fn parse_services_from_config(content: &str) -> Vec<String> {
     services
 }
 
+/// Parse DRBD resource name from drbd-reactor config file content
+/// Extracts the resource name from [promoter.resources.XXX] line
+pub fn parse_resource_name_from_config(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let line = line.trim();
+        // Look for [promoter.resources.XXX] pattern
+        if line.starts_with("[promoter.resources.") {
+            if let Some(start) = line.strip_prefix("[promoter.resources.") {
+                if let Some(end) = start.find(']') {
+                    let resource_name = &start[..end];
+                    return Some(resource_name.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Create a minimal HaProfile from toml file name and content
 pub fn create_profile_from_toml(name: &str, content: &str) -> Option<HaProfile> {
     let services = parse_services_from_config(content);
     let vip = parse_vip_from_config(content);
     let mount_point = parse_mount_point_from_config(content).unwrap_or_default();
+    let resource_name = parse_resource_name_from_config(content)
+        .unwrap_or_else(|| name.to_string()); // Fallback to profile name
 
     Some(HaProfile {
         id: name.to_string(),
         name: name.to_string(),
         ha_type: HaType::Generic, // Default, can be enhanced by parsing
-        resource_name: name.to_string(), // Assume resource name matches profile name
+        resource_name,
         mount_point,
         fs_type: "xfs".to_string(), // Default
         mount_strategy: Default::default(),
