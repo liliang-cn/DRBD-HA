@@ -1,4 +1,4 @@
-export { ActivationStep } from './ActivationStep';
+export { DeploymentStatusStep } from './DeploymentStatusStep';
 export { HaConfigStep } from './HaConfigStep';
 export { NodesVerificationStep } from './NodesVerificationStep';
 export { PreviewConfigStep } from './PreviewConfigStep';

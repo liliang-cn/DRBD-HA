@@ -11,7 +11,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { haProfilesApi, nodesApi, resourcesApi, servicesApi } from '@/api';
 import {
-  ActivationStep,
+  DeploymentStatusStep,
   HaConfigStep,
   NodesVerificationStep,
   PreviewConfigStep,
@@ -662,26 +662,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         setCreatingProfileName(null);
       }
     } else if (step === 3) {
-      // This is the Preview step, next is Activation
+      // This is the Preview step, next is Deployment Status
       setStep(4);
-      setActivationStatus('activating');
-      setActivationError(null);
-      setProgressSteps([]);
-      addLog('Starting profile activation...');
-
-      if (createdProfileId) {
-        try {
-          await haProfilesApi.activate(createdProfileId);
-          setActivationStatus('checking');
-          addLog('Activation request sent. Polling for status...');
-          pollServiceStatus(createdProfileId);
-        } catch (activateErr) {
-          const errMsg = (activateErr as { message: string }).message;
-          setActivationStatus('error');
-          setActivationError(errMsg);
-          addLog(`Activation failed: ${errMsg}`);
-        }
-      }
     }
   };
 
@@ -760,12 +742,9 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
       case 4:
         return (
-          <ActivationStep
-            activationStatus={activationStatus}
-            activationError={activationError}
-            progressPercent={progressPercent}
-            progressSteps={progressSteps}
-            onRetry={handleRetry}
+          <DeploymentStatusStep
+            profileId={createdProfileId}
+            profileName={createdProfileName}
             onDone={handleDone}
           />
         );
@@ -808,20 +787,16 @@ export function Wizard({ mode = 'service' }: WizardProps) {
                     : 'Define HA services',
               },
               { title: 'Preview', description: 'Review configuration' },
-              { title: 'Activate', description: 'Deploy and start' },
+              { title: 'Status', description: 'Check deployment status' },
             ]}
           />
 
           {renderStepContent()}
 
           <div
-            className={`flex mt-8 max-w-4xl mx-auto ${
-              activationStatus === 'success' && step === 4
-                ? 'justify-center'
-                : 'justify-between'
-            }`}
+            className="flex mt-8 max-w-4xl mx-auto justify-between"
           >
-            {step < 4 && activationStatus !== 'success' && (
+            {step < 4 && (
               <Button
                 icon={<ArrowLeftOutlined />}
                 onClick={step === 0 ? () => navigate('/') : handlePrev}
@@ -837,7 +812,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
                 onClick={handleNext}
                 loading={loading}
               >
-                {step === 3 ? 'Activate' : 'Next'}
+                {step === 3 ? 'Check Status' : 'Next'}
               </Button>
             ) : null}
           </div>
