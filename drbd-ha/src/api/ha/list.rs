@@ -88,7 +88,7 @@ pub async fn get_profile(
 
 /// Helper function to fetch detailed profile status
 async fn fetch_profile_details(
-    _state: Arc<AppState>,
+    state: Arc<AppState>,
     id_or_name: String,
 ) -> AppResult<Json<HaProfileDetailResponse>> {
     use crate::models::HaProfileStatus;
@@ -160,13 +160,77 @@ async fn fetch_profile_details(
         }
 
         // Query systemd for enabled status of each service
-        let systemd = SystemdController::new().await?;
-        for service_info in &mut service_statuses {
-            if service_info.name.starts_with("ocf.rs@") {
-                continue;
+        // We need to query on the active node where drbd-reactor is managing services
+        if let Some(active_node_name) = &active_node {
+            // Find the active node from node store
+            let nodes = state.node_store.get_all()?;
+            let active_node_obj = nodes.iter().find(|n| &n.hostname == active_node_name);
+
+            if let Some(node) = active_node_obj {
+                if node.is_local {
+                    // Active node is local, query local systemd
+                    let systemd = SystemdController::new().await?;
+                    for service_info in &mut service_statuses {
+                        if service_info.name.starts_with("ocf.rs@") {
+                            continue;
+                        }
+                        if let Ok(status) = systemd.status(&service_info.name).await {
+                            service_info.enabled = status.is_enabled();
+                        }
+                    }
+                } else {
+                    // Active node is remote, SSH to query systemd there
+                    use crate::core::SshCredential;
+                    let credential = SshCredential::Password("ignored".to_string());
+
+                    for service_info in &mut service_statuses {
+                        if service_info.name.starts_with("ocf.rs@") {
+                            continue;
+                        }
+                        // Run systemctl is-enabled on remote node
+                        let cmd = format!("systemctl is-enabled {}", service_info.name);
+                        let sudo_cmd = if node.ssh_user != "root" {
+                            format!("sudo {}", cmd)
+                        } else {
+                            cmd
+                        };
+
+                        match state.ssh_manager.execute(
+                            &node.ip,
+                            node.ssh_port,
+                            &node.ssh_user,
+                            &credential,
+                            &sudo_cmd,
+                        ).await {
+                            Ok(output) => {
+                                // systemctl is-enabled returns 0 if enabled, non-zero otherwise
+                                service_info.enabled = output.exit_code == 0;
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to check service {} status on {}: {}",
+                                    service_info.name,
+                                    node.hostname,
+                                    e
+                                );
+                                service_info.enabled = false;
+                            }
+                        }
+                    }
+                }
+            } else {
+                tracing::warn!("Active node {} not found in node store", active_node_name);
             }
-            if let Ok(status) = systemd.status(&service_info.name).await {
-                service_info.enabled = status.is_enabled();
+        } else {
+            // No active node, fallback to local query
+            let systemd = SystemdController::new().await?;
+            for service_info in &mut service_statuses {
+                if service_info.name.starts_with("ocf.rs@") {
+                    continue;
+                }
+                if let Ok(status) = systemd.status(&service_info.name).await {
+                    service_info.enabled = status.is_enabled();
+                }
             }
         }
     }
