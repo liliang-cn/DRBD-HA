@@ -1026,6 +1026,7 @@ pub async fn create_profile(
 
     let promoter_config = drbd_reactor_utils::PromoterConfig {
         resource: profile_for_gen.resource_name.clone(),
+        profile_name: profile_for_gen.name.clone(),
         mount_unit: profile_for_gen.generated_units.mount_unit.clone(),
         start: _start_services.clone(),
         stop_services_on_exit: profile_for_gen.promoter.stop_on_demote,

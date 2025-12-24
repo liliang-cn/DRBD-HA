@@ -11,6 +11,8 @@ use tera::{Context, Tera};
 #[derive(Debug, Clone, Serialize)]
 pub struct PromoterConfig {
     pub resource: String,
+    /// Profile name (used for naming instances like VIP)
+    pub profile_name: String,
     /// Mount unit to start before services (e.g., "var-lib-mysql.mount")
     pub mount_unit: Option<String>,
     pub start: Vec<String>,
@@ -109,7 +111,7 @@ start = [
     "{{ promoter.mount_unit }}",
 {% endif %}
 {% if promoter.vip %}
-    "ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }}",
+    "ocf:heartbeat:IPaddr2 {{ promoter.profile_name }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }}",
 {% endif %}
 {% for agent in promoter.ocf_agents %}
     "{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}",
@@ -153,6 +155,7 @@ mod tests {
 
         let config = PromoterConfig {
             resource: "r0".to_string(),
+            profile_name: "my_ha_profile".to_string(),
             mount_unit: None,
             start: vec!["app.service".to_string(), "web.service".to_string()],
             stop_services_on_exit: true,
@@ -177,9 +180,9 @@ mod tests {
         assert!(output.contains("[promoter.resources.r0]"));
         assert!(output.contains("app.service"));
         assert!(output.contains("web.service"));
-        // VIP should be in OCF format inside start list (instance name, ip, cidr_netmask)
+        // VIP should be in OCF format inside start list (instance name uses profile_name)
         assert!(output
-            .contains("ocf:heartbeat:IPaddr2 r0_vip ip=192.168.1.100 cidr_netmask=24"));
+            .contains("ocf:heartbeat:IPaddr2 my_ha_profile_vip ip=192.168.1.100 cidr_netmask=24"));
         assert!(output.contains("runner = \"systemd\""));
 
         // Check new fields
