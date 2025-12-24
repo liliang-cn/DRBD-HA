@@ -208,55 +208,118 @@ pub async fn delete_profile(
         }
     }
 
-    let all_nodes = state.node_store.get_all()?;
+    state.send_progress(
+        &operation_id,
+        "delete_ha_profile",
+        Some(&profile.name),
+        40,
+        "Unmounting filesystem...",
+        false,
+        None,
+    );
 
+    // Unmount on all nodes
     for node in &all_nodes {
-        let credential = crate::core::SshCredential::Password("ignored".to_string());
-        let drbd_config_path = DrbdConfigPaths::drbd_resource_path(&profile.resource_name);
-
-        if !node.is_local {
-            let rm_cmd = format!("rm -f {}", drbd_config_path);
-            let _ = state
-                .ssh_manager
-                .execute(
-                    &node.ip,
-                    node.ssh_port,
-                    &node.ssh_user,
-                    &credential,
-                    &rm_cmd,
-                )
-                .await;
+        let mount_point = &profile.mount_point;
+        if node.is_local {
+            let umount_cmd = format!("umount {}", mount_point);
+            let _ = run_shell_command(&umount_cmd, "Unmount filesystem").await;
+        } else {
+            let credential = crate::core::SshCredential::Password("ignored".to_string());
+            let umount_cmd = if node.ssh_user != "root" {
+                format!("sudo umount {}", mount_point)
+            } else {
+                format!("umount {}", mount_point)
+            };
+            let _ = state.ssh_manager.execute(
+                &node.ip,
+                node.ssh_port,
+                &node.ssh_user,
+                &credential,
+                &umount_cmd,
+            ).await;
         }
     }
 
-    let _ = tokio::fs::remove_file(&DrbdConfigPaths::drbd_resource_path(&profile.resource_name)).await;
+    state.send_progress(
+        &operation_id,
+        "delete_ha_profile",
+        Some(&profile.name),
+        50,
+        "Down DRBD resource on all nodes...",
+        false,
+        None,
+    );
+
+    // Down DRBD on all nodes
+    for node in &all_nodes {
+        if node.is_local {
+            let down_cmd = format!("drbdadm down {}", profile.resource_name);
+            let _ = run_shell_command(&down_cmd, "Down DRBD resource locally").await;
+        } else {
+            let credential = crate::core::SshCredential::Password("ignored".to_string());
+            let down_cmd = if node.ssh_user != "root" {
+                format!("sudo drbdadm down {}", profile.resource_name)
+            } else {
+                format!("drbdadm down {}", profile.resource_name)
+            };
+            let _ = state.ssh_manager.execute(
+                &node.ip,
+                node.ssh_port,
+                &node.ssh_user,
+                &credential,
+                &down_cmd,
+            ).await;
+        }
+    }
 
     state.send_progress(
         &operation_id,
         "delete_ha_profile",
         Some(&profile.name),
         60,
-        "Down DRBD resource...",
+        "Deleting DRBD resource files...",
         false,
         None,
     );
 
-    let down_cmd = format!("drbdadm down {}", profile.resource_name);
-    let _ = run_shell_command(&down_cmd, "Down DRBD resource").await;
-
+    // Delete DRBD .res files on all nodes
     for node in &all_nodes {
-        if !node.is_local {
+        let drbd_config_path = DrbdConfigPaths::drbd_resource_path(&profile.resource_name);
+
+        if node.is_local {
+            tracing::info!("Deleting local DRBD config: {}", drbd_config_path);
+            match tokio::fs::remove_file(&drbd_config_path).await {
+                Ok(_) => tracing::info!("Deleted DRBD config: {}", drbd_config_path),
+                Err(e) => tracing::warn!("Failed to delete DRBD config {}: {}", drbd_config_path, e),
+            }
+        } else {
             let credential = crate::core::SshCredential::Password("ignored".to_string());
-            let _ = state
-                .ssh_manager
-                .execute(
-                    &node.ip,
-                    node.ssh_port,
-                    &node.ssh_user,
-                    &credential,
-                    &down_cmd,
-                )
-                .await;
+            let rm_cmd = if node.ssh_user != "root" {
+                format!("sudo rm -f {}", drbd_config_path)
+            } else {
+                format!("rm -f {}", drbd_config_path)
+            };
+
+            tracing::info!("Deleting remote DRBD config on {}: {}", node.hostname, drbd_config_path);
+            match state.ssh_manager.execute(
+                &node.ip,
+                node.ssh_port,
+                &node.ssh_user,
+                &credential,
+                &rm_cmd,
+            ).await {
+                Ok(output) => {
+                    if output.exit_code == 0 {
+                        tracing::info!("Deleted DRBD config on {}: {}", node.hostname, drbd_config_path);
+                    } else {
+                        tracing::warn!("Failed to delete DRBD config on {} {}: {}", node.hostname, drbd_config_path, output.stdout);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to delete DRBD config on {} {}: {}", node.hostname, drbd_config_path, e);
+                }
+            }
         }
     }
 
