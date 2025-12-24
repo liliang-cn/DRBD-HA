@@ -1,9 +1,7 @@
 import {
   CheckCircleOutlined,
-  CloseCircleOutlined,
   DeleteOutlined,
   ExclamationCircleOutlined,
-  EyeOutlined,
   LoadingOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
@@ -18,19 +16,19 @@ import {
   Modal,
   message,
   Popconfirm,
+  Progress,
   Space,
   Table,
   Tag,
   Typography,
 } from 'antd';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { haProfilesApi } from '@/api';
 import { ImportProfilesModal } from '@/components/ha/ImportProfilesModal';
 import { useHaProfilesStore } from '@/stores/ha-profiles';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useResourcesStore } from '@/stores/resources';
-import type { HaProfile, HaProfileStatus, VipConfig } from '@/types';
+import type { HaProfile, HaProfileStatus } from '@/types';
 
 const statusColor: Record<string, string> = {
   active: 'green',
@@ -41,15 +39,16 @@ const statusColor: Record<string, string> = {
 };
 
 export function HaProfiles() {
-  const navigate = useNavigate();
   const { profiles, loading, fetch } = useHaProfilesStore();
   const { fetch: fetchResources } = useResourcesStore();
-  const [statusModalOpen, setStatusModalOpen] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState<HaProfileStatus | null>(
+  const [expandedProfileId, setExpandedProfileId] = useState<string | null>(
     null,
   );
-  const [selectedProfile, setSelectedProfile] = useState<HaProfile | null>(
-    null,
+  const [profileStatuses, setProfileStatuses] = useState<
+    Record<string, HaProfileStatus>
+  >({});
+  const [statusLoading, setStatusLoading] = useState<Record<string, boolean>>(
+    {},
   );
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [profileToDelete, setProfileToDelete] = useState<HaProfile | null>(
@@ -57,11 +56,6 @@ export function HaProfiles() {
   );
   const [deleteResource, setDeleteResource] = useState(true);
   const [deleting, setDeleting] = useState(false);
-  const [vipModalOpen, setVipModalOpen] = useState(false);
-  const [vipForm] = Form.useForm<VipConfig>();
-  const [vipSubmitting, setVipSubmitting] = useState(false);
-  const [selectedProfileForVip, setSelectedProfileForVip] =
-    useState<HaProfile | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
 
   // Deletion Progress State
@@ -225,27 +219,23 @@ export function HaProfiles() {
     fetchResources();
   };
 
-  const handleViewStatus = async (profile: HaProfile) => {
-    navigate(`/ha-profiles/${profile.id}`);
-  };
-
-  const handleActivate = async (id: string) => {
-    try {
-      await haProfilesApi.activate(id);
-      message.success('Profile activated');
-      fetch();
-    } catch (err) {
-      message.error((err as { message: string }).message);
-    }
-  };
-
-  const handleDeactivate = async (id: string) => {
-    try {
-      await haProfilesApi.deactivate(id);
-      message.success('Profile deactivated');
-      fetch();
-    } catch (err) {
-      message.error((err as { message: string }).message);
+  const handleRowExpand = async (expanded: boolean, record: HaProfile) => {
+    if (expanded) {
+      setExpandedProfileId(record.id);
+      // Fetch status if not already loaded
+      if (!profileStatuses[record.id]) {
+        setStatusLoading((prev) => ({ ...prev, [record.id]: true }));
+        try {
+          const status = await haProfilesApi.getStatus(record.id);
+          setProfileStatuses((prev) => ({ ...prev, [record.id]: status }));
+        } catch (err) {
+          message.error((err as { message: string }).message);
+        } finally {
+          setStatusLoading((prev) => ({ ...prev, [record.id]: false }));
+        }
+      }
+    } else {
+      setExpandedProfileId(null);
     }
   };
 
@@ -263,39 +253,6 @@ export function HaProfiles() {
     try {
       await haProfilesApi.reloadReactor();
       message.success('drbd-reactor reloaded');
-    } catch (err) {
-      message.error((err as { message: string }).message);
-    }
-  };
-
-  const openAddVipModal = (profile: HaProfile) => {
-    setSelectedProfileForVip(profile);
-    vipForm.resetFields();
-    vipForm.setFieldsValue({ netmask: 24 });
-    setVipModalOpen(true);
-  };
-
-  const handleAddVip = async (values: VipConfig) => {
-    if (!selectedProfileForVip) return;
-    setVipSubmitting(true);
-    try {
-      await haProfilesApi.addVip(selectedProfileForVip.id, values);
-      message.success('VIP added successfully');
-      setVipModalOpen(false);
-      setSelectedProfileForVip(null);
-      fetch();
-    } catch (err) {
-      message.error((err as { message: string }).message);
-    } finally {
-      setVipSubmitting(false);
-    }
-  };
-
-  const handleRemoveVip = async (profile: HaProfile) => {
-    try {
-      await haProfilesApi.removeVip(profile.id);
-      message.success('VIP removed successfully');
-      fetch();
     } catch (err) {
       message.error((err as { message: string }).message);
     }
@@ -324,23 +281,6 @@ export function HaProfiles() {
       ),
     },
     { title: 'Mount Point', dataIndex: 'mount_point', key: 'mount_point' },
-    {
-      title: 'VIP',
-      key: 'vip',
-      render: (_: unknown, record: HaProfile) =>
-        record.vip ? (
-          <Space size="small">
-            <Tag color="green" icon={<CheckCircleOutlined />}>
-              Enabled
-            </Tag>
-            <span className="text-gray-500 text-xs">{record.vip.address}</span>
-          </Space>
-        ) : (
-          <Tag color="default" icon={<CloseCircleOutlined />}>
-            Disabled
-          </Tag>
-        ),
-    },
     {
       title: 'Status',
       dataIndex: 'status',
@@ -382,48 +322,14 @@ export function HaProfiles() {
       },
     },
     {
-      title: 'Services',
-      key: 'services',
-      render: (_: unknown, record: HaProfile) => (
-        <Space>
-          {record.promoter.services.slice(0, 2).map((s) => (
-            <Tag key={s}>{s}</Tag>
-          ))}
-          {record.promoter.services.length > 2 && (
-            <Tag>+{record.promoter.services.length - 2} more</Tag>
-          )}
-        </Space>
-      ),
-    },
-    {
       title: 'Actions',
       key: 'actions',
       render: (_: unknown, record: HaProfile) => {
-        const isActive = record.status === 'active';
-        const hasVip = !!record.vip;
-
         return (
           <Space wrap>
             <Button
               size="small"
-              type="text" // Use text type for icon-only buttons
-              icon={<EyeOutlined />}
-              onClick={() => handleViewStatus(record)}
-              title="View Status"
-            />
-            {!hasVip && (
-              <Button
-                size="small"
-                onClick={() => openAddVipModal(record)}
-                title="Add VIP"
-              >
-                Add VIP
-              </Button>
-            )}
-
-            <Button
-              size="small"
-              type="text" // Use text type for icon-only buttons
+              type="text"
               danger
               icon={<DeleteOutlined />}
               onClick={() => openDeleteModal(record)}
@@ -434,6 +340,235 @@ export function HaProfiles() {
       },
     },
   ];
+
+  // Render expanded row content
+  const expandedRowRender = (record: HaProfile) => {
+    const status = profileStatuses[record.id];
+    const isLoading = statusLoading[record.id];
+
+    if (isLoading) {
+      return (
+        <div className="flex justify-center items-center p-8">
+          <LoadingOutlined className="text-2xl text-blue-500" />
+        </div>
+      );
+    }
+
+    return (
+      <div className="p-4 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Basic Info */}
+          <Card title="Profile Information" size="small">
+            <Descriptions bordered column={1} size="small">
+              <Descriptions.Item label="ID">{record.id}</Descriptions.Item>
+              <Descriptions.Item label="Name">{record.name}</Descriptions.Item>
+              <Descriptions.Item label="Type">
+                <Tag>{(record.ha_type || 'generic').toUpperCase()}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Resource Name">
+                {record.resource_name}
+              </Descriptions.Item>
+              <Descriptions.Item label="Mount Point">
+                {record.mount_point}
+              </Descriptions.Item>
+              <Descriptions.Item label="File System">
+                {record.fs_type}
+              </Descriptions.Item>
+              <Descriptions.Item label="DRBD Device">
+                {record.generated_units.drbd_device}
+              </Descriptions.Item>
+            </Descriptions>
+          </Card>
+
+          {/* Promoter Configuration */}
+          <Card title="Promoter Configuration" size="small">
+            <Descriptions bordered column={1} size="small">
+              <Descriptions.Item label="Services">
+                <Space wrap>
+                  {record.promoter.services.map((s) => (
+                    <Tag key={s}>{s}</Tag>
+                  ))}
+                </Space>
+              </Descriptions.Item>
+              <Descriptions.Item label="Stop on Demote">
+                {record.promoter.stop_on_demote ? 'Yes' : 'No'}
+              </Descriptions.Item>
+              <Descriptions.Item label="On Demote Failure">
+                {record.promoter.on_demote_failure}
+              </Descriptions.Item>
+              {record.promoter.dependencies_as && (
+                <Descriptions.Item label="Dependencies AS">
+                  {record.promoter.dependencies_as}
+                </Descriptions.Item>
+              )}
+              {record.promoter.target_as && (
+                <Descriptions.Item label="Target AS">
+                  {record.promoter.target_as}
+                </Descriptions.Item>
+              )}
+              {record.promoter.preferred_nodes &&
+                record.promoter.preferred_nodes.length > 0 && (
+                  <Descriptions.Item label="Preferred Nodes">
+                    <Space wrap>
+                      {record.promoter.preferred_nodes.map((n) => (
+                        <Tag key={n}>{n}</Tag>
+                      ))}
+                    </Space>
+                  </Descriptions.Item>
+                )}
+            </Descriptions>
+          </Card>
+
+          {/* OCF Agents */}
+          {record.ocf_agents && record.ocf_agents.length > 0 && (
+            <Card title="OCF Agents" size="small">
+              <Table
+                dataSource={record.ocf_agents}
+                columns={[
+                  { title: 'Name', dataIndex: 'name', key: 'name' },
+                  {
+                    title: 'Instance',
+                    dataIndex: 'instance_name',
+                    key: 'instance_name',
+                  },
+                  {
+                    title: 'Parameters',
+                    dataIndex: 'params',
+                    key: 'params',
+                    render: (params: Record<string, string>) => (
+                      <Space direction="vertical" size="small">
+                        {Object.entries(params).map(([k, v]) => (
+                          <div key={k}>
+                            <Tag color="blue">{k}</Tag>: {v}
+                          </div>
+                        ))}
+                      </Space>
+                    ),
+                  },
+                ]}
+                rowKey="instance_name"
+                pagination={false}
+                size="small"
+              />
+            </Card>
+          )}
+        </div>
+
+        {/* DRBD Status */}
+        {status && status.drbd && (
+          <Card title="DRBD Status" size="small">
+            <Descriptions bordered column={2} size="small">
+              <Descriptions.Item label="Resource">
+                {status.drbd.resource}
+              </Descriptions.Item>
+              <Descriptions.Item label="Role">
+                <Tag color={roleColor[status.drbd.role]}>
+                  {status.drbd.role}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Disk State">
+                {status.drbd.disk}
+              </Descriptions.Item>
+              <Descriptions.Item label="Device Open">
+                {status.drbd.open ? 'Yes' : 'No'}
+              </Descriptions.Item>
+            </Descriptions>
+
+            {status.drbd.peers && status.drbd.peers.length > 0 && (
+              <div className="mt-4">
+                <h4 className="font-semibold mb-2">Peers</h4>
+                <div className="space-y-2">
+                  {status.drbd.peers.map((peer) => (
+                    <Descriptions
+                      key={peer.name}
+                      title={peer.name}
+                      bordered
+                      column={1}
+                      size="small"
+                    >
+                      <Descriptions.Item label="Role">
+                        <Tag color={roleColor[peer.role]}>{peer.role}</Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Disk State">
+                        {peer.peer_disk}
+                      </Descriptions.Item>
+                      {peer.connection && (
+                        <Descriptions.Item label="Connection">
+                          {peer.connection}
+                        </Descriptions.Item>
+                      )}
+                      {peer.replication && (
+                        <Descriptions.Item label="Replication">
+                          {peer.replication}
+                        </Descriptions.Item>
+                      )}
+                    </Descriptions>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* Services Status */}
+        {status && status.service_statuses && (
+          <Card title="Services Status" size="small">
+            <Table
+              dataSource={status.service_statuses}
+              columns={[
+                { title: 'Service', dataIndex: 'name', key: 'name' },
+                {
+                  title: 'Active',
+                  dataIndex: 'active',
+                  key: 'active',
+                  render: (active: boolean) => (
+                    <Tag color={active ? 'green' : 'default'}>
+                      {active ? 'Running' : 'Stopped'}
+                    </Tag>
+                  ),
+                },
+                { title: 'State', dataIndex: 'state', key: 'state' },
+                {
+                  title: 'Enabled',
+                  dataIndex: 'enabled',
+                  key: 'enabled',
+                  render: (enabled: boolean) => (enabled ? 'Yes' : 'No'),
+                },
+              ]}
+              rowKey="name"
+              pagination={false}
+              size="small"
+            />
+          </Card>
+        )}
+
+        {/* System Configuration */}
+        {status && status.config && (
+          <Card title="System Configuration" size="small">
+            <Descriptions bordered column={2} size="small">
+              <Descriptions.Item label="Promoter Config Exists">
+                {status.config.promoter_config_exists ? (
+                  <Tag color="green">Yes</Tag>
+                ) : (
+                  <Tag color="red">No</Tag>
+                )}
+              </Descriptions.Item>
+              <Descriptions.Item label="Promoter Config Path">
+                {status.config.promoter_config_path}
+              </Descriptions.Item>
+              <Descriptions.Item label="Reactor Running">
+                {status.config.reactor_running ? (
+                  <Tag color="green">Yes</Tag>
+                ) : (
+                  <Tag color="red">No</Tag>
+                )}
+              </Descriptions.Item>
+            </Descriptions>
+          </Card>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -450,7 +585,7 @@ export function HaProfiles() {
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            onClick={() => navigate('/service-ha/create')}
+            onClick={() => (window.location.href = '/service-ha/create')}
           >
             Create Service HA
           </Button>
@@ -469,6 +604,11 @@ export function HaProfiles() {
         rowKey="id"
         loading={loading}
         pagination={false}
+        expandable={{
+          expandedRowRender,
+          onExpand: handleRowExpand,
+          expandedRowKeys: expandedProfileId ? [expandedProfileId] : [],
+        }}
       />
 
       <ImportProfilesModal
@@ -479,142 +619,6 @@ export function HaProfiles() {
           fetchResources();
         }}
       />
-
-      {/* Status Modal */}
-      <Modal
-        title="HA Profile Status"
-        open={statusModalOpen}
-        onCancel={() => setStatusModalOpen(false)}
-        footer={null}
-        width={800}
-      >
-        {selectedStatus && selectedProfile && (
-          <div className="space-y-4">
-            <Descriptions bordered column={2}>
-              <Descriptions.Item label="Name">
-                {selectedStatus.name}
-              </Descriptions.Item>
-              <Descriptions.Item label="Type">
-                <Tag>
-                  {(selectedProfile.ha_type || 'generic').toUpperCase()}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="Status">
-                <Tag color={statusColor[selectedStatus.status]}>
-                  {selectedStatus.status.toUpperCase()}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="Active Node">
-                {selectedStatus.active_node || 'N/A'}
-              </Descriptions.Item>
-              <Descriptions.Item label="VIP Active">
-                {selectedStatus.vip_active ? (
-                  <Tag color="green">Yes</Tag>
-                ) : (
-                  <Tag>No</Tag>
-                )}
-              </Descriptions.Item>
-            </Descriptions>
-
-            {selectedProfile.ha_type === 'nfs' && selectedProfile.nfs && (
-              <Card title="NFS Configuration" size="small">
-                <Descriptions bordered column={1}>
-                  <Descriptions.Item label="Export Path">
-                    {selectedProfile.nfs.export_path}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Allowed Networks">
-                    {selectedProfile.nfs.allowed_networks.join(', ')}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Options">
-                    {selectedProfile.nfs.options}
-                  </Descriptions.Item>
-                </Descriptions>
-              </Card>
-            )}
-
-            {selectedProfile.ha_type === 'iscsi' && selectedProfile.iscsi && (
-              <Card title="iSCSI Configuration" size="small">
-                <Descriptions bordered column={1}>
-                  <Descriptions.Item label="Target IQN">
-                    {selectedProfile.iscsi.iqn}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Allowed Initiators">
-                    {selectedProfile.iscsi.allowed_initiators.length > 0
-                      ? selectedProfile.iscsi.allowed_initiators.join(', ')
-                      : 'All'}
-                  </Descriptions.Item>
-                </Descriptions>
-              </Card>
-            )}
-
-            {selectedProfile.ha_type === 'nvmeof' && selectedProfile.nvmeof && (
-              <Card title="NVMe-oF Configuration" size="small">
-                <Descriptions bordered column={1}>
-                  <Descriptions.Item label="Target NQN">
-                    {selectedProfile.nvmeof.nqn}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Fabric Type">
-                    {selectedProfile.nvmeof.fabric_type.toUpperCase()}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Port">
-                    {selectedProfile.nvmeof.trsvcid}
-                  </Descriptions.Item>
-                </Descriptions>
-              </Card>
-            )}
-
-            {selectedStatus.drbd && (
-              <Card title="DRBD Status" size="small">
-                <Descriptions bordered column={2}>
-                  <Descriptions.Item label="Resource">
-                    {selectedStatus.drbd.resource}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Role">
-                    <Tag color={roleColor[selectedStatus.drbd.role]}>
-                      {selectedStatus.drbd.role}
-                    </Tag>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Disk">
-                    {selectedStatus.drbd.disk}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Open">
-                    {selectedStatus.drbd.open ? 'Yes' : 'No'}
-                  </Descriptions.Item>
-                </Descriptions>
-              </Card>
-            )}
-
-            <Card title="Services" size="small">
-              <Table
-                dataSource={selectedStatus.service_statuses}
-                columns={[
-                  { title: 'Service', dataIndex: 'name', key: 'name' },
-                  {
-                    title: 'Active',
-                    dataIndex: 'active',
-                    key: 'active',
-                    render: (active: boolean) => (
-                      <Tag color={active ? 'green' : 'default'}>
-                        {active ? 'Running' : 'Stopped'}
-                      </Tag>
-                    ),
-                  },
-                  { title: 'State', dataIndex: 'state', key: 'state' },
-                  {
-                    title: 'Enabled',
-                    dataIndex: 'enabled',
-                    key: 'enabled',
-                    render: (enabled: boolean) => (enabled ? 'Yes' : 'No'),
-                  },
-                ]}
-                rowKey="name"
-                pagination={false}
-                size="small"
-              />
-            </Card>
-          </div>
-        )}
-      </Modal>
 
       {/* Delete Confirmation Modal */}
       <Modal
@@ -721,58 +725,6 @@ export function HaProfiles() {
             <div ref={logsEndRef} />
           </div>
         </div>
-      </Modal>
-
-      {/* Add VIP Modal */}
-      <Modal
-        title={`Add VIP to ${selectedProfileForVip?.name || 'Profile'}`}
-        open={vipModalOpen}
-        onCancel={() => {
-          setVipModalOpen(false);
-          setSelectedProfileForVip(null);
-        }}
-        footer={null}
-        destroyOnClose
-      >
-        <Form form={vipForm} layout="vertical" onFinish={handleAddVip}>
-          <Form.Item
-            name="address"
-            label="IP Address"
-            rules={[
-              { required: true, message: 'Please enter IP address' },
-              {
-                pattern: /^(\d{1,3}\.){3}\d{1,3}$/,
-                message: 'Invalid IP address format',
-              },
-            ]}
-          >
-            <Input placeholder="192.168.1.100" />
-          </Form.Item>
-          <Form.Item
-            name="netmask"
-            label="Netmask (CIDR)"
-            rules={[{ required: true, message: 'Please enter netmask' }]}
-          >
-            <InputNumber min={1} max={32} className="w-full" />
-          </Form.Item>
-          <Form.Item
-            name="interface"
-            label="Network Interface"
-            rules={[{ required: true, message: 'Please enter interface name' }]}
-          >
-            <Input placeholder="eth0" />
-          </Form.Item>
-          <Form.Item>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={vipSubmitting}
-              block
-            >
-              Add VIP
-            </Button>
-          </Form.Item>
-        </Form>
       </Modal>
     </div>
   );

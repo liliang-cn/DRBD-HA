@@ -8,10 +8,10 @@ import {
   Input,
   InputNumber,
   Row,
+  Radio,
   Select,
 } from 'antd';
 import type { BlockDevice, Node, StoragePool } from '@/types';
-import { Radio } from 'antd';
 
 interface StorageConfigStepProps {
   form: FormInstance;
@@ -104,40 +104,76 @@ export function StorageConfigStep({
             return (
               <>
                 {storageType === 'lvm' && (
-                  <Row gutter={16}>
-                    <Col span={8}>
-                      <Form.Item
-                        name="lvm_vg_name"
-                        label="Volume Group Name"
-                        rules={[{ required: true, message: 'VG Name is required' }]}
-                      >
-                        <Input placeholder="drbd_vg" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item
-                        name="lvm_lv_name"
-                        label="Logical Volume Name"
-                        tooltip="Defaults to resource name"
-                      >
-                        <Input placeholder="drbd_lv" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item
-                        name="lvm_lv_size"
-                        label="Size"
-                        initialValue="100%FREE"
-                        tooltip="e.g. 10G, 100%FREE"
-                      >
-                        <Input />
-                      </Form.Item>
-                    </Col>
-                  </Row>
+                  <>
+                    <Row gutter={16}>
+                      <Col span={8}>
+                        <Form.Item
+                          name="lvm_vg_name"
+                          label="Volume Group Name"
+                          rules={[{ required: true, message: 'VG Name is required' }]}
+                        >
+                          <Input placeholder="drbd_vg" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name="lvm_lv_name"
+                          label="Logical Volume Name"
+                          tooltip="Defaults to resource name"
+                        >
+                          <Input placeholder="drbd_lv" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name="lvm_lv_size"
+                          label="LV Size"
+                          initialValue="100%FREE"
+                          tooltip="e.g. 10G, 100%FREE (virtual size for thin volume)"
+                        >
+                          <Input />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <Row gutter={16}>
+                      <Col span={12}>
+                        <Form.Item
+                          name="lvm_thin_pool_name"
+                          label="Thin Pool Name"
+                          initialValue="thinpool"
+                          tooltip="LVM thin pool for efficient storage allocation"
+                        >
+                          <Input placeholder="thinpool" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item
+                          name="lvm_thin_pool_size"
+                          label="Thin Pool Metadata Size"
+                          initialValue="1G"
+                          tooltip="Metadata size for thin pool (1G supports ~6400 volumes)"
+                        >
+                          <Input placeholder="1G" />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <div className="text-sm text-gray-500 mb-4">
+                      ℹ️ <strong>Thin provisioning enabled</strong>: Volumes will use only the space they actually need.
+                      Thin pool metadata size can be increased later if needed for more volumes.
+                    </div>
+                  </>
                 )}
 
                 {storageType === 'zfs' && (
                   <>
+                    <Form.Item
+                      name="zfs_thin_volume"
+                      initialValue={true}
+                      valuePropName="checked"
+                      hidden
+                    >
+                      <Checkbox />
+                    </Form.Item>
                     <Row gutter={16}>
                       <Col span={12}>
                         <Form.Item
@@ -152,10 +188,10 @@ export function StorageConfigStep({
                       <Col span={12}>
                         <Form.Item
                           name="zfs_volume_size_gb"
-                          label="Volume Size (GB)"
+                          label="Virtual Volume Size (GB)"
                           initialValue={10}
                           rules={[{ required: true, message: 'Volume size is required' }]}
-                          tooltip="Size of the ZFS volume to create"
+                          tooltip="Virtual size (actual space used depends on data)"
                         >
                           <InputNumber min={1} className="w-full" />
                         </Form.Item>
@@ -168,6 +204,10 @@ export function StorageConfigStep({
                     >
                       <Input placeholder="drbd_volume" />
                     </Form.Item>
+                    <div className="text-sm text-gray-500 mb-4">
+                      ℹ️ <strong>Thin provisioning enabled</strong>: ZFS sparse volumes allocate space on-demand.
+                      The volume size is virtual; actual disk usage will grow as data is written.
+                    </div>
                   </>
                 )}
               </>

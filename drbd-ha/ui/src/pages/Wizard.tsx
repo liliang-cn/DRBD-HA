@@ -77,9 +77,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   >({});
   const [services, setServices] = useState<ServiceFileInfo[]>([]);
   // HA Type state
-  const [haType, setHaType] = useState<'generic' | 'nfs' | 'iscsi' | 'nvmeof'>(
-    mode === 'storage' ? 'nfs' : 'generic',
-  );
+  const [haType, setHaType] = useState<'generic'>('generic');
 
   const [resourceForm] = Form.useForm();
   const [haForm] = Form.useForm();
@@ -644,39 +642,6 @@ export function Wizard({ mode = 'service' }: WizardProps) {
                 preserve_permissions: haValues.preserve_permissions,
               }
             : undefined,
-          // New Protocol Configs
-          nfs:
-            haType === 'nfs'
-              ? {
-                  export_path: haValues.mount_point, // Usually same as mount point
-                  allowed_networks: haValues.nfs_allowed_networks
-                    ?.split(',')
-                    .map((s: string) => s.trim()) || ['*'],
-                  options: haValues.nfs_options || 'rw,sync,no_root_squash',
-                }
-              : undefined,
-          iscsi:
-            haType === 'iscsi'
-              ? {
-                  iqn: haValues.iscsi_iqn,
-                  allowed_initiators:
-                    haValues.iscsi_allowed_initiators
-                      ?.split(',')
-                      .map((s: string) => s.trim()) || [],
-                }
-              : undefined,
-          nvmeof:
-            haType === 'nvmeof'
-              ? {
-                  nqn: haValues.nvmeof_nqn,
-                  allowed_nqns:
-                    haValues.nvmeof_allowed_nqns
-                      ?.split(',')
-                      .map((s: string) => s.trim()) || [],
-                  fabric_type: haValues.nvmeof_fabric_type || 'tcp',
-                  trsvcid: haValues.nvmeof_port || '4420',
-                }
-              : undefined,
         };
 
         const result = await haProfilesApi.create(request);

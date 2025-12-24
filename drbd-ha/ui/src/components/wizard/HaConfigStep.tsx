@@ -20,7 +20,6 @@ import {
   Select,
   Space,
   Tag,
-  Transfer,
   Typography,
 } from 'antd';
 import { useEffect, useState } from 'react';
@@ -82,55 +81,22 @@ export function HaConfigStep({
 
   // Set default values when type changes
   useEffect(() => {
-    if (haType === 'iscsi' && !form.getFieldValue('iscsi_iqn')) {
-      const year = new Date().getFullYear();
-      const month = String(new Date().getMonth() + 1).padStart(2, '0');
-      form.setFieldValue(
-        'iscsi_iqn',
-        `iqn.${year}-${month}.com.haforge:target1`,
-      );
-    } else if (haType === 'nvmeof' && !form.getFieldValue('nvmeof_nqn')) {
-      const year = new Date().getFullYear();
-      const month = String(new Date().getMonth() + 1).padStart(2, '0');
-      form.setFieldValue(
-        'nvmeof_nqn',
-        `nqn.${year}-${month}.com.haforge:nvme1`,
-      );
-    }
+    // No default values needed for generic HA
   }, [haType, form]);
-
-  const isStorageMode = mode === 'storage';
-  const isBlockProtocol = haType === 'iscsi' || haType === 'nvmeof';
 
   return (
     <Card
-      title={`Step 3: Configure ${isStorageMode ? 'Storage Sharing' : 'Service HA'}`}
+      title="Step 3: Configure Service HA"
       className="max-w-4xl mx-auto"
     >
       <Form form={form} layout="vertical">
-        {/* Protocol Selection for Storage Mode */}
-        {isStorageMode && (
-          <Form.Item label="Sharing Protocol" className="mb-6">
-            <Radio.Group
-              value={haType}
-              onChange={(e) => onHaTypeChange(e.target.value)}
-              buttonStyle="solid"
-            >
-              <Radio.Button value="nfs">NFS</Radio.Button>
-              <Radio.Button value="iscsi">iSCSI</Radio.Button>
-              <Radio.Button value="nvmeof">NVMe-oF</Radio.Button>
-            </Radio.Group>
-          </Form.Item>
-        )}
 
         <Form.Item
           name="name"
           label="Profile Name"
           rules={[{ required: true, message: 'Please enter a profile name' }]}
         >
-          <Input
-            placeholder={isStorageMode ? 'my-storage-share' : 'my-service-ha'}
-          />
+          <Input placeholder="my-service-ha" />
         </Form.Item>
 
         <Form.Item
@@ -168,75 +134,63 @@ export function HaConfigStep({
           />
         </Form.Item>
 
-        {/* Mount Point - Only for File-based protocols (Generic, NFS) */}
-        {!isBlockProtocol && (
-          <>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item
-                  name="mount_point"
-                  label={
-                    haType === 'nfs'
-                      ? 'Export Path (Mount Point)'
-                      : 'Mount Point'
-                  }
-                  rules={[
-                    { required: true, message: 'Mount point is required' },
-                  ]}
-                  help={
-                    mountStrategy === 'ocf'
-                      ? 'This path will be used as the "directory" parameter for the automatically generated OCF Filesystem agent.'
-                      : haType === 'nfs'
-                        ? 'The local path where the DRBD volume will be mounted and exported via NFS.'
-                        : undefined
-                  }
-                >
-                  <Input placeholder="/srv/nfs/share1" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="fs_type" label="Filesystem" initialValue="xfs">
-                  <Select
-                    options={[
-                      { value: 'xfs' },
-                      { value: 'ext4' },
-                      { value: 'btrfs' },
-                    ]}
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
+        {/* Mount Point for Generic HA */}
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item
+              name="mount_point"
+              label="Mount Point"
+              rules={[
+                { required: true, message: 'Mount point is required' },
+              ]}
+              help={
+                mountStrategy === 'ocf'
+                  ? 'This path will be used as the "directory" parameter for the automatically generated OCF Filesystem agent.'
+                  : undefined
+              }
+            >
+              <Input placeholder="/srv/myapp/data" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="fs_type" label="Filesystem" initialValue="xfs">
+              <Select
+                options={[
+                  { value: 'xfs' },
+                  { value: 'ext4' },
+                  { value: 'btrfs' },
+                ]}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
 
-            {/* Mount Strategy - Advanced option for Storage mode */}
-            {isStorageMode && (
-              <Form.Item
-                name="mount_strategy"
-                label="Mount Strategy"
-                initialValue="systemd"
-                help={
-                  <Space direction="vertical" size="small">
-                    <Text type="secondary">
-                      <strong>Systemd (Recommended):</strong> Uses systemd mount
-                      units. Best for databases and simple setups.
-                    </Text>
-                    <Text type="secondary">
-                      <strong>OCF Filesystem Agent:</strong> Automatically
-                      configures an OCF Filesystem agent using the Mount Point
-                      above. Provides advanced monitoring and recovery.
-                    </Text>
-                  </Space>
-                }
-              >
-                <Radio.Group>
-                  <Radio.Button value="systemd">
-                    Systemd Mount Unit
-                  </Radio.Button>
-                  <Radio.Button value="ocf">OCF Filesystem Agent</Radio.Button>
-                </Radio.Group>
-              </Form.Item>
-            )}
-          </>
-        )}
+        {/* Mount Strategy */}
+        <Form.Item
+          name="mount_strategy"
+          label="Mount Strategy"
+          initialValue="systemd"
+          help={
+            <Space direction="vertical" size="small">
+              <Text type="secondary">
+                <strong>Systemd (Recommended):</strong> Uses systemd mount
+                units. Best for databases and simple setups.
+              </Text>
+              <Text type="secondary">
+                <strong>OCF Filesystem Agent:</strong> Automatically
+                configures an OCF Filesystem agent using the Mount Point
+                above. Provides advanced monitoring and recovery.
+              </Text>
+            </Space>
+          }
+        >
+          <Radio.Group>
+            <Radio.Button value="systemd">
+              Systemd Mount Unit
+            </Radio.Button>
+            <Radio.Button value="ocf">OCF Filesystem Agent</Radio.Button>
+          </Radio.Group>
+        </Form.Item>
 
   
         {/* --- Service Specific Fields (Generic) --- */}
@@ -259,111 +213,8 @@ export function HaConfigStep({
             />
           </Form.Item>
         )}
-
-        {/* --- NFS Specific Fields --- */}
-        {haType === 'nfs' && (
-          <div className="bg-blue-50 p-4 rounded-md mb-4 border border-blue-100">
-            <h4 className="font-semibold mb-3 text-blue-800">NFS Settings</h4>
-            <Form.Item
-              name="nfs_allowed_networks"
-              label="Allowed Networks"
-              initialValue="*"
-              help="Comma separated list of IP addresses or CIDR networks (e.g. 192.168.1.0/24, 10.0.0.5)"
-            >
-              <Input placeholder="*" />
-            </Form.Item>
-            <Form.Item
-              name="nfs_options"
-              label="Export Options"
-              initialValue="rw,sync,root_squash,anonuid=1000,anongid=1000"
-              tooltip="Recommended options for secure NFS with proper user mapping"
-            >
-              <Input />
-            </Form.Item>
-          </div>
-        )}
-
-        {/* --- iSCSI Specific Fields --- */}
-        {haType === 'iscsi' && (
-          <div className="bg-purple-50 p-4 rounded-md mb-4 border border-purple-100">
-            <h4 className="font-semibold mb-3 text-purple-800">
-              iSCSI Target Settings
-            </h4>
-            <Form.Item
-              name="iscsi_iqn"
-              label="Target IQN"
-              rules={[{ required: true, message: 'IQN is required' }]}
-              help="Unique iSCSI Qualified Name for this target"
-            >
-              <Input placeholder="iqn.2025-01.com.example:target1" />
-            </Form.Item>
-            <Form.Item
-              name="iscsi_allowed_initiators"
-              label="Allowed Initiators (ACLs)"
-              help="Comma separated list of Initiator IQNs. Leave empty to allow all (not recommended for production)."
-            >
-              <Input.TextArea
-                placeholder="iqn.1991-05.com.microsoft:host1, iqn.1994-05.com.redhat:host2"
-                rows={2}
-              />
-            </Form.Item>
-          </div>
-        )}
-
-        {/* --- NVMe-oF Specific Fields --- */}
-        {haType === 'nvmeof' && (
-          <div className="bg-orange-50 p-4 rounded-md mb-4 border border-orange-100">
-            <h4 className="font-semibold mb-3 text-orange-800">
-              NVMe-oF Target Settings
-            </h4>
-            <Row gutter={16}>
-              <Col span={16}>
-                <Form.Item
-                  name="nvmeof_nqn"
-                  label="Target NQN"
-                  rules={[{ required: true, message: 'NQN is required' }]}
-                >
-                  <Input placeholder="nqn.2014-08.org.nvmexpress:uuid:..." />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item
-                  name="nvmeof_port"
-                  label="Port (TRSVCID)"
-                  initialValue="4420"
-                >
-                  <Input />
-                </Form.Item>
-              </Col>
-            </Row>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item
-                  name="nvmeof_fabric_type"
-                  label="Fabric Type"
-                  initialValue="tcp"
-                >
-                  <Select
-                    options={[
-                      { value: 'tcp', label: 'TCP' },
-                      { value: 'rdma', label: 'RDMA' },
-                    ]}
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
-            <Form.Item
-              name="nvmeof_allowed_nqns"
-              label="Allowed Host NQNs"
-              help="Comma separated list of Host NQNs. Leave empty to allow all."
-            >
-              <Input.TextArea
-                placeholder="nqn.2014-08.org.nvmexpress:uuid:client1..."
-                rows={2}
-              />
-            </Form.Item>
-          </div>
-        )}
+        {/* No Storage Protocol Fields - Only Generic HA */}
+        {/* --- Generic HA Specific Fields --- */}
 
         <Divider>Network Configuration (VIP)</Divider>
         <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
@@ -486,26 +337,17 @@ export function HaConfigStep({
                       Node Preferences
                     </h4>
                     <Text type="secondary" className="block mb-4 text-xs">
-                      Set node priority for service placement. Higher priority
-                      nodes will be preferred for running services. Nodes are
-                      ordered by priority (first = highest priority).
+                      Select preferred nodes for running this service. The first
+                      selected node has the highest priority.
                     </Text>
 
                     <Form.Item name="preferred_nodes" label="Preferred Nodes">
-                      <Transfer
-                        dataSource={availableNodes}
-                        targetKeys={form.getFieldValue('preferred_nodes') || []}
-                        onChange={(nextTargetKeys) => {
-                          form.setFieldValue('preferred_nodes', nextTargetKeys);
-                        }}
-                        render={(item) => item.title}
-                        titles={['Available Nodes', 'Preferred Nodes']}
-                        oneWay
-                        style={{ marginBottom: 16 }}
-                        listStyle={{
-                          width: 250,
-                          height: 200,
-                        }}
+                      <Select
+                        mode="multiple"
+                        placeholder="Select preferred nodes (optional)"
+                        allowClear
+                        options={availableNodes}
+                        optionFilterProp="title"
                       />
                     </Form.Item>
 
@@ -651,80 +493,76 @@ export function HaConfigStep({
           ]}
         />
 
-        {/* Data Migration - Only for File-based protocols */}
-        {!isBlockProtocol && (
-          <>
-            <Divider>Data Migration</Divider>
-            <Form.Item
-              name="migrate_data"
-              valuePropName="checked"
-              initialValue={false}
-            >
-              <Checkbox
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  if (checked && !form.getFieldValue('source_path')) {
-                    form.setFieldValue(
-                      'source_path',
-                      form.getFieldValue('mount_point'),
-                    );
-                  }
-                }}
-              >
-                Migrate existing data to shared storage
-              </Checkbox>
-            </Form.Item>
+        {/* Data Migration for Generic HA */}
+        <Divider>Data Migration</Divider>
+        <Form.Item
+          name="migrate_data"
+          valuePropName="checked"
+          initialValue={false}
+        >
+          <Checkbox
+            onChange={(e) => {
+              const checked = e.target.checked;
+              if (checked && !form.getFieldValue('source_path')) {
+                form.setFieldValue(
+                  'source_path',
+                  form.getFieldValue('mount_point'),
+                );
+              }
+            }}
+          >
+            Migrate existing data to shared storage
+          </Checkbox>
+        </Form.Item>
 
-            <Form.Item
-              noStyle
-              shouldUpdate={(prev, current) =>
-                prev.migrate_data !== current.migrate_data
-              }
-            >
-              {({ getFieldValue }) =>
-                getFieldValue('migrate_data') ? (
-                  <div className="bg-gray-50 p-4 rounded-md mb-4 border border-gray-200">
-                    <Text type="secondary" className="block mb-4 text-xs">
-                      This will copy data from the source directory to the new
-                      DRBD volume. Services might need to be stopped during this
-                      process.
-                    </Text>
-                    <Form.Item
-                      name="source_path"
-                      label="Source Directory"
-                      rules={[
-                        {
-                          required: true,
-                          message: 'Source path is required for migration',
-                        },
-                      ]}
-                    >
-                      <Input />
-                    </Form.Item>
-                    <Space size="large">
-                      <Form.Item
-                        name="format_device"
-                        valuePropName="checked"
-                        initialValue={true}
-                        noStyle
-                      >
-                        <Checkbox>Format device before migration</Checkbox>
-                      </Form.Item>
-                      <Form.Item
-                        name="preserve_permissions"
-                        valuePropName="checked"
-                        initialValue={true}
-                        noStyle
-                      >
-                        <Checkbox>Preserve permissions</Checkbox>
-                      </Form.Item>
-                    </Space>
-                  </div>
-                ) : null
-              }
-            </Form.Item>
-          </>
-        )}
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, current) =>
+            prev.migrate_data !== current.migrate_data
+          }
+        >
+          {({ getFieldValue }) =>
+            getFieldValue('migrate_data') ? (
+              <div className="bg-gray-50 p-4 rounded-md mb-4 border border-gray-200">
+                <Text type="secondary" className="block mb-4 text-xs">
+                  This will copy data from the source directory to the new
+                  DRBD volume. Services might need to be stopped during this
+                  process.
+                </Text>
+                <Form.Item
+                  name="source_path"
+                  label="Source Directory"
+                  rules={[
+                    {
+                      required: true,
+                      message: 'Source path is required for migration',
+                    },
+                  ]}
+                >
+                  <Input />
+                </Form.Item>
+                <Space size="large">
+                  <Form.Item
+                    name="format_device"
+                    valuePropName="checked"
+                    initialValue={true}
+                    noStyle
+                  >
+                    <Checkbox>Format device before migration</Checkbox>
+                  </Form.Item>
+                  <Form.Item
+                    name="preserve_permissions"
+                    valuePropName="checked"
+                    initialValue={true}
+                    noStyle
+                  >
+                    <Checkbox>Preserve permissions</Checkbox>
+                  </Form.Item>
+                </Space>
+              </div>
+            ) : null
+          }
+        </Form.Item>
       </Form>
     </Card>
   );

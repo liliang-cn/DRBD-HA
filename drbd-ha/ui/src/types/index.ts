@@ -70,11 +70,16 @@ export interface CreateResourceRequest {
   lvm_vg_name?: string;
   lvm_lv_name?: string;
   lvm_lv_size?: string;
+  // LVM thin pool configuration
+  lvm_thin_pool_name?: string;
+  lvm_thin_pool_size?: string;
   // Storage pool configuration
   storage_type?: 'none' | 'lvm' | 'zfs';
   zfs_pool_name?: string;
   zfs_volume_name?: string;
   zfs_volume_size_gb?: number;
+  // ZFS thin provisioning (default: true)
+  zfs_thin_volume?: boolean;
 }
 
 export interface ResourceAction {
@@ -111,25 +116,7 @@ export interface GeneratedUnits {
   service_overrides: ServiceOverride[];
 }
 
-export type HaType = 'generic' | 'nfs' | 'iscsi' | 'nvmeof';
-
-export interface NfsConfig {
-  export_path: string;
-  allowed_networks: string[];
-  options: string;
-}
-
-export interface IscsiConfig {
-  iqn: string;
-  allowed_initiators: string[];
-}
-
-export interface NvmeOfConfig {
-  nqn: string;
-  allowed_nqns: string[];
-  fabric_type: string;
-  trsvcid: string;
-}
+export type HaType = 'generic';
 
 export interface OcfAgentConfig {
   name: string;
