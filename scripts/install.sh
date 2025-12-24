@@ -129,11 +129,20 @@ install_binary() {
         exit 1
     fi
 
-    # Copy binary
+    # Copy binary to /opt/drbd-ha
     cp "$DEPLOY_DIR/drbd-ha" "$INSTALL_DIR/$SERVICE_NAME"
     chmod +x "$INSTALL_DIR/$SERVICE_NAME"
-
     echo -e "${GREEN}✓ Binary installed: $INSTALL_DIR/$SERVICE_NAME${NC}"
+
+    # Copy ra-params to /usr/local/bin (in PATH)
+    if [ -f "$DEPLOY_DIR/ra-params" ]; then
+        cp "$DEPLOY_DIR/ra-params" "/usr/local/bin/ra-params"
+        chmod +x "/usr/local/bin/ra-params"
+        echo -e "${GREEN}✓ ra-params installed: /usr/local/bin/ra-params${NC}"
+    else
+        echo -e "${YELLOW}⊙ ra-params not found, skipping${NC}"
+    fi
+
     echo ""
 }
 
@@ -249,6 +258,7 @@ show_summary() {
     echo ""
     echo -e "${BLUE}Installation Locations:${NC}"
     echo "  Binary:   $INSTALL_DIR/$SERVICE_NAME"
+    echo "  Tool:     /usr/local/bin/ra-params"
     echo "  Config:   $CONFIG_DIR/config.toml"
     echo "  Logs:     $LOG_DIR/drbd-ha.log"
     echo ""

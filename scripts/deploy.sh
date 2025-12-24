@@ -24,6 +24,7 @@ NC='\033[0m' # No Color
 # Configuration
 REMOTE_HOST=""
 BINARY_SOURCE="./target/release/drbd-ha"
+RA_PARAMS_SOURCE="./target/release/ra-params"
 CONFIG_SOURCE="./drbd-ha/config/default.toml"
 INSTALL_SCRIPT_SOURCE="./scripts/install.sh"
 
@@ -39,6 +40,7 @@ for arg in "$@"; do
         --dev)
             BUILD_MODE="debug"
             BINARY_SOURCE="./target/debug/drbd-ha"
+            RA_PARAMS_SOURCE="./target/debug/ra-params"
             shift
             ;;
         -*)
@@ -190,6 +192,15 @@ deploy_files() {
     echo "Copying binary to $REMOTE_HOST:/tmp/drbd-ha-deploy/..."
     scp "$BINARY_SOURCE" "$REMOTE_HOST:/tmp/drbd-ha-deploy/drbd-ha"
     echo -e "${GREEN}✓ Binary deployed${NC}"
+
+    # Copy ra-params
+    if [ -f "$RA_PARAMS_SOURCE" ]; then
+        echo "Copying ra-params to $REMOTE_HOST:/tmp/drbd-ha-deploy/..."
+        scp "$RA_PARAMS_SOURCE" "$REMOTE_HOST:/tmp/drbd-ha-deploy/ra-params"
+        echo -e "${GREEN}✓ ra-params deployed${NC}"
+    else
+        echo -e "${YELLOW}⊙ ra-params not found at $RA_PARAMS_SOURCE${NC}"
+    fi
 
     # Copy config
     if [ -f "$CONFIG_SOURCE" ]; then

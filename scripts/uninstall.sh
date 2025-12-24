@@ -130,6 +130,14 @@ remove_binary() {
         echo -e "${YELLOW}⊙ Binary not found${NC}"
     fi
 
+    # Remove ra-params
+    if [ -f "/usr/local/bin/ra-params" ]; then
+        rm -f "/usr/local/bin/ra-params"
+        echo -e "${GREEN}✓ ra-params removed${NC}"
+    else
+        echo -e "${YELLOW}⊙ ra-params not found${NC}"
+    fi
+
     # Try to remove install directory if empty
     if [ -d "$INSTALL_DIR" ]; then
         rmdir --ignore-fail-on-non-empty "$INSTALL_DIR" 2>/dev/null || true
