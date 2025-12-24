@@ -2,8 +2,10 @@ import {
   CheckCircleOutlined,
   DeleteOutlined,
   ExclamationCircleOutlined,
+  FileTextOutlined,
   LoadingOutlined,
   PlusOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import {
   Button,
@@ -57,6 +59,12 @@ export function HaProfiles() {
   const [deleteResource, setDeleteResource] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+
+  // Check Results Modal State
+  const [checkResultsModalOpen, setCheckResultsModalOpen] = useState(false);
+  const [checkingProfile, setCheckingProfile] = useState<HaProfile | null>(null);
+  const [checkResultsLoading, setCheckResultsLoading] = useState(false);
+  const [checkResultsData, setCheckResultsData] = useState<any>(null);
 
   // Deletion Progress State
   const [progressModalOpen, setProgressModalOpen] = useState(false);
@@ -258,6 +266,29 @@ export function HaProfiles() {
     }
   };
 
+  const handleCheckResults = async (profile: HaProfile) => {
+    setCheckingProfile(profile);
+    setCheckResultsModalOpen(true);
+    setCheckResultsLoading(true);
+    setCheckResultsData(null);
+
+    try {
+      const status = await haProfilesApi.getStatus(profile.id);
+      setCheckResultsData(status);
+    } catch (err) {
+      message.error((err as { message: string }).message);
+      setCheckResultsModalOpen(false);
+    } finally {
+      setCheckResultsLoading(false);
+    }
+  };
+
+  const handleCloseCheckResults = () => {
+    setCheckResultsModalOpen(false);
+    setCheckingProfile(null);
+    setCheckResultsData(null);
+  };
+
   const columns = [
     { title: 'Name', dataIndex: 'name', key: 'name' },
     {
@@ -327,6 +358,14 @@ export function HaProfiles() {
       render: (_: unknown, record: HaProfile) => {
         return (
           <Space wrap>
+            <Button
+              size="small"
+              icon={<FileTextOutlined />}
+              onClick={() => handleCheckResults(record)}
+              title="Check Results"
+            >
+              Check Results
+            </Button>
             <Button
               size="small"
               type="text"
@@ -725,6 +764,174 @@ export function HaProfiles() {
             <div ref={logsEndRef} />
           </div>
         </div>
+      </Modal>
+
+      {/* Check Results Modal */}
+      <Modal
+        title={
+          <span>
+            <FileTextOutlined style={{ marginRight: 8 }} />
+            HA Profile Check Results - {checkingProfile?.name}
+          </span>
+        }
+        open={checkResultsModalOpen}
+        onCancel={handleCloseCheckResults}
+        footer={[
+          <Button key="refresh" icon={<ReloadOutlined />} onClick={() => checkingProfile && handleCheckResults(checkingProfile)}>
+            Refresh
+          </Button>,
+          <Button key="close" type="primary" onClick={handleCloseCheckResults}>
+            Close
+          </Button>,
+        ]}
+        width={800}
+      >
+        {checkResultsLoading ? (
+          <div className="flex justify-center items-center p-8">
+            <LoadingOutlined className="text-2xl text-blue-500" />
+          </div>
+        ) : checkResultsData ? (
+          <div className="space-y-4">
+            {/* Status Overview */}
+            <Card title="Status Overview" size="small">
+              <Descriptions bordered column={2} size="small">
+                <Descriptions.Item label="Profile Status">
+                  <Tag color={statusColor[checkResultsData.status] || 'default'}>
+                    {checkResultsData.status?.toUpperCase()}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Active Node">
+                  {checkResultsData.active_node || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Local Node Active">
+                  {checkResultsData.is_local_active ? (
+                    <Tag color="green">Yes</Tag>
+                  ) : (
+                    <Tag color="default">No</Tag>
+                  )}
+                </Descriptions.Item>
+                <Descriptions.Item label="All Services Running">
+                  {checkResultsData.all_services_running ? (
+                    <Tag color="green">Yes</Tag>
+                  ) : (
+                    <Tag color="red">No</Tag>
+                  )}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+
+            {/* DRBD Status */}
+            {checkResultsData.drbd_status && (
+              <Card title="DRBD Status" size="small">
+                <Descriptions bordered column={2} size="small">
+                  <Descriptions.Item label="Resource">
+                    {checkResultsData.drbd_status.resource_name}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Role">
+                    <Tag color={roleColor[checkResultsData.drbd_status.local_role] || 'default'}>
+                      {checkResultsData.drbd_status.local_role}
+                    </Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Disk State">
+                    <Tag color={
+                      checkResultsData.drbd_status.local_disk_state === 'UpToDate' ? 'green' : 'orange'
+                    }>
+                      {checkResultsData.drbd_status.local_disk_state}
+                    </Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Connection State">
+                    <Tag color={
+                      checkResultsData.drbd_status.connection_state === 'Connected' ? 'green' : 'orange'
+                    }>
+                      {checkResultsData.drbd_status.connection_state}
+                    </Tag>
+                  </Descriptions.Item>
+                  {checkResultsData.drbd_status.sync_progress_percent !== undefined && (
+                    <Descriptions.Item label="Sync Progress" span={2}>
+                      <Progress
+                        percent={Math.round(checkResultsData.drbd_status.sync_progress_percent * 100)}
+                        status={checkResultsData.drbd_status.sync_progress_percent >= 1 ? 'success' : 'active'}
+                      />
+                    </Descriptions.Item>
+                  )}
+                </Descriptions>
+              </Card>
+            )}
+
+            {/* Service Status */}
+            {checkResultsData.service_statuses && checkResultsData.service_statuses.length > 0 && (
+              <Card title="Service Status" size="small">
+                <div className="space-y-2">
+                  {checkResultsData.service_statuses.map((svc: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                      <div className="flex-1">
+                        <div className="font-medium">{svc.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {svc.active_state} / {svc.sub_state}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {svc.running ? (
+                          <CheckCircleOutlined className="text-green-500" />
+                        ) : (
+                          <ExclamationCircleOutlined className="text-red-500" />
+                        )}
+                        <Tag color={svc.running ? 'green' : 'red'}>
+                          {svc.running ? 'Running' : 'Stopped'}
+                        </Tag>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            {/* Reactor Status */}
+            {checkResultsData.reactor_status && (
+              <Card title="DRBD Reactor Status" size="small">
+                <Descriptions bordered column={1} size="small">
+                  <Descriptions.Item label="Status">
+                    <Tag color={checkResultsData.reactor_status.running ? 'green' : 'red'}>
+                      {checkResultsData.reactor_status.running ? 'Running' : 'Stopped'}
+                    </Tag>
+                  </Descriptions.Item>
+                  {checkResultsData.reactor_status.promoter_status && (
+                    <Descriptions.Item label="Promoter">
+                      {checkResultsData.reactor_status.promoter_status}
+                    </Descriptions.Item>
+                  )}
+                </Descriptions>
+              </Card>
+            )}
+
+            {/* Mount Status */}
+            {checkResultsData.mount_status && (
+              <Card title="Mount Status" size="small">
+                <Descriptions bordered column={2} size="small">
+                  <Descriptions.Item label="Mounted">
+                    {checkResultsData.mount_status.mounted ? (
+                      <Tag color="green">Yes</Tag>
+                    ) : (
+                      <Tag color="red">No</Tag>
+                    )}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Mount Point">
+                    {checkResultsData.mount_status.mount_point || '-'}
+                  </Descriptions.Item>
+                  {checkResultsData.mount_status.fs_type && (
+                    <Descriptions.Item label="File System" span={2}>
+                      {checkResultsData.mount_status.fs_type}
+                    </Descriptions.Item>
+                  )}
+                </Descriptions>
+              </Card>
+            )}
+          </div>
+        ) : (
+          <div className="text-center text-gray-500 p-8">
+            No status data available
+          </div>
+        )}
       </Modal>
     </div>
   );
