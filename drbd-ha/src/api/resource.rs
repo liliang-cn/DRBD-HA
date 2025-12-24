@@ -10,12 +10,12 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::core::{
-    config_gen::{ConfigGenerator, ConfigPaths, NodeConfig, ResourceConfig},
     drbd_cmd::{parse_drbd_status, DrbdCmd, ResourceStatus},
     run_shell_command,
     safety::SafetyChecker,
     transaction::NodeTarget,
     validator,
+    DrbdConfigGenerator as ConfigGenerator, DrbdConfigPaths as ConfigPaths, NodeConfig, ResourceConfig,
 };
 use crate::error::{AppError, AppResult};
 use crate::models::{
@@ -122,7 +122,7 @@ pub async fn create_resource(
         validator::validate_block_device(disk)?;
     }
 
-    // Get node information from database
+    // Get node information from store
     // Removed unused creds variable
 
     // Build node configs and collect targets for safety checks
@@ -168,16 +168,36 @@ pub async fn create_resource(
 
     // Check if the generated device name conflicts with existing resources
     // Generate a temporary config just to get the device name
-    let temp_nodes: Vec<(String, String, String)> = req.node_disks
+    let temp_nodes: Vec<NodeConfig> = req.node_disks
         .iter()
         .enumerate()
         .map(|(i, (_node_id, disk))| {
             // Use placeholder values for now, we'll validate nodes later
-            (format!("node{}", i), format!("192.168.1.{}", i + 1), disk.clone())
+            NodeConfig {
+                hostname: format!("node{}", i),
+                ip: format!("192.168.1.{}", i + 1),
+                disk: disk.clone(),
+                node_id: i as u32,
+            }
         })
         .collect();
 
-    let temp_config = ConfigGenerator::resource_from_request(&req, &temp_nodes);
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    req.name.hash(&mut hasher);
+    let device_num = hasher.finish() % 10000;
+
+    let temp_config = ResourceConfig {
+        name: req.name.clone(),
+        port: req.port,
+        minor: req.minor,
+        device: format!("/dev/drbd{}", device_num),
+        nodes: temp_nodes,
+        auto_promote: req.auto_promote,
+        ..Default::default()
+    };
 
     state.send_progress(
         &operation_id,
@@ -193,7 +213,7 @@ pub async fn create_resource(
 
     tracing::info!("Device name '{}' is available for resource '{}'", temp_config.device, req.name);
 
-    if req.init_lvm || req.storage_type.as_ref().map_or(false, |t| t == "zfs") {
+    if req.init_lvm || req.storage_type.as_ref().is_some_and(|t| t == "zfs") {
          state.send_progress(
             &operation_id,
             "create_resource",
@@ -207,31 +227,35 @@ pub async fn create_resource(
 
     for (node_id, disk) in &req.node_disks {
         let node = state
-            .db
-            .get_node(node_id)?
+            .node_store
+            .get(node_id)?
             .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_id)))?;
 
         // Initialize LVM if requested
         if let (Some(vg_name), Some(lv_name), Some(lv_size)) = (&lvm_vg_name, &lvm_lv_name, &lvm_lv_size) {
-            // Determine lvcreate flag (-l for % or extents, -L for size)
-            let size_flag = if lv_size.contains('%') { "-l" } else { "-L" };
+            // Thin pool configuration (default to thin pool)
+            let thin_pool_name = req.lvm_thin_pool_name.as_deref().unwrap_or("thinpool");
+            let thin_pool_size = req.lvm_thin_pool_size.as_deref().unwrap_or("1G");
 
-            // Execute LVM commands
+            // Execute LVM commands with thin pool support
             // Note: -ff (force) is used to overwrite existing headers if any (careful!)
             // Using -y to assume yes
-            let cmds = vec![
+            let cmds = [
                 format!("pvcreate -y -ff {}", disk),
                 format!("vgcreate -y -ff {} {}", vg_name, disk),
-                format!("lvcreate -y -n {} {} {} {}", lv_name, size_flag, lv_size, vg_name),
+                // Create thin pool (metadata size is about 1% of pool size by default)
+                format!("lvcreate -y -L {} --type thin -n {} {}", thin_pool_size, thin_pool_name, vg_name),
+                // Create thin volume from thin pool
+                format!("lvcreate -y -V {} --type thin -n {} --thinpool {} {}", lv_size, lv_name, thin_pool_name, vg_name),
             ];
             let cmd_str = cmds.join(" && ");
 
-            info!("Initializing LVM on {}: {}", node.hostname, cmd_str);
+            info!("Initializing LVM with thin pool on {}: {}", node.hostname, cmd_str);
 
             if node.is_local {
-                let output = run_shell_command(&cmd_str, "Initialize local LVM").await?;
+                let output = run_shell_command(&cmd_str, "Initialize local LVM with thin pool").await?;
                 if !output.success() {
-                    return Err(AppError::Internal(format!("Failed to init LVM on local node: {}", output.stderr)));
+                    return Err(AppError::Internal(format!("Failed to init LVM with thin pool on local node: {}", output.stderr)));
                 }
             } else {
                 let cred = crate::core::SshCredential::Password("ignored".to_string());
@@ -239,24 +263,33 @@ pub async fn create_resource(
                 let sudo_cmd_str = format!("sudo bash -c '{}'", cmd_str);
                 let output = state.ssh_manager.execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, &sudo_cmd_str).await
                     .map_err(|e| AppError::Internal(format!("Failed to connect to remote node {}: {}", node.hostname, e)))?;
-                
+
                 if !output.success() {
-                    return Err(AppError::Internal(format!("Failed to init LVM on remote node {}: {}", node.hostname, output.stderr)));
+                    return Err(AppError::Internal(format!("Failed to init LVM with thin pool on remote node {}: {}", node.hostname, output.stderr)));
                 }
             }
         }
 
         // Initialize ZFS if requested
         if let (Some(pool_name), Some(volume_name), Some(volume_size_gb)) = (&zfs_pool_name, &zfs_volume_name, &zfs_volume_size_gb) {
-            let cmds = vec![
+            // ZFS thin provisioning (sparse volume) by default
+            let use_thin = req.zfs_thin_volume;
+
+            let cmds = [
                 // Create ZFS pool if it doesn't exist
                 format!("zpool list {} || zpool create -f {} {}", pool_name, pool_name, disk),
-                // Create ZFS volume
-                format!("zfs create -V {}G -b 128K {}/{}", volume_size_gb, pool_name, volume_name),
+                // Create ZFS volume with thin provisioning (sparse) or pre-allocated
+                if use_thin {
+                    // Sparse volume: -s flag creates a sparse (thin) volume
+                    format!("zfs create -s -V {}G -b 128K {}/{}", volume_size_gb, pool_name, volume_name)
+                } else {
+                    // Pre-allocated volume (thick)
+                    format!("zfs create -V {}G -b 128K {}/{}", volume_size_gb, pool_name, volume_name)
+                },
             ];
             let cmd_str = cmds.join(" && ");
 
-            info!("Initializing ZFS on {}: {}", node.hostname, cmd_str);
+            info!("Initializing ZFS with thin provisioning={} on {}: {}", use_thin, node.hostname, cmd_str);
 
             if node.is_local {
                 let output = run_shell_command(&cmd_str, "Initialize local ZFS").await?;
@@ -443,9 +476,6 @@ pub async fn create_resource(
     let config_gen = ConfigGenerator::new()?;
 
     // Generate device number (0-9999) using hash to avoid conflicts
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
     let mut hasher = DefaultHasher::new();
     req.name.hash(&mut hasher);
     let device_num = hasher.finish() % 10000; // Hash name to get 0-9999
@@ -491,9 +521,9 @@ pub async fn create_resource(
 
     // Write to ALL remote nodes in the cluster (not just nodes specified in node_disks)
     // This ensures all nodes have the resource configuration for DRBD to work properly
-    let all_nodes = state.db.get_all_nodes()?;
+    let all_nodes = state.node_store.get_all()?;
     info!(
-        "create_resource: Found {} total nodes in database",
+        "create_resource: Found {} total nodes in store",
         all_nodes.len()
     );
 
@@ -798,9 +828,9 @@ pub async fn init_resource(
     );
 
     // Get all remote nodes
-    let nodes = state.db.get_all_nodes()?;
+    let nodes = state.node_store.get_all()?;
     info!(
-        "init_resource: Found {} total nodes in database",
+        "init_resource: Found {} total nodes in store",
         nodes.len()
     );
 
@@ -1605,7 +1635,7 @@ pub async fn delete_resource(
     }
 
     // Delete configuration file from all remote nodes
-    if let Ok(nodes) = state.db.get_all_nodes() {
+    if let Ok(nodes) = state.node_store.get_all() {
         let remote_nodes: Vec<_> = nodes.iter().filter(|n| !n.is_local).collect();
 
         for node in remote_nodes {

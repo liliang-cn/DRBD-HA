@@ -10,9 +10,6 @@ use utoipa::ToSchema;
 pub enum HaType {
     #[default]
     Generic,
-    Nfs,
-    Iscsi,
-    NvmeOf,
 }
 
 /// OCF Agent configuration
@@ -24,31 +21,6 @@ pub struct OcfAgentConfig {
     pub instance_name: String,
     /// Agent parameters
     pub params: HashMap<String, String>,
-}
-
-/// NFS Configuration
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct NfsConfig {
-    pub export_path: String,           // e.g., "/exports/share1"
-    pub allowed_networks: Vec<String>, // e.g., ["192.168.1.0/24"]
-    pub options: String,               // e.g., "rw,sync,root_squash,anonuid=1000,anongid=1000"
-}
-
-/// iSCSI Configuration
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct IscsiConfig {
-    pub iqn: String, // e.g., "iqn.2025-01.com.haforge:lun1"
-    pub allowed_initiators: Vec<String>,
-    // TODO: CHAP auth
-}
-
-/// NVMe-oF Configuration
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct NvmeOfConfig {
-    pub nqn: String, // e.g., "nqn.2025-01.com.haforge:subsys"
-    pub allowed_nqns: Vec<String>,
-    pub fabric_type: String, // e.g., "tcp"
-    pub trsvcid: String,     // e.g., "4420"
 }
 
 /// HA Profile - defines how a service should be made highly available
@@ -87,11 +59,6 @@ pub struct HaProfile {
     /// Generated systemd unit information
     #[serde(default)]
     pub generated_units: GeneratedUnits,
-
-    // Specific configs
-    pub nfs: Option<NfsConfig>,
-    pub iscsi: Option<IscsiConfig>,
-    pub nvmeof: Option<NvmeOfConfig>,
 }
 
 /// Promoter settings for drbd-reactor
@@ -256,11 +223,6 @@ pub struct CreateHaProfileRequest {
     /// Optional: DRBD minor number (required for LVM auto-creation)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drbd_minor: Option<u32>,
-
-    // Specific configs
-    pub nfs: Option<NfsConfig>,
-    pub iscsi: Option<IscsiConfig>,
-    pub nvmeof: Option<NvmeOfConfig>,
 }
 
 /// Options for migrating existing data to DRBD storage

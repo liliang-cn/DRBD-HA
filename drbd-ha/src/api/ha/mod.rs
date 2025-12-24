@@ -1,5 +1,7 @@
 pub mod control;
-pub mod crud;
+pub mod create;
+pub mod delete;
+pub mod list;
 pub mod ops;
 pub mod reactor;
 pub mod resource_agent;
@@ -8,8 +10,11 @@ pub mod types;
 pub mod utils;
 pub mod vip;
 
+// Re-export commonly used types
 pub use control::*;
-pub use crud::*;
+pub use create::*;
+pub use delete::*;
+pub use list::*;
 pub use ops::*;
 pub use reactor::*;
 pub use resource_agent::*;

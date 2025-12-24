@@ -6,11 +6,11 @@ use axum::{
 use std::sync::Arc;
 use tracing::info;
 
-use crate::core::{get_vg_info, validator, LvmProvider, SafetyChecker, StorageProvider};
+use crate::core::{get_vg_info, list_vg_info, validator, LvmProvider, SafetyChecker, StorageProvider};
 use crate::error::{AppError, AppResult};
 use crate::models::storage::{
     CreateStoragePoolRequest, CreateStoragePoolResponse, CreateVolumeRequest, CreateVolumeResponse,
-    ListStoragePoolResponse, StoragePool, Volume,
+    ListStoragePoolResponse, StoragePool,
 };
 use crate::state::AppState;
 
@@ -24,33 +24,24 @@ use crate::state::AppState;
     )
 )]
 pub async fn list_pools(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
 ) -> AppResult<Json<ListStoragePoolResponse>> {
-    info!("Listing storage pools (LVM Volume Groups)");
-    let mut pools = state.db.get_all_storage_pools()?;
+    info!("Listing storage pools (LVM Volume Groups) - scanning from LVM");
 
-    // Update pool info from live LVM data
-    for pool in &mut pools {
-        // Assume local for now
-        if let Some(vg_info) = get_vg_info(&pool.name).await? {
-            pool.total_size = vg_info.size;
-            pool.free_size = vg_info.free;
-            // Update in DB
-            state
-                .db
-                .update_storage_pool_sizes(&pool.id, pool.total_size, pool.free_size)?;
-        } else {
-            // VG not found, mark as error or remove from list?
-            // For now, set sizes to 0
-            pool.total_size = 0;
-            pool.free_size = 0;
-            tracing::warn!(
-                "LVM Volume Group '{}' for pool '{}' not found on local system.",
-                pool.name,
-                pool.id
-            );
-        }
-    }
+    // Scan LVM directly for all volume groups
+    let vg_infos = list_vg_info().await?;
+
+    let pools: Vec<StoragePool> = vg_infos
+        .into_iter()
+        .map(|vg_info| StoragePool {
+            id: vg_info.name.clone(), // Use VG name as ID
+            name: vg_info.name,
+            node_id: "local".to_string(), // Local for now
+            device: "/dev/disk/by-path/placeholder".to_string(), // Placeholder
+            total_size: vg_info.size,
+            free_size: vg_info.free,
+        })
+        .collect();
 
     Ok(Json(ListStoragePoolResponse { pools }))
 }
@@ -87,7 +78,7 @@ pub async fn create_pool(
         ));
     }
 
-    let all_nodes = state.db.get_all_nodes()?;
+    let all_nodes = state.node_store.get_all()?;
     let mut responses = Vec::new();
 
     for (node_id, device) in &req.node_devices {
@@ -98,14 +89,11 @@ pub async fn create_pool(
             .find(|n| &n.id == node_id)
             .ok_or_else(|| AppError::NotFound(format!("Node '{}' not found", node_id)))?;
 
-        let existing_pools = state.db.get_all_storage_pools()?;
-        if existing_pools
-            .iter()
-            .any(|p| p.name == req.name && p.node_id == node.id)
-        {
+        // Check if VG already exists in LVM
+        if let Some(existing_vg) = get_vg_info(&req.name).await? {
             return Err(AppError::AlreadyExists(format!(
-                "Storage pool '{}' already exists on node '{}'",
-                req.name, node.hostname
+                "Storage pool '{}' (VG) already exists with size {}GB",
+                req.name, existing_vg.size
             )));
         }
 
@@ -161,31 +149,15 @@ pub async fn create_pool(
             }
         };
 
-        // Insert into DB
-        let new_pool = StoragePool {
-            id: uuid::Uuid::new_v4().to_string(),
+        // Pool created in LVM, just return the info
+        responses.push(CreateStoragePoolResponse {
+            id: req.name.clone(), // Use VG name as ID
             name: req.name.clone(),
             node_id: node.id.clone(),
             device: device.clone(),
             total_size,
             free_size,
-        };
-
-        if let Err(e) = state.db.insert_storage_pool(&new_pool, &node.id) {
-            return Err(AppError::Internal(format!(
-                "Node {}: Created VG but DB insert failed: {}",
-                node.hostname, e
-            )));
-        } else {
-            responses.push(CreateStoragePoolResponse {
-                id: new_pool.id,
-                name: new_pool.name,
-                node_id: new_pool.node_id,
-                device: new_pool.device,
-                total_size: new_pool.total_size,
-                free_size: new_pool.free_size,
-            });
-        }
+        });
     }
 
     info!(
@@ -213,7 +185,7 @@ pub async fn create_pool(
     )
 )]
 pub async fn create_volume(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     Path(pool_id): Path<String>,
     Json(req): Json<CreateVolumeRequest>,
 ) -> AppResult<(StatusCode, Json<CreateVolumeResponse>)> {
@@ -230,74 +202,44 @@ pub async fn create_volume(
         ));
     }
 
-    // Retrieve pool details from database
-    let mut pool = state
-        .db
-        .get_storage_pool(&pool_id)?
+    // Get pool info directly from LVM (pool_id is VG name)
+    let vg_info = get_vg_info(&pool_id)
+        .await?
         .ok_or_else(|| AppError::NotFound(format!("Storage pool '{}' not found", pool_id)))?;
 
-    // Check if volume name already exists in this pool
-    if state
-        .db
-        .get_all_volumes_in_pool(&pool_id)?
-        .iter()
-        .any(|v| v.name == req.name)
-    {
+    // Check if LV already exists in LVM
+    let existing_lvs = crate::core::list_lvs().await.unwrap_or_default();
+    if existing_lvs.iter().any(|lv| lv.name == req.name && lv.vg_name == pool_id) {
         return Err(AppError::AlreadyExists(format!(
             "Volume with name '{}' already exists in pool '{}'.",
-            req.name, pool.name
+            req.name, pool_id
         )));
     }
 
-    // Get current VG info to check free space
-    let vg_info = get_vg_info(&pool.name)
-        .await?
-        .ok_or_else(|| AppError::Internal(format!("LVM VG '{}' not found on system", pool.name)))?;
-
+    // Check free space
     if (req.size_gb * 1024 * 1024 * 1024) > vg_info.free {
         return Err(AppError::Validation(format!(
             "Requested size ({}GB) exceeds available free space ({} bytes) in pool '{}'",
-            req.size_gb, vg_info.free, pool.name
+            req.size_gb, vg_info.free, pool_id
         )));
     }
 
-    let lvm_provider = LvmProvider::new_local(pool.name.clone());
+    let lvm_provider = LvmProvider::new_local(pool_id.clone());
     let device_path = lvm_provider.create_volume(&req.name, req.size_gb).await?;
-
-    let new_volume = Volume {
-        id: uuid::Uuid::new_v4().to_string(), // Generate ID for volume
-        pool_id: pool.id.clone(),
-        name: req.name,
-        size_gb: req.size_gb,
-        device_path: device_path.clone(),
-        drbd_res: None, // Will be updated when associated with a DRBD resource
-    };
-
-    // Save new_volume to database
-    state.db.insert_volume(&new_volume)?;
-
-    // Update pool's free size
-    let updated_vg_info = get_vg_info(&pool.name).await?.ok_or_else(|| {
-        AppError::Internal(format!("Failed to re-read VG info for '{}'", pool.name))
-    })?;
-    pool.free_size = updated_vg_info.free;
-    state
-        .db
-        .update_storage_pool_sizes(&pool.id, pool.total_size, pool.free_size)?;
 
     info!(
         "Volume '{}' ({}GB) created successfully in pool '{}'. Device path: {}",
-        new_volume.name, new_volume.size_gb, pool.name, new_volume.device_path
+        req.name, req.size_gb, pool_id, device_path
     );
 
     Ok((
         StatusCode::CREATED,
         Json(CreateVolumeResponse {
-            id: new_volume.id,
-            name: new_volume.name,
-            pool_id: new_volume.pool_id, // Return pool_id
-            size_gb: new_volume.size_gb,
-            device_path: new_volume.device_path,
+            id: uuid::Uuid::new_v4().to_string(),
+            name: req.name,
+            pool_id: pool_id.to_string(),
+            size_gb: req.size_gb,
+            device_path,
         }),
     ))
 }

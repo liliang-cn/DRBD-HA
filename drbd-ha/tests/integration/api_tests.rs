@@ -1,7 +1,7 @@
 //! API Integration Tests
 //!
 //! These tests verify the HTTP API layer without requiring real DRBD/Systemd.
-//! They use in-memory SQLite and mock external dependencies.
+//! They use temporary TOML files and mock external dependencies.
 
 use axum::{
     body::Body,
@@ -13,18 +13,18 @@ use tower::ServiceExt;
 
 use drbd_ha::api::create_router;
 use drbd_ha::{
-    config::{AppConfig, AuthConfig, DatabaseConfig},
-    core::Database,
+    config::{AppConfig, AuthConfig},
     state::AppState,
 };
 
-/// Create a test application state with in-memory database
+/// Create a test application state with temporary store
 fn create_test_state() -> Arc<AppState> {
+    // Create a temporary file for nodes.toml
+    let temp_dir = std::env::temp_dir();
+    let store_path = temp_dir.join(format!("nodes-{}.toml", uuid::Uuid::new_v4()));
+    let store_path_str = store_path.to_str().unwrap().to_string();
+
     let config = AppConfig {
-        // Use in-memory SQLite for tests
-        database: DatabaseConfig {
-            path: ":memory:".to_string(),
-        },
         // Disable auth for tests
         auth: AuthConfig {
             enabled: false,
@@ -33,8 +33,7 @@ fn create_test_state() -> Arc<AppState> {
         ..AppConfig::default()
     };
 
-    let db = Database::open(":memory:").expect("Failed to create in-memory database");
-    Arc::new(AppState::new(config, db))
+    Arc::new(AppState::new_with_store(config, Some(store_path_str)))
 }
 
 /// Helper to make GET requests
@@ -417,38 +416,6 @@ async fn test_delete_ha_profile_not_found() {
 }
 
 // ============================================================================
-// Database Persistence Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_node_persistence() {
-    let state = create_test_state();
-    let app = create_router(state.clone());
-
-    // Add multiple nodes
-    for i in 1..=3 {
-        let (status, _) = post(
-            &app,
-            "/api/v1/nodes",
-            json!({
-                "hostname": format!("node{}", i),
-                "ip": format!("192.168.1.{}", 100 + i)
-            }),
-        )
-        .await;
-        assert_eq!(status, StatusCode::CREATED);
-    }
-
-    // List nodes - should have 3 + local node
-    let (status, body) = get(&app, "/api/v1/nodes").await;
-    assert_eq!(status, StatusCode::OK);
-
-    let nodes = body.as_array().unwrap();
-    // At least 3 nodes we added (plus potentially a local node)
-    assert!(nodes.len() >= 3);
-}
-
-// ============================================================================
 // Authentication Tests
 // ============================================================================
 
@@ -465,12 +432,10 @@ async fn test_auth_disabled() {
 #[tokio::test]
 async fn test_auth_enabled_without_token() {
     let mut config = AppConfig::default();
-    config.database.path = ":memory:".to_string();
     config.auth.enabled = true;
     config.auth.token = Some("secret-token".to_string());
 
-    let db = Database::open(":memory:").unwrap();
-    let state = Arc::new(AppState::new(config, db));
+    let state = Arc::new(AppState::new(config));
     let app = create_router(state);
 
     // Request without token should fail
@@ -492,12 +457,10 @@ async fn test_auth_enabled_without_token() {
 #[tokio::test]
 async fn test_auth_enabled_with_valid_token() {
     let mut config = AppConfig::default();
-    config.database.path = ":memory:".to_string();
     config.auth.enabled = true;
     config.auth.token = Some("secret-token".to_string());
 
-    let db = Database::open(":memory:").unwrap();
-    let state = Arc::new(AppState::new(config, db));
+    let state = Arc::new(AppState::new(config));
     let app = create_router(state);
 
     // Request with valid token should succeed
@@ -520,12 +483,10 @@ async fn test_auth_enabled_with_valid_token() {
 #[tokio::test]
 async fn test_auth_enabled_with_invalid_token() {
     let mut config = AppConfig::default();
-    config.database.path = ":memory:".to_string();
     config.auth.enabled = true;
     config.auth.token = Some("secret-token".to_string());
 
-    let db = Database::open(":memory:").unwrap();
-    let state = Arc::new(AppState::new(config, db));
+    let state = Arc::new(AppState::new(config));
     let app = create_router(state);
 
     // Request with invalid token should fail

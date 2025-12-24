@@ -528,6 +528,12 @@ pub struct CreateResourceRequest {
     /// Optional: Size of the Logical Volume (e.g. "10G", defaults to 100%FREE)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lvm_lv_size: Option<String>,
+    /// Optional: Name for the thin pool (defaults to "thinpool" if not set)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lvm_thin_pool_name: Option<String>,
+    /// Optional: Size of the thin pool metadata (e.g. "1G", defaults to 1G)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lvm_thin_pool_size: Option<String>,
     /// Optional: Storage pool type to use (lvm, zfs, or none for raw)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage_type: Option<String>,
@@ -537,9 +543,16 @@ pub struct CreateResourceRequest {
     /// Optional: Name for the ZFS volume (defaults to resource name if not set)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zfs_volume_name: Option<String>,
-    /// Optional: Size of the ZFS volume in GB
+    /// Optional: Size of the ZFS volume in GB (virtual size, thin provisioned by default)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zfs_volume_size_gb: Option<u64>,
+    /// Optional: Use sparse (thin) volume for ZFS (default: true)
+    #[serde(default = "default_true")]
+    pub zfs_thin_volume: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_auto_promote() -> bool {

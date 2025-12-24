@@ -1,4 +1,5 @@
 pub mod cmd;
+pub mod config;
 pub mod error;
 pub mod models;
 pub mod parser;
@@ -7,6 +8,7 @@ pub mod validator;
 pub mod verification;
 
 pub use cmd::{parse_drbd_status, DrbdCmd};
+pub use config::{ConfigGenerator, ConfigPaths, NodeConfig, ResourceConfig};
 pub use error::{DrbdError, DrbdResult};
 pub use models::{
     ConnectionStatus, DeviceStatus, DrbdPeerStatus, DrbdResourceStatus, DrbdStatus,

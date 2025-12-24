@@ -104,7 +104,7 @@ sudo systemctl status drbd-ha
 
 *   **Language**: Rust (Axum framework)
 *   **Frontend**: React + Ant Design (Embedded in binary)
-*   **Database**: SQLite (Embedded)
+*   **Configuration Storage**: TOML files (nodes.toml) and DRBD configuration files.
 *   **Execution Model**:
     *   **Local**: Direct system calls (LVM, DRBD, Systemd).
     *   **Remote**: SSH execution.

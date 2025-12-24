@@ -1,12 +1,13 @@
 use crate::core::run_shell_command;
 use crate::error::AppResult;
-use crate::models::{Node, VipConfig};
+use crate::models::{HaProfile, HaProfileStatus, HaType, Node, PromoterSettings, VipConfig};
 use crate::state::AppState;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::fs;
 
 /// Get SSH credential for a node (Dummy) - copied from cluster.rs
+#[allow(dead_code)]
 pub(crate) async fn get_node_credential(
     _state: &Arc<AppState>,
     _node: &Node,
@@ -91,7 +92,7 @@ pub async fn find_next_free_drbd_minor() -> AppResult<u32> {
     if let Ok(mut entries) = fs::read_dir(config_dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "res") {
+            if path.extension().is_some_and(|ext| ext == "res") {
                 if let Ok(content) = fs::read_to_string(&path).await {
                     for line in content.lines() {
                         let line = line.trim();
@@ -159,7 +160,7 @@ pub async fn find_next_free_drbd_port() -> AppResult<u16> {
     if let Ok(mut entries) = fs::read_dir(config_dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "res") {
+            if path.extension().is_some_and(|ext| ext == "res") {
                 if let Ok(content) = fs::read_to_string(&path).await {
                     for line in content.lines() {
                         let line = line.trim();
@@ -185,4 +186,82 @@ pub async fn find_next_free_drbd_port() -> AppResult<u16> {
         port += 1;
     }
     Ok(port)
+}
+
+/// Get all HA profile names from /etc/drbd-reactor.d/*.toml
+pub async fn get_all_ha_profile_names() -> AppResult<Vec<String>> {
+    let mut profiles = Vec::new();
+    let reactor_dir = "/etc/drbd-reactor.d";
+
+    if let Ok(mut entries) = fs::read_dir(reactor_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "toml") {
+                if let Some(name) = path.file_stem() {
+                    if let Some(name_str) = name.to_str() {
+                        profiles.push(name_str.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(profiles)
+}
+
+/// Parse services from drbd-reactor toml content
+pub fn parse_services_from_config(content: &str) -> Vec<String> {
+    let mut services = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        // Skip array markers and non-service lines
+        if line.starts_with('[') || line.starts_with("start =") || line.starts_with('#') {
+            continue;
+        }
+        // Extract service names from quoted strings
+        if let Some(remaining) = line.strip_prefix('"') {
+            if let Some(end_relative) = remaining.find('"') {
+                let end = 1 + end_relative;
+                let service = &line[1..end];
+                // Skip OCF agents and mount units (they're not standalone services)
+                if !service.starts_with("ocf:") && !service.ends_with(".mount") {
+                    services.push(service.to_string());
+                }
+            }
+        }
+    }
+    services
+}
+
+/// Create a minimal HaProfile from toml file name and content
+pub fn create_profile_from_toml(name: &str, content: &str) -> Option<HaProfile> {
+    let services = parse_services_from_config(content);
+    let vip = parse_vip_from_config(content);
+    let mount_point = parse_mount_point_from_config(content).unwrap_or_default();
+
+    Some(HaProfile {
+        id: name.to_string(),
+        name: name.to_string(),
+        ha_type: HaType::Generic, // Default, can be enhanced by parsing
+        resource_name: name.to_string(), // Assume resource name matches profile name
+        mount_point,
+        fs_type: "xfs".to_string(), // Default
+        mount_strategy: Default::default(),
+        vip,
+        ocf_agents: Default::default(),
+        promoter: PromoterSettings {
+            services,
+            stop_on_demote: true,
+            on_demote_failure: "reboot".to_string(),
+            preferred_nodes: None,
+            preferred_nodes_policy: None,
+            sleep_before_promote_factor: None,
+            dependencies_as: None,
+            target_as: None,
+            on_quorum_loss: None,
+        },
+        status: HaProfileStatus::Unknown,
+        active_node: None,
+        generated_units: Default::default(),
+    })
 }

@@ -4,7 +4,7 @@
 //! This ensures mount units, service overrides, and promoter configs
 //! are consistent across the cluster for proper failover.
 
-use crate::core::{systemd_ctrl::RemoteSystemdController, Database, SshCredential, SshManager};
+use crate::core::{systemd_ctrl::RemoteSystemdController, NodeStore, SshCredential, SshManager};
 use crate::error::{AppError, AppResult};
 use crate::models::Node;
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 /// Cluster configuration synchronizer
 pub struct ClusterSync {
     ssh_manager: Arc<SshManager>,
-    db: Arc<Database>,
+    node_store: NodeStore,
 }
 
 /// Files to sync for HA configuration
@@ -33,10 +33,10 @@ impl ClusterSync {
     /// Create a new cluster sync instance
     pub fn new(
         ssh_manager: Arc<SshManager>,
-        db: Arc<Database>,
+        node_store: NodeStore,
         _credentials: Arc<RwLock<HashMap<String, SshCredential>>>, // Kept for signature compatibility if needed, or remove
     ) -> Self {
-        Self { ssh_manager, db }
+        Self { ssh_manager, node_store }
     }
 
     /// Get credential for a node (Dummy)
@@ -50,7 +50,7 @@ impl ClusterSync {
     /// This copies mount units, service overrides, and promoter configs
     /// to all nodes in the cluster (except the local node).
     pub async fn sync_ha_config(&self, config: &HaSyncConfig) -> AppResult<Vec<String>> {
-        let nodes = self.db.get_all_nodes()?;
+        let nodes = self.node_store.get_all()?;
         let remote_nodes: Vec<_> = nodes.iter().filter(|n| !n.is_local).collect();
 
         tracing::info!(
@@ -302,7 +302,7 @@ impl ClusterSync {
 
         // Reload systemd daemon on remote node
         tracing::info!(
-            "Reloading systemd and restarting drbd-reactor on node {}",
+            "Reloading systemd and reloading drbd-reactor on node {}",
             node.hostname
         );
         let remote_sys = RemoteSystemdController::new(self.ssh_manager.clone());
@@ -316,7 +316,7 @@ impl ClusterSync {
         }
 
         if let Err(e) = remote_sys
-            .restart(
+            .reload(
                 &node.ip,
                 node.ssh_port,
                 &node.ssh_user,
@@ -325,7 +325,7 @@ impl ClusterSync {
             )
             .await
         {
-            tracing::error!("Failed to restart drbd-reactor on {}: {}", node.hostname, e);
+            tracing::error!("Failed to reload drbd-reactor on {}: {}", node.hostname, e);
             return Err(e);
         }
 
@@ -387,7 +387,7 @@ impl ClusterSync {
 
     /// Remove HA configuration from all remote nodes
     pub async fn remove_ha_config(&self, config: &HaSyncConfig) -> AppResult<Vec<String>> {
-        let nodes = self.db.get_all_nodes()?;
+        let nodes = self.node_store.get_all()?;
         let mut synced_nodes = Vec::new();
 
         for node in nodes {
@@ -476,7 +476,7 @@ impl ClusterSync {
 
     /// Remove DRBD resource from all remote nodes
     pub async fn remove_drbd_resource(&self, resource_name: &str) -> AppResult<Vec<String>> {
-        let nodes = self.db.get_all_nodes()?;
+        let nodes = self.node_store.get_all()?;
         let mut synced_nodes = Vec::new();
 
         for node in nodes {

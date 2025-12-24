@@ -109,7 +109,7 @@ impl SystemdController {
 
     /// Reload drbd-reactor configuration
     pub async fn reload_reactor(&self) -> AppResult<()> {
-        self.restart("drbd-reactor.service").await
+        self.reload("drbd-reactor.service").await
     }
 
     /// Get the timestamp when a service became active (Unix timestamp in seconds)
@@ -294,7 +294,7 @@ impl RemoteSystemdController {
         user: &str,
         credential: &SshCredential,
     ) -> AppResult<()> {
-        self.restart(host, port, user, credential, "drbd-reactor.service")
+        self.reload(host, port, user, credential, "drbd-reactor.service")
             .await
     }
 }

@@ -22,7 +22,6 @@ pub async fn check_drbd_sync_complete(resource_name: &str) -> DrbdResult<bool> {
     // Method 1: Try JSON output first (most reliable)
     if let Ok(json_cmd) = crate::cmd::DrbdCmd::resource_status_cmd(resource_name) {
         if let Ok(output) = run_shell_command(&json_cmd, "Get DRBD JSON status").await {
-            let output = output;
             if output.success() {
                 if let Ok(status) = crate::parse_drbd_status(&output.stdout) {
                     return Ok(is_fully_synced_json(&status, resource_name));
@@ -100,7 +99,6 @@ pub async fn get_drbd_sync_status(resource_name: &str) -> DrbdResult<SyncStatus>
     // Try to get JSON status first
     if let Ok(json_cmd) = crate::cmd::DrbdCmd::resource_status_cmd(resource_name) {
         if let Ok(output) = run_shell_command(&json_cmd, "Get DRBD JSON status").await {
-            let output = output;
             if output.success() {
                 if let Ok(status) = crate::parse_drbd_status(&output.stdout) {
                     if let Some(resource) = status.iter().find(|r| r.name == resource_name) {
@@ -197,7 +195,7 @@ impl SyncStatus {
         let is_fully_synced = is_fully_synced_text(status);
         let is_syncing = status.peers.iter().any(|p| {
             p.peer_disk == "Inconsistent"
-                || p.connection.as_ref().map_or(false, |c| c.contains("Sync"))
+                || p.connection.as_ref().is_some_and(|c| c.contains("Sync"))
         });
 
         let sync_progress_percent = status.peers.iter().find_map(|p| p.sync_percent);

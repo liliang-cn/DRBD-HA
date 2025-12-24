@@ -17,7 +17,7 @@
 ### Architecture
 *   **Backend:** Rust (Axum web framework).
     *   **Execution Model:** Direct syscalls for local operations (LVM, DRBD, Systemd) and SSH for remote node operations.
-    *   **Database:** Embedded SQLite (`rusqlite`).
+    *   **State Store:** Filesystem-based (TOML for nodes, .res for DRBD, .toml for drbd-reactor).
     *   **IPC:** Systemd D-Bus integration (`zbus`).
 *   **Frontend:** Single Page Application (React + Ant Design), built with Rsbuild and embedded into the Rust binary.
 *   **Workspace:** A Rust workspace containing modular crates:

@@ -4,12 +4,12 @@ use axum::{
 };
 use std::sync::Arc;
 
-use crate::core::{run_shell_command, systemd_ctrl::SystemdController, NfsGenerator};
+use crate::core::{run_shell_command, systemd_ctrl::SystemdController};
 use crate::error::{AppError, AppResult};
-use crate::models::HaType;
 use crate::state::{AppState, NotificationLevel};
+use crate::api::ha::utils::create_profile_from_toml;
 
-use super::crud::get_profile_status;
+use super::list::get_profile_status;
 use super::reactor::reload_reactor;
 use super::types::{HaProfileDetailResponse, ReactorReloadRequest};
 
@@ -23,10 +23,14 @@ pub async fn activate_profile(
         id
     );
 
-    let profile = state
-        .db
-        .get_ha_profile(&id)?
+    // Load profile from toml file instead of database
+    let config_path = crate::core::ReactorConfigPaths::promoter_path(&id);
+    let content = tokio::fs::read_to_string(&config_path)
+        .await
+        .map_err(|_| AppError::NotFound(format!("HA profile {} not found", id)))?;
+    let profile = create_profile_from_toml(&id, &content)
         .ok_or_else(|| AppError::NotFound(format!("HA profile {} not found", id)))?;
+
     tracing::info!(
         "activate_profile: Found profile '{}', resource='{}', mount='{}'",
         profile.name,
@@ -579,7 +583,7 @@ pub async fn activate_profile(
         } else {
             // No clear role yet - use a deterministic approach based on hostname
             // This ensures only one node proceeds with activation
-            let nodes_from_db = state.db.get_all_nodes()?;
+            let nodes_from_db = state.node_store.get_all()?;
             let mut sorted_hostnames = vec![hostname_str.clone()];
 
             // Add other nodes from database
@@ -739,29 +743,6 @@ pub async fn activate_profile(
         );
     }
 
-    if profile.ha_type == HaType::Nfs {
-        tracing::info!("activate_profile: Setting up NFS state directory");
-        state.send_progress(
-            &operation_id,
-            "activate_profile",
-            Some(&profile.name),
-            40,
-            "Setting up NFS state directory...",
-            false,
-            None,
-        );
-
-        if let Err(e) = NfsGenerator::setup_nfs_state(&profile.mount_point).await {
-            tracing::error!("Failed to setup NFS state: {}", e);
-            return Err(e);
-        }
-        tracing::info!("activate_profile: NFS state directory setup complete");
-
-        tracing::info!("activate_profile: Refreshing NFS exports");
-        crate::core::run_shell_command("exportfs -ra", "Refresh NFS exports").await?;
-        tracing::info!("activate_profile: NFS exports refreshed");
-    }
-
     state.send_progress(
         &operation_id,
         "activate_profile",
@@ -864,17 +845,17 @@ pub async fn activate_profile(
         "activate_profile",
         Some(&profile.name),
         90,
-        "Restarting drbd-reactor on all nodes...",
+        "Reloading drbd-reactor on all nodes...",
         false,
         None,
     );
     
-    // Only restart drbd-reactor after all operations are complete
+    // Only reload drbd-reactor after all operations are complete
     // This ensures the reactor doesn't interfere with the activation process
     let _ = reload_reactor(
         State(state.clone()),
         Json(ReactorReloadRequest {
-            action: "restart".to_string(),
+            action: "reload".to_string(),
         }),
     )
     .await;
@@ -907,10 +888,14 @@ pub async fn deactivate_profile(
         id
     );
 
-    let profile = state
-        .db
-        .get_ha_profile(&id)?
+    // Load profile from toml file instead of database
+    let config_path = crate::core::ReactorConfigPaths::promoter_path(&id);
+    let content = tokio::fs::read_to_string(&config_path)
+        .await
+        .map_err(|_| AppError::NotFound(format!("HA profile {} not found", id)))?;
+    let profile = create_profile_from_toml(&id, &content)
         .ok_or_else(|| AppError::NotFound(format!("HA profile {} not found", id)))?;
+
     tracing::info!(
         "deactivate_profile: Found profile '{}', resource='{}', mount='{}'",
         profile.name,
@@ -1218,7 +1203,7 @@ pub async fn deactivate_profile(
     let _ = reload_reactor(
         State(state.clone()),
         Json(ReactorReloadRequest {
-            action: "restart".to_string(),
+            action: "reload".to_string(),
         }),
     )
     .await;

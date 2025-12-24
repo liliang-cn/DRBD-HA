@@ -3,8 +3,8 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 
 thread_local! {
-    pub static MOCK_OUTPUTS: RefCell<VecDeque<CommandOutput>> = RefCell::new(VecDeque::new());
-    pub static RECORDED_COMMANDS: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    pub static MOCK_OUTPUTS: RefCell<VecDeque<CommandOutput>> = const { RefCell::new(VecDeque::new()) };
+    pub static RECORDED_COMMANDS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 #[allow(dead_code)]

@@ -58,10 +58,6 @@ pub enum AppError {
     #[error("Network error: {0}")]
     Network(String),
 
-    /// Database error
-    #[error("Database error: {0}")]
-    Database(String),
-
     /// IO error
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -91,6 +87,18 @@ impl From<systemd_utils::SystemdError> for AppError {
 impl From<drbd_migration::error::MigrationError> for AppError {
     fn from(err: drbd_migration::error::MigrationError) -> Self {
         AppError::Migration(err.to_string())
+    }
+}
+
+impl From<drbd_reactor_utils::Error> for AppError {
+    fn from(err: drbd_reactor_utils::Error) -> Self {
+        AppError::Config(err.to_string())
+    }
+}
+
+impl From<drbd_utils::DrbdError> for AppError {
+    fn from(err: drbd_utils::DrbdError) -> Self {
+        AppError::Drbd(err.to_string())
     }
 }
 
@@ -135,11 +143,6 @@ impl IntoResponse for AppError {
                 msg.clone(),
             ),
             AppError::Network(msg) => (StatusCode::BAD_GATEWAY, "network_error", msg.clone()),
-            AppError::Database(msg) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "database_error",
-                msg.clone(),
-            ),
             AppError::Io(e) => (StatusCode::INTERNAL_SERVER_ERROR, "io_error", e.to_string()),
             AppError::Json(e) => (StatusCode::BAD_REQUEST, "json_error", e.to_string()),
             AppError::Toml(msg) => (StatusCode::BAD_REQUEST, "toml_error", msg.clone()),

@@ -454,12 +454,12 @@ export function HaProfiles() {
           >
             Create Service HA
           </Button>
-          <Button
+          {/* <Button
             icon={<PlusOutlined />}
             onClick={() => navigate('/storage-sharing/create')}
           >
             Create Storage HA
-          </Button>
+          </Button> */}
         </Space>
       </div>
 

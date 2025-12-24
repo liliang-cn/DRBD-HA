@@ -11,6 +11,9 @@ pub enum DrbdError {
     #[error("Command execution error: {0}")]
     Command(String),
 
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }

@@ -118,13 +118,13 @@ impl DrbdVerifier {
                 if details.resource_exists && details.resource_configured {
                     tracing::info!("✓ DRBD config verified for resource '{}'", resource_name);
 
-                    return Ok(VerificationResult {
+                    Ok(VerificationResult {
                         success: true,
                         attempts: 1,
                         output: Some(output),
                         error: None,
                         details,
-                    });
+                    })
                 } else {
                     tracing::warn!("⚠ DRBD resource '{}' not ready: {}", resource_name, details.status_info);
 

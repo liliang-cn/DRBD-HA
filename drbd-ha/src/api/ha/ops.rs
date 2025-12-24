@@ -9,6 +9,7 @@ use crate::error::{AppError, AppResult};
 use crate::state::{AppState, NotificationLevel};
 
 use super::types::{EvictProfileRequest, EvictProfileResponse};
+use super::utils::create_profile_from_toml;
 
 /// POST /api/v1/ha/profiles/:id/evict
 pub async fn evict_profile(
@@ -16,10 +17,12 @@ pub async fn evict_profile(
     Path(id_or_name): Path<String>,
     Json(request): Json<EvictProfileRequest>,
 ) -> AppResult<Json<EvictProfileResponse>> {
-    let profile = state
-        .db
-        .get_ha_profile(&id_or_name)?
-        .or(state.db.get_ha_profile_by_name(&id_or_name)?)
+    // Load profile from toml file instead of database
+    let config_path = crate::core::ReactorConfigPaths::promoter_path(&id_or_name);
+    let content = tokio::fs::read_to_string(&config_path)
+        .await
+        .map_err(|_| AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
+    let profile = create_profile_from_toml(&id_or_name, &content)
         .ok_or_else(|| AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
 
     let mut evict_cmd = format!("sudo drbd-reactorctl evict {}", profile.name);
@@ -35,7 +38,7 @@ pub async fn evict_profile(
     }
 
     let target_node: crate::models::Node = if let Some(ref node_id) = request.node {
-        let nodes = state.db.get_all_nodes()?;
+        let nodes = state.node_store.get_all()?;
         nodes
             .into_iter()
             .find(|n| n.id == *node_id || n.hostname == *node_id)
@@ -80,13 +83,13 @@ pub async fn evict_profile(
         };
 
         if let Some(active_hostname) = active_node_name {
-            let nodes = state.db.get_all_nodes()?;
+            let nodes = state.node_store.get_all()?;
             nodes
                 .into_iter()
                 .find(|n| n.hostname == active_hostname)
                 .ok_or_else(|| {
                     AppError::NotFound(format!(
-                        "Active node '{}' not found in database. Please add it first.",
+                        "Active node '{}' not found in store. Please add it first.",
                         active_hostname
                     ))
                 })?

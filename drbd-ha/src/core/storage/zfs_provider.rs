@@ -2,12 +2,14 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tracing::{info, warn};
 
+#[allow(unused_imports)]
 use crate::core::{run_shell_command, SshCredential, CommandOutput};
 use std::sync::Arc;
 
 use super::provider::StorageProvider;
 
 /// ZFS storage provider
+#[allow(dead_code)]
 pub struct ZfsProvider {
     pool_name: String,
     ssh_manager: Option<Arc<crate::core::SshManager>>,
@@ -58,7 +60,7 @@ impl ZfsProvider {
     }
 
     #[cfg(test)]
-    async fn execute_command(&self, command: &str, description: &str) -> Result<CommandOutput> {
+    async fn execute_command(&self, command: &str, _description: &str) -> Result<CommandOutput> {
         // Mock implementation for testing
         Ok(CommandOutput {
             stdout: format!("Mock output for: {}", command),
@@ -223,8 +225,8 @@ mod tests {
     #[tokio::test]
     #[ignore] // Ignore by default as it requires ZFS setup
     async fn test_zfs_volume_operations() {
-        let provider = ZfsProvider::new_local("testpool".to_string());
-        let vol_name = "test_volume";
+        let _provider = ZfsProvider::new_local("testpool".to_string());
+        let _vol_name = "test_volume";
 
         // This test should be adapted to your test environment
         // and proper cleanup should be ensured

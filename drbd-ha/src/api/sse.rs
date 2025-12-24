@@ -171,7 +171,7 @@ pub async fn resource_status_stream(
                                             operation_id,
                                             operation: "drbd_sync".to_string(),
                                             resource: Some(status_event.name.clone()),
-                                            progress: progress.unwrap_or(100) as u8,
+                                            progress: progress.unwrap_or(100),
                                             message: format!("DRBD resource '{}' is {}% synced", status_event.name, sync_percent),
                                             completed: sync_percent >= 100.0,
                                             success: Some(sync_percent >= 100.0),
@@ -390,7 +390,7 @@ pub async fn all_events_stream(
                     }
                 }
                 _ = node_interval.tick() => {
-                    if let Ok(nodes) = state.db.get_all_nodes() {
+                    if let Ok(nodes) = state.node_store.get_all() {
                         let events: Vec<NodeStatusEvent> = nodes
                             .iter()
                             .map(|n| NodeStatusEvent {

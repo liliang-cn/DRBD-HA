@@ -10,7 +10,7 @@ use crate::core::{
     ReactorDiscovery,
 };
 use crate::error::{AppError, AppResult};
-use crate::models::{HaProfile, HaProfileStatus};
+use crate::models::HaProfile;
 use crate::state::AppState;
 
 use super::types::{
@@ -100,7 +100,7 @@ pub async fn reload_reactor(
         error: local_error,
     };
 
-    let nodes = state.db.get_all_nodes()?;
+    let nodes = state.node_store.get_all()?;
 
     for node in nodes {
         if node.is_local {
@@ -201,10 +201,10 @@ pub async fn reload_reactor(
     )
 )]
 pub async fn list_unmanaged_profiles(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
 ) -> AppResult<Json<Vec<HaProfile>>> {
     tracing::info!("Scanning for unmanaged HA profiles");
-    let discovered = match ReactorDiscovery::scan(None) {
+    let discovered = match ReactorDiscovery::scan_profiles() {
         Ok(profiles) => {
             tracing::info!("Found {} profiles in /etc/drbd-reactor.d", profiles.len());
             profiles
@@ -215,16 +215,17 @@ pub async fn list_unmanaged_profiles(
         }
     };
 
-    let existing_profiles = state.db.get_all_ha_profiles()?;
+    // Get existing profiles from toml files instead of database
+    let existing_profiles = super::utils::get_all_ha_profile_names().await?;
     tracing::info!(
-        "Found {} existing profiles in database",
+        "Found {} existing profiles in toml files",
         existing_profiles.len()
     );
 
     let unmanaged: Vec<HaProfile> = discovered
         .into_iter()
         .filter(|d| {
-            let is_unmanaged = !existing_profiles.iter().any(|e| e.name == d.name);
+            let is_unmanaged = !existing_profiles.contains(&d.name);
             if is_unmanaged {
                 tracing::info!("Profile '{}' is unmanaged", d.name);
             }
@@ -247,30 +248,25 @@ pub async fn list_unmanaged_profiles(
     )
 )]
 pub async fn import_profiles(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     Json(req): Json<ImportProfilesRequest>,
 ) -> AppResult<Json<ImportProfilesResponse>> {
-    let discovered = ReactorDiscovery::scan(None).map_err(|e| AppError::Internal(e.to_string()))?;
-    let existing_profiles = state.db.get_all_ha_profiles()?;
+    let discovered = ReactorDiscovery::scan_profiles().map_err(|e| AppError::Internal(e.to_string()))?;
+    let existing_profiles = super::utils::get_all_ha_profile_names().await?;
 
     let mut imported = Vec::new();
     let mut failed = Vec::new();
 
     for name in req.names {
-        if existing_profiles.iter().any(|e| e.name == name) {
+        if existing_profiles.contains(&name) {
             failed.push(format!("{}: Already managed", name));
             continue;
         }
 
-        if let Some(profile) = discovered.iter().find(|d| d.name == name) {
-            let mut profile_to_save = profile.clone();
-            profile_to_save.status = HaProfileStatus::Active;
-
-            if let Err(e) = state.db.insert_ha_profile(&profile_to_save) {
-                failed.push(format!("{}: DB error: {}", name, e));
-            } else {
-                imported.push(name);
-            }
+        if let Some(_profile) = discovered.iter().find(|d| d.name == name) {
+            // Since profiles are already in toml files (discovered), just mark as imported
+            // No database insertion needed
+            imported.push(name);
         } else {
             failed.push(format!("{}: Not found in discovered profiles", name));
         }

@@ -47,7 +47,7 @@ pub async fn health_check() -> Json<HealthResponse> {
     )
 )]
 pub async fn list_nodes(State(state): State<Arc<AppState>>) -> AppResult<Json<Vec<Node>>> {
-    let nodes = state.db.get_all_nodes()?;
+    let nodes = state.node_store.get_all()?;
     Ok(Json(nodes))
 }
 
@@ -75,7 +75,7 @@ pub async fn add_node(
     }
 
     // Check for duplicate
-    let existing_nodes = state.db.get_all_nodes()?;
+    let existing_nodes = state.node_store.get_all()?;
     if existing_nodes
         .iter()
         .any(|n| n.ip == req.ip || n.hostname == req.hostname)
@@ -123,8 +123,8 @@ pub async fn add_node(
         },
     };
 
-    // Store node to database
-    state.db.insert_node(&node)?;
+    // Store node
+    state.node_store.insert(&node)?;
 
     Ok((StatusCode::CREATED, Json(node)))
 }
@@ -147,8 +147,8 @@ pub async fn get_node(
     Path(id): Path<String>,
 ) -> AppResult<Json<Node>> {
     state
-        .db
-        .get_node(&id)?
+        .node_store
+        .get(&id)?
         .map(Json)
         .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))
 }
@@ -170,7 +170,7 @@ pub async fn delete_node(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> AppResult<StatusCode> {
-    if state.db.delete_node(&id)? {
+    if state.node_store.delete(&id)? {
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(AppError::NotFound(format!("Node {} not found", id)))
@@ -195,8 +195,8 @@ pub async fn list_node_disks(
     Path(id): Path<String>,
 ) -> AppResult<Json<Vec<BlockDevice>>> {
     let node = state
-        .db
-        .get_node(&id)?
+        .node_store
+        .get(&id)?
         .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
 
     // Get block devices using lsblk
@@ -279,8 +279,8 @@ pub async fn list_available_disks(
     Path(id): Path<String>,
 ) -> AppResult<Json<Vec<BlockDevice>>> {
     let node = state
-        .db
-        .get_node(&id)?
+        .node_store
+        .get(&id)?
         .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
 
     let all_disks_res = list_node_disks(State(state.clone()), Path(id.clone())).await?;
@@ -366,15 +366,16 @@ pub async fn check_node_status(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> AppResult<Json<NodeStatusResponse>> {
-    let node = state
-        .db
-        .get_node(&id)?
+    let mut node = state
+        .node_store
+        .get(&id)?
         .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
 
     if node.is_local {
-        state
-            .db
-            .update_node_status(&id, NodeStatus::Online, Some(chrono::Utc::now()))?;
+        node.status = NodeStatus::Online;
+        node.last_seen = Some(chrono::Utc::now());
+        state.node_store.insert(&node)?;
+        
         return Ok(Json(NodeStatusResponse {
             id: node.id.clone(),
             hostname: node.hostname.clone(),
@@ -410,9 +411,12 @@ pub async fn check_node_status(
     } else {
         None
     };
-    state
-        .db
-        .update_node_status(&id, status.clone(), last_seen)?;
+    
+    node.status = status.clone();
+    if last_seen.is_some() {
+        node.last_seen = last_seen;
+    }
+    state.node_store.insert(&node)?;
 
     Ok(Json(NodeStatusResponse {
         id: node.id.clone(),

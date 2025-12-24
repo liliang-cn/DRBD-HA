@@ -27,10 +27,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub log: LogConfig,
 
-    /// Database configuration
-    #[serde(default)]
-    pub database: DatabaseConfig,
-
     /// Authentication configuration
     #[serde(default)]
     pub auth: AuthConfig,
@@ -130,26 +126,6 @@ fn default_log_level() -> String {
 
 fn default_log_file() -> Option<String> {
     None
-}
-
-/// Database configuration
-#[derive(Debug, Clone, Deserialize)]
-pub struct DatabaseConfig {
-    /// Path to SQLite database file
-    #[serde(default = "default_db_path")]
-    pub path: String,
-}
-
-impl Default for DatabaseConfig {
-    fn default() -> Self {
-        Self {
-            path: default_db_path(),
-        }
-    }
-}
-
-fn default_db_path() -> String {
-    "/var/lib/drbd-ha/data.db".to_string()
 }
 
 /// Authentication configuration
@@ -259,7 +235,6 @@ mod tests {
         assert_eq!(config.server.port, 3373);
         assert_eq!(config.ssh.connection_timeout_secs, 30);
         assert_eq!(config.drbd.config_path, "/etc/drbd.d");
-        assert_eq!(config.database.path, "/var/lib/drbd-ha/data.db");
         assert!(!config.auth.enabled);
     }
 

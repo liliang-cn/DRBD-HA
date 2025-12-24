@@ -27,10 +27,6 @@ reactor_config_path = "/etc/drbd-reactor.d"
 # Path to systemd unit files directory
 systemd_unit_path = "/etc/systemd/system"
 
-[database]
-# Path to SQLite database file
-path = "/var/lib/drbd-ha/data.db"
-
 [auth]
 # Whether authentication is enabled
 enabled = false

@@ -3,7 +3,7 @@
 use axum::{extract::State, Json};
 use std::sync::Arc;
 
-use crate::core::run_shell_command;
+use crate::core::{run_shell_command, ReactorDiscovery};
 use crate::error::AppResult;
 use crate::models::{
     ClusterHealth, DashboardSummary, HaProfile, HaProfileStatus, HaServiceDetail, HaServiceStats,
@@ -22,8 +22,8 @@ use drbd_reactor_utils::DrbdReactorClient;
     )
 )]
 pub async fn get_summary(State(state): State<Arc<AppState>>) -> AppResult<Json<DashboardSummary>> {
-    // ...
-    let nodes = state.db.get_all_nodes()?;
+    // 1. Node Stats
+    let nodes = state.node_store.get_all()?;
     let total_nodes = nodes.len();
     let online_nodes = nodes
         .iter()
@@ -37,22 +37,19 @@ pub async fn get_summary(State(state): State<Arc<AppState>>) -> AppResult<Json<D
         offline: offline_nodes,
     };
 
-    // 2. Storage Stats
-    let pools = state.db.get_all_storage_pools()?;
-    let total_bytes: u64 = pools.iter().map(|p| p.total_size).sum();
-    let free_bytes: u64 = pools.iter().map(|p| p.free_size).sum();
+    // 2. Storage Stats - scan from LVM directly
+    let vg_infos = crate::core::list_vg_info().await.unwrap_or_default();
+    let total_bytes: u64 = vg_infos.iter().map(|p| p.size).sum();
+    let free_bytes: u64 = vg_infos.iter().map(|p| p.free).sum();
 
     let storage_stats = StorageStats {
         total_bytes,
         free_bytes,
-        pool_count: pools.len(),
+        pool_count: vg_infos.len(),
     };
 
-    // 3. HA Service Stats (from DB, might be stale status but acceptable for summary,
-    // real-time updates come via SSE)
-    // Ideally we should have a background task updating DB statuses.
-    // For now, we count based on what's in DB.
-    let profiles = state.db.get_all_ha_profiles()?;
+    // 3. HA Service Stats
+    let profiles = ReactorDiscovery::scan_profiles()?;
     let active = profiles
         .iter()
         .filter(|p| p.status == HaProfileStatus::Active)
@@ -101,8 +98,7 @@ pub async fn get_summary(State(state): State<Arc<AppState>>) -> AppResult<Json<D
     };
 
     // 4.5 Get HA Service Details from drbd-reactorctl
-    let db_profiles = state.db.get_all_ha_profiles()?;
-    let ha_service_details = get_ha_service_details(&db_profiles)
+    let ha_service_details = get_ha_service_details(&profiles)
         .await
         .unwrap_or_default();
 

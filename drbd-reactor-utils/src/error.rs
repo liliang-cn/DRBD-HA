@@ -9,6 +9,8 @@ pub enum Error {
     Command(String),
     #[error("Parse error: {0}")]
     Parse(String),
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

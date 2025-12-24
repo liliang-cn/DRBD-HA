@@ -3,6 +3,7 @@ use ssh_cmd::CommandOutput;
 use std::process::Stdio;
 use tokio::process::Command;
 
+#[allow(dead_code)]
 pub async fn run_local_command(command: &str, description: &str) -> ZfsResult<CommandOutput> {
     tracing::info!("Executing: {} ({})", command, description);
 

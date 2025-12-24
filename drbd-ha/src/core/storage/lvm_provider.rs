@@ -60,6 +60,7 @@ mod mock_executor {
 
 pub struct LvmProvider {
     pub vg_name: String,
+    pub thin_pool_name: Option<String>, // If set, use thin pool for volume creation
     // Optional SSH client for remote execution
     pub ssh_manager: Option<Arc<SshManager>>,
     pub ssh_target: Option<(String, u16, String, SshCredential)>, // host, port, user, credential
@@ -69,6 +70,16 @@ impl LvmProvider {
     pub fn new_local(vg_name: String) -> Self {
         LvmProvider {
             vg_name,
+            thin_pool_name: Some("thinpool".to_string()), // Default to thin pool
+            ssh_manager: None,
+            ssh_target: None,
+        }
+    }
+
+    pub fn new_local_with_thin_pool(vg_name: String, thin_pool_name: String) -> Self {
+        LvmProvider {
+            vg_name,
+            thin_pool_name: Some(thin_pool_name),
             ssh_manager: None,
             ssh_target: None,
         }
@@ -84,6 +95,24 @@ impl LvmProvider {
     ) -> Self {
         LvmProvider {
             vg_name,
+            thin_pool_name: Some("thinpool".to_string()), // Default to thin pool
+            ssh_manager: Some(ssh_manager),
+            ssh_target: Some((host, port, user, credential)),
+        }
+    }
+
+    pub fn new_remote_with_thin_pool(
+        vg_name: String,
+        thin_pool_name: String,
+        ssh_manager: Arc<SshManager>,
+        host: String,
+        port: u16,
+        user: String,
+        credential: SshCredential,
+    ) -> Self {
+        LvmProvider {
+            vg_name,
+            thin_pool_name: Some(thin_pool_name),
             ssh_manager: Some(ssh_manager),
             ssh_target: Some((host, port, user, credential)),
         }
@@ -133,19 +162,35 @@ impl StorageProvider for LvmProvider {
     }
 
     async fn create_volume(&self, vol_name: &str, size_gb: u64) -> Result<String> {
-        let command = format!(
-            "lvcreate -L {}G -n {} {} --yes",
-            size_gb, vol_name, self.vg_name
-        );
-        let output = self
-            .execute_command(
-                &command,
-                &format!(
-                    "Create LVM logical volume '{}' of {}GB in VG '{}'",
-                    vol_name, size_gb, self.vg_name
-                ),
+        // Use thin pool if configured, otherwise create thick volume
+        let command = if let Some(ref thin_pool) = self.thin_pool_name {
+            format!(
+                "lvcreate -V {}G --type thin -n {} --thinpool {} {} --yes",
+                size_gb, vol_name, thin_pool, self.vg_name
             )
-            .await?;
+        } else {
+            format!(
+                "lvcreate -L {}G -n {} {} --yes",
+                size_gb, vol_name, self.vg_name
+            )
+        };
+
+        let description = if self.thin_pool_name.is_some() {
+            format!(
+                "Create LVM thin logical volume '{}' of {}GB in VG '{}/{}'",
+                vol_name,
+                size_gb,
+                self.vg_name,
+                self.thin_pool_name.as_ref().unwrap_or(&"".to_string())
+            )
+        } else {
+            format!(
+                "Create LVM logical volume '{}' of {}GB in VG '{}'",
+                vol_name, size_gb, self.vg_name
+            )
+        };
+
+        let output = self.execute_command(&command, &description).await?;
 
         if !output.success() {
             bail!("Failed to create LVM volume: {}", output.stderr);

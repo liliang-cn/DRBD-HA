@@ -11,6 +11,5 @@ pub mod router;
 pub mod sse;
 pub mod storage;
 pub mod ui;
-pub mod wizard;
 
 pub use router::create_router;
