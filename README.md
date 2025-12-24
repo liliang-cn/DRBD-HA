@@ -24,18 +24,48 @@ A modern, Rust-based High Availability management system for DRBD, LVM, and Syst
 
 ## Installation & Deployment
 
-### 1. Build from Source
+### Quick Deployment (Recommended)
+
+The easiest way to deploy drbd-ha is using the automated deployment script:
+
+```bash
+# Deploy everything (build + install + start service)
+sudo ./scripts/deploy.sh
+
+# Or skip build if you already have binaries
+sudo ./scripts/deploy.sh --skip-build
+
+# For development mode (debug build)
+sudo ./scripts/deploy.sh --dev
+```
+
+The deployment script will:
+1. Check system dependencies (lvm2, drbd-utils, drbd-reactor, systemd)
+2. Build UI and Backend (unless `--skip-build` is used)
+3. Install binary to `/opt/drbd-ha/`
+4. Create directories (`/etc/drbd-ha`, `/var/lib/drbd-ha`, `/var/log/drbd-ha`)
+5. Install configuration file
+6. Create and start systemd service
+
+### Manual Installation
+
+If you prefer manual installation, follow these steps:
+
+#### 1. Build from Source
 
 ```bash
 # Build UI and Backend
 make build
 
+# Or build release binaries
+make release
+
 # The binary will be at: target/release/drbd-ha
 ```
 
-### 2. Setup SSH Trust
+#### 2. Setup SSH Trust
 
-The manager node (where `drbd-ha` runs) needs passwordless SSH root access to all managed nodes (including itself if it's part of the cluster logic, though local operations are optimized to direct syscalls).
+The manager node (where `drbd-ha` runs) needs passwordless SSH root access to all managed nodes.
 
 ```bash
 # Run the helper script as root
@@ -43,9 +73,7 @@ sudo ./scripts/setup-ssh.sh
 # Enter the IPs of your other nodes when prompted
 ```
 
-### 3. Deploy as System Service
-
-We recommend running `drbd-ha` as a systemd service.
+#### 3. Deploy as System Service
 
 **Step 1: Install Binary & Config**
 
@@ -71,16 +99,21 @@ Create `/etc/systemd/system/drbd-ha.service`:
 
 ```ini
 [Unit]
-Description=DRBD HA Backend Service
-After=network.target
+Description=DRBD HA Manager Service
+Documentation=https://github.com/LINBIT/drbd-ha
+After=network.target drbd-reactor.service
+Wants=drbd-reactor.service
 
 [Service]
+Type=simple
 User=root
 Group=root
 WorkingDirectory=/opt/drbd-ha
-ExecStart=/opt/drbd-ha/drbd-ha
+ExecStart=/opt/drbd-ha/drbd-ha --config /etc/drbd-ha/config.toml
 Restart=always
 RestartSec=3
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -92,6 +125,18 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload
 sudo systemctl enable --now drbd-ha
 sudo systemctl status drbd-ha
+```
+
+### Uninstallation
+
+To remove the service:
+
+```bash
+# Remove service but keep configuration/data
+sudo ./scripts/uninstall.sh
+
+# Remove everything including configuration/data
+sudo ./scripts/uninstall.sh --purge-all
 ```
 
 ## Usage
