@@ -89,6 +89,11 @@ pub async fn delete_profile(
             tracing::info!("delete_profile: VIP {}/{} was managed by drbd-reactor", vip.address, vip.netmask);
         }
 
+        // Disable drbd-reactor profile first
+        tracing::info!("Disabling drbd-reactor profile: {}", profile.name);
+        let disable_cmd = format!("drbd-reactorctl disable {}", profile.name);
+        let _ = run_shell_command(&disable_cmd, "Disable drbd-reactor profile").await;
+
         if let Some(mount_unit) = &profile.generated_units.mount_unit {
             let _ = run_shell_command(
                 &format!("systemctl stop {}", mount_unit),
@@ -136,74 +141,42 @@ pub async fn delete_profile(
         let _ = std::fs::remove_file(&so.override_path);
     }
 
-    state.send_progress(
-        &operation_id,
-        "delete_ha_profile",
-        Some(&profile.name),
-        30,
-        "Deleting promoter configuration...",
-        false,
-        None,
-    );
-
-    let promoter_config_path = ReactorConfigPaths::promoter_path(&profile.name);
-    let _ = tokio::fs::remove_file(&promoter_config_path).await;
-
-    state.send_progress(
-        &operation_id,
-        "delete_ha_profile",
-        Some(&profile.name),
-        40,
-        "Removing DRBD configuration...",
-        false,
-        None,
-    );
-
+    // Remove generated files on remote nodes too
     let all_nodes = state.node_store.get_all()?;
+    let credential = crate::core::SshCredential::Password("ignored".to_string());
 
     for node in &all_nodes {
-        let credential = crate::core::SshCredential::Password("ignored".to_string());
-        let remote_promoter_path = ReactorConfigPaths::promoter_path(&profile.name);
-
         if !node.is_local {
-            let rm_cmd = format!("rm -f {}", remote_promoter_path);
-            let _ = state
-                .ssh_manager
-                .execute(
+            if let Some(mount_unit_path) = &profile.generated_units.mount_unit_path {
+                let rm_cmd = format!("rm -f {}", mount_unit_path);
+                let sudo_cmd = if node.ssh_user != "root" {
+                    format!("sudo {}", rm_cmd)
+                } else {
+                    rm_cmd
+                };
+                let _ = state.ssh_manager.execute(
                     &node.ip,
                     node.ssh_port,
                     &node.ssh_user,
                     &credential,
-                    &rm_cmd,
-                )
-                .await;
-
-            if let Some(mount_unit_path) = &profile.generated_units.mount_unit_path {
-                let rm_cmd = format!("rm -f {}", mount_unit_path);
-                let _ = state
-                    .ssh_manager
-                    .execute(
-                        &node.ip,
-                        node.ssh_port,
-                        &node.ssh_user,
-                        &credential,
-                        &rm_cmd,
-                    )
-                    .await;
+                    &sudo_cmd,
+                ).await;
             }
 
             for so in &profile.generated_units.service_overrides {
                 let rm_cmd = format!("rm -f {}", so.override_path);
-                let _ = state
-                    .ssh_manager
-                    .execute(
-                        &node.ip,
-                        node.ssh_port,
-                        &node.ssh_user,
-                        &credential,
-                        &rm_cmd,
-                    )
-                    .await;
+                let sudo_cmd = if node.ssh_user != "root" {
+                    format!("sudo {}", rm_cmd)
+                } else {
+                    rm_cmd
+                };
+                let _ = state.ssh_manager.execute(
+                    &node.ip,
+                    node.ssh_port,
+                    &node.ssh_user,
+                    &credential,
+                    &sudo_cmd,
+                ).await;
             }
         }
     }
@@ -212,7 +185,7 @@ pub async fn delete_profile(
         &operation_id,
         "delete_ha_profile",
         Some(&profile.name),
-        40,
+        30,
         "Unmounting filesystem...",
         false,
         None,
@@ -318,6 +291,57 @@ pub async fn delete_profile(
                 }
                 Err(e) => {
                     tracing::warn!("Failed to delete DRBD config on {} {}: {}", node.hostname, drbd_config_path, e);
+                }
+            }
+        }
+    }
+
+    state.send_progress(
+        &operation_id,
+        "delete_ha_profile",
+        Some(&profile.name),
+        60,
+        "Deleting promoter configuration...",
+        false,
+        None,
+    );
+
+    // Delete promoter configuration on all nodes
+    let promoter_config_path = ReactorConfigPaths::promoter_path(&profile.name);
+
+    // Delete local promoter config
+    tracing::info!("Deleting local promoter config: {}", promoter_config_path);
+    match tokio::fs::remove_file(&promoter_config_path).await {
+        Ok(_) => tracing::info!("Deleted promoter config: {}", promoter_config_path),
+        Err(e) => tracing::warn!("Failed to delete promoter config {}: {}", promoter_config_path, e),
+    }
+
+    // Delete remote promoter configs
+    for node in &all_nodes {
+        if !node.is_local {
+            let rm_cmd = if node.ssh_user != "root" {
+                format!("sudo rm -f {}", promoter_config_path)
+            } else {
+                format!("rm -f {}", promoter_config_path)
+            };
+
+            tracing::info!("Deleting remote promoter config on {}: {}", node.hostname, promoter_config_path);
+            match state.ssh_manager.execute(
+                &node.ip,
+                node.ssh_port,
+                &node.ssh_user,
+                &credential,
+                &rm_cmd,
+            ).await {
+                Ok(output) => {
+                    if output.exit_code == 0 {
+                        tracing::info!("Deleted promoter config on {}: {}", node.hostname, promoter_config_path);
+                    } else {
+                        tracing::warn!("Failed to delete promoter config on {} {}: {}", node.hostname, promoter_config_path, output.stdout);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to delete promoter config on {} {}: {}", node.hostname, promoter_config_path, e);
                 }
             }
         }
