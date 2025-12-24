@@ -109,6 +109,9 @@ pub struct DrbdResourceStatus {
     pub disk: String,
     /// Whether the device is open (mounted)
     pub open: bool,
+    /// DRBD device minor number
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minor: Option<u32>,
     /// Peer node statuses
     pub peers: Vec<DrbdPeerStatus>,
 }

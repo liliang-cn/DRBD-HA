@@ -456,12 +456,26 @@ async fn fetch_profile_details(
     let mut profile_out = profile.clone();
     profile_out.status = status.clone();
 
-    // Get DRBD device name from generated units
-    let drbd_device = profile.generated_units.drbd_device.clone();
+    // Get DRBD device name from DRBD status (minor number)
+    let drbd_device = if let Some(drbd_status) = &drbd {
+        // Build device path from minor number: /dev/drbd{minor}
+        drbd_status.minor.map(|m| format!("/dev/drbd{}", m))
+    } else {
+        None
+    };
 
     // Build list of configured nodes from DRBD peers and node store
     let configured_nodes = if let Ok(nodes) = state.node_store.get_all() {
         let mut node_infos = Vec::new();
+
+        // Helper to convert DRBD role to display role
+        let role_to_display = |role: &str| -> String {
+            match role {
+                "Primary" => "Active".to_string(),
+                "Secondary" => "Standby".to_string(),
+                _ => role.to_string(),
+            }
+        };
 
         // Add local node
         let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
@@ -469,7 +483,7 @@ async fn fetch_profile_details(
             node_infos.push(super::types::NodeConfigInfo {
                 hostname: local_node.hostname.clone(),
                 ip: local_node.ip.clone(),
-                peer_role: drbd_role.map(|r| r.to_string()),
+                peer_role: drbd_role.map(|r| role_to_display(r)),
             });
         }
 
@@ -480,7 +494,7 @@ async fn fetch_profile_details(
                     node_infos.push(super::types::NodeConfigInfo {
                         hostname: node.hostname.clone(),
                         ip: node.ip.clone(),
-                        peer_role: Some(peer.role.clone()),
+                        peer_role: Some(role_to_display(&peer.role)),
                     });
                 }
             }

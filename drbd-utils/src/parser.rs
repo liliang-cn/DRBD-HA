@@ -149,6 +149,7 @@ pub fn parse_drbdadm_status(output: &str, resource_name: &str) -> Option<DrbdRes
         role,
         disk,
         open,
+        minor: None,  // Not available in text format
         peers,
     })
 }
@@ -297,6 +298,7 @@ pub fn convert_resource_status(resource: &ResourceStatus) -> DrbdResourceStatus 
         open: resource.devices.first()
             .map(|d| d.size.is_some())
             .unwrap_or(false),
+        minor: resource.devices.first().map(|d| d.minor),
         peers,
     }
 }

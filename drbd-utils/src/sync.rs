@@ -280,6 +280,7 @@ mod tests {
             role: "Primary".to_string(),
             disk: "UpToDate".to_string(),
             open: true,
+            minor: None,
             peers: vec![DrbdPeerStatus {
                 name: "node2".to_string(),
                 role: "Secondary".to_string(),
@@ -297,6 +298,7 @@ mod tests {
             role: "Primary".to_string(),
             disk: "UpToDate".to_string(),
             open: true,
+            minor: None,
             peers: vec![DrbdPeerStatus {
                 name: "node2".to_string(),
                 role: "Secondary".to_string(),
@@ -353,6 +355,7 @@ mod tests {
             role: "Primary".to_string(),
             disk: "UpToDate".to_string(),
             open: true,
+            minor: None,
             peers: vec![],
         };
         assert!(is_fully_synced_text(&no_peers));
@@ -363,6 +366,7 @@ mod tests {
             role: "Primary".to_string(),
             disk: "Inconsistent".to_string(),
             open: true,
+            minor: None,
             peers: vec![],
         };
         assert!(!is_fully_synced_text(&local_not_uptodate));
