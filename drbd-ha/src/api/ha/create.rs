@@ -251,18 +251,12 @@ pub async fn create_profile(
 
         let config_gen = DrbdConfigGenerator::new()?;
 
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        req.resource_name.hash(&mut hasher);
-        let device_num = hasher.finish() % 10000;
-
+        // DRBD requires device name to match minor number (e.g., /dev/drbd10 minor 10)
         let resource_config = ResourceConfig {
             name: req.resource_name.clone(),
             port: drbd_port,
             minor: drbd_minor,
-            device: format!("/dev/drbd{}", device_num),
+            device: format!("/dev/drbd{}", drbd_minor),
             nodes: node_configs,
             auto_promote: false,
             ..Default::default()
@@ -458,18 +452,12 @@ pub async fn create_profile(
 
         let config_gen = DrbdConfigGenerator::new()?;
 
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        req.resource_name.hash(&mut hasher);
-        let device_num = hasher.finish() % 10000;
-
+        // DRBD requires device name to match minor number (e.g., /dev/drbd10 minor 10)
         let resource_config = ResourceConfig {
             name: req.resource_name.clone(),
             port: drbd_port,
             minor: drbd_minor,
-            device: format!("/dev/drbd{}", device_num),
+            device: format!("/dev/drbd{}", drbd_minor),
             nodes: node_configs,
             auto_promote: false,
             ..Default::default()
