@@ -56,6 +56,37 @@ impl SshManager {
         })
     }
 
+    /// Execute a command with sudo for non-root users
+    ///
+    /// If user is not "root", automatically prepends "sudo" to the command.
+    pub async fn execute_with_sudo(
+        &self,
+        host: &str,
+        port: u16,
+        user: &str,
+        credential: &SshCredential,
+        command: &str,
+    ) -> AppResult<CommandOutput> {
+        // Add sudo for non-root users
+        let cmd = if user != "root" {
+            format!("sudo {}", command)
+        } else {
+            command.to_string()
+        };
+
+        let output = self
+            .inner
+            .execute(host, port, user, credential, &cmd)
+            .await
+            .map_err(|e| AppError::Ssh(e.to_string()))?;
+
+        Ok(CommandOutput {
+            stdout: output.stdout,
+            stderr: output.stderr,
+            exit_code: output.exit_code,
+        })
+    }
+
     /// Execute a command and parse JSON output
     pub async fn execute_json<T: serde::de::DeserializeOwned>(
         &self,
@@ -143,9 +174,16 @@ impl CommandExecutor<SshCredential> for SshManager {
         credential: &SshCredential,
         command: &str,
     ) -> SystemdResult<systemd_utils::CommandOutput> {
+        // Automatically add sudo for non-root users
+        let cmd = if user != "root" {
+            format!("sudo {}", command)
+        } else {
+            command.to_string()
+        };
+
         let output = self
             .inner
-            .execute(host, port, user, credential, command)
+            .execute(host, port, user, credential, &cmd)
             .await
             .map_err(|e| SystemdError::RemoteExecution(e.to_string()))?;
 

@@ -137,13 +137,18 @@ impl ClusterSync {
 
             if !dir.is_empty() {
                 let mkdir_cmd = format!("mkdir -p '{}'", dir);
+                let sudo_cmd = if node.ssh_user != "root" {
+                    format!("sudo {}", mkdir_cmd)
+                } else {
+                    mkdir_cmd
+                };
                 self.ssh_manager
                     .execute(
                         &node.ip,
                         node.ssh_port,
                         &node.ssh_user,
                         credential,
-                        &mkdir_cmd,
+                        &sudo_cmd,
                     )
                     .await?;
             }
@@ -214,13 +219,18 @@ impl ClusterSync {
 
             if !dir.is_empty() {
                 let mkdir_cmd = format!("mkdir -p '{}'", dir);
+                let sudo_cmd = if node.ssh_user != "root" {
+                    format!("sudo {}", mkdir_cmd)
+                } else {
+                    mkdir_cmd
+                };
                 self.ssh_manager
                     .execute(
                         &node.ip,
                         node.ssh_port,
                         &node.ssh_user,
                         credential,
-                        &mkdir_cmd,
+                        &sudo_cmd,
                     )
                     .await?;
             }
@@ -349,21 +359,42 @@ impl ClusterSync {
             content.len()
         );
 
+        // Use sudo tee for non-root users to write files requiring root permissions
+        let cmd = if node.ssh_user != "root" {
+            // Escape single quotes in content
+            let escaped_content = content.replace('\'', "'\\''");
+            // Use sudo tee to write with root privileges
+            format!("echo '{}' | sudo tee '{}' > /dev/null", escaped_content, path)
+        } else {
+            // For root user, use cat with heredoc for better handling of special characters
+            format!("cat > '{}' << 'EOF'\n{}\nEOF", path, content)
+        };
+
         let result = self
             .ssh_manager
-            .write_file(
+            .execute(
                 &node.ip,
                 node.ssh_port,
                 &node.ssh_user,
                 credential,
-                path,
-                content,
+                &cmd,
             )
             .await;
 
         match &result {
-            Ok(_) => {
-                tracing::debug!("Successfully wrote file {} to node {}", path, node.hostname);
+            Ok(output) => {
+                if output.exit_code == 0 {
+                    tracing::debug!("Successfully wrote file {} to node {}", path, node.hostname);
+                } else {
+                    tracing::error!(
+                        "Failed to write {} on {}: {}",
+                        path, node.hostname, output.stderr
+                    );
+                    return Err(AppError::Ssh(format!(
+                        "Failed to write {} on {}: {}",
+                        path, node.hostname, output.stderr
+                    )));
+                }
             }
             Err(e) => {
                 tracing::error!(
@@ -374,15 +405,14 @@ impl ClusterSync {
                     node.ssh_port,
                     e
                 );
+                return Err(AppError::Ssh(format!(
+                    "Failed to write {} on {}: {}",
+                    path, node.hostname, e
+                )));
             }
         }
 
-        result.map_err(|e| {
-            AppError::Ssh(format!(
-                "Failed to write {} on {}: {}",
-                path, node.hostname, e
-            ))
-        })
+        Ok(())
     }
 
     /// Remove HA configuration from all remote nodes

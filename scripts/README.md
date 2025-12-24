@@ -140,26 +140,63 @@ sudo ./scripts/uninstall.sh --purge-all
 
 ---
 
-### setup-ssh.sh - SSH Key Setup
+## SSH Key Configuration
 
-Configures passwordless SSH access from the manager node to cluster nodes.
+**IMPORTANT**: The drbd-ha service runs as **root**, so SSH keys must be configured for the root user.
 
-**Usage:**
+### Why root?
+
+The drbd-ha service needs to manage DRBD, LVM, and systemd services, which require root privileges. The service runs as root and uses SSH to execute commands on remote nodes. Therefore, SSH keys must be configured in `/root/.ssh/`, not in your regular user's home directory.
+
+### Setup Instructions
+
+On the machine where drbd-ha is running (as root):
+
 ```bash
-sudo ./scripts/setup-ssh.sh
+# Switch to root shell
+sudo -i
+
+# Generate SSH key (if not exists)
+ssh-keygen -t rsa -b 4096
+
+# Copy public key to each remote node
+ssh-copy-id liliang@orange2
+ssh-copy-id liliang@orange3
+
+# Test connection (should print "ok")
+ssh -o BatchMode=yes liliang@orange2 echo ok
 ```
 
-**What it does:**
-1. Generates SSH key pair if not exists
-2. Copies public key to remote nodes
-3. Verifies passwordless login
-4. Tests sudo access (if not root)
+### Troubleshooting SSH Issues
 
-**Setup process:**
-- Prompts for remote SSH username (default: root)
-- Prompts for list of node IPs/hostnames
-- Copies SSH keys to each node
-- Verifies passwordless access
+If adding nodes in the UI fails with "Permission denied":
+
+1. **Check service user:**
+   ```bash
+   ps aux | grep drbd-ha
+   # Should show "root" as the user
+   ```
+
+2. **Check SSH keys location:**
+   ```bash
+   sudo ls -la /root/.ssh/
+   # Should see id_rsa and id_rsa.pub
+   ```
+
+3. **Test SSH as root:**
+   ```bash
+   sudo ssh -o BatchMode=yes liliang@orange2 echo ok
+   # Should print "ok"
+   ```
+
+4. **If your regular user has keys but root doesn't:**
+   ```bash
+   # Copy your keys to root
+   sudo cp ~/.ssh/id_rsa* /root/.ssh/
+   sudo cp ~/.ssh/known_hosts /root/.ssh/
+   sudo chown -R root:root /root/.ssh/
+   sudo chmod 600 /root/.ssh/id_rsa
+   ```
 
 ## Deployment Workflow
 

@@ -273,6 +273,19 @@ show_summary() {
     echo "  URL:      http://$(hostname -I | awk '{print $1}'):3373"
     echo "  API Docs: http://$(hostname -I | awk '{print $1}'):3373/swagger-ui/"
     echo ""
+    echo -e "${YELLOW}Next Steps:${NC}"
+    echo "  1. Configure SSH keys for root user to access cluster nodes:"
+    echo "     sudo -i"
+    echo "     ssh-keygen -t rsa -b 4096"
+    echo "     ssh-copy-id <user>@<node>"
+    echo "     ssh -o BatchMode=yes <user>@<node> echo ok  # Test connection"
+    echo ""
+    echo "     IMPORTANT: The service runs as root, so SSH keys must be"
+    echo "     configured for the root user (/root/.ssh/), not your regular user."
+    echo ""
+    echo "  2. Add nodes via Web UI or API"
+    echo "  3. Create DRBD resources and HA profiles"
+    echo ""
 }
 
 #############################################################################

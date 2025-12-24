@@ -79,15 +79,28 @@ make release
 # The binary will be at: target/release/drbd-ha
 ```
 
-#### 2. Setup SSH Trust
+#### 2. Setup SSH Access (IMPORTANT)
 
-The manager node (where `drbd-ha` runs) needs passwordless SSH root access to all managed nodes.
+**The drbd-ha service runs as root**, so SSH keys must be configured for the **root** user.
+
+On the machine where drbd-ha will run:
 
 ```bash
-# Run the helper script as root
-sudo ./scripts/setup-ssh.sh
-# Enter the IPs of your other nodes when prompted
+# Switch to root shell
+sudo -i
+
+# Generate SSH key (if not exists)
+ssh-keygen -t rsa -b 4096
+
+# Copy public key to each cluster node
+ssh-copy-id liliang@orange2
+ssh-copy-id liliang@orange3
+
+# Test connection (should print "ok")
+ssh -o BatchMode=yes liliang@orange2 echo ok
 ```
+
+**Why root?** The drbd-ha service manages DRBD, LVM, and systemd services which require root privileges. It runs as root and uses SSH to execute commands on remote nodes, so SSH keys must be in `/root/.ssh/`, not your regular user's home directory.
 
 #### 3. Deploy as System Service
 

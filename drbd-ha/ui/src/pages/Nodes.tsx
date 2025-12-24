@@ -165,7 +165,7 @@ export function Nodes() {
           <Form.Item name="ssh_port" label="SSH Port" initialValue={22}>
             <InputNumber min={1} max={65535} className="w-full" />
           </Form.Item>
-          <Form.Item name="ssh_user" label="SSH User" initialValue="root">
+          <Form.Item name="ssh_user" label="SSH User" initialValue="liliang">
             <Input />
           </Form.Item>
           <Form.Item>

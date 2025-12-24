@@ -199,8 +199,12 @@ pub async fn list_node_disks(
         .get(&id)?
         .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
 
-    // Get block devices using lsblk
-    let lsblk_cmd = "lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,RO,MODEL,PATH";
+    // Get block devices using lsblk (add sudo for non-root users)
+    let lsblk_cmd = if node.ssh_user != "root" && !node.is_local {
+        "sudo lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,RO,MODEL,PATH"
+    } else {
+        "lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,RO,MODEL,PATH"
+    };
 
     let output: LsblkOutput = if node.is_local {
         // Local node
