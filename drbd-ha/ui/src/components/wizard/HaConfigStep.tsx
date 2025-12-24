@@ -219,7 +219,7 @@ export function HaConfigStep({
         <Divider>Network Configuration (VIP)</Divider>
         <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
           <Row gutter={16}>
-            <Col span={10}>
+            <Col span={12}>
               <Form.Item
                 name="vip_address"
                 label="Virtual IP Address"
@@ -228,22 +228,13 @@ export function HaConfigStep({
                 <Input placeholder="192.168.1.100" />
               </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col span={12}>
               <Form.Item
                 name="vip_netmask"
                 label="Netmask (CIDR)"
                 initialValue={24}
               >
                 <InputNumber min={1} max={32} className="w-full" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                name="vip_interface"
-                label="Interface"
-                initialValue="eth0"
-              >
-                <Input />
               </Form.Item>
             </Col>
           </Row>

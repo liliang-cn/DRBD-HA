@@ -812,32 +812,19 @@ pub async fn activate_profile(
 
     if let Some(vip) = &profile.vip {
         tracing::info!(
-            "activate_profile: Configuring VIP {}/{} on {}",
+            "activate_profile: VIP {}/{} will be configured by drbd-reactor",
             vip.address,
-            vip.netmask,
-            vip.interface
+            vip.netmask
         );
         state.send_progress(
             &operation_id,
             "activate_profile",
             Some(&profile.name),
             80,
-            "Configuring VIP...",
+            "VIP will be configured by drbd-reactor...",
             false,
             None,
         );
-        let vip_cmd = format!(
-            "ip addr add {}/{} dev {}",
-            vip.address, vip.netmask, vip.interface
-        );
-        let _ = run_shell_command(
-            &vip_cmd,
-            &format!(
-                "Configure VIP {}/{} on {}",
-                vip.address, vip.netmask, vip.interface
-            ),
-        )
-        .await;
     }
 
     state.send_progress(
@@ -907,33 +894,19 @@ pub async fn deactivate_profile(
 
     if let Some(vip) = &profile.vip {
         tracing::info!(
-            "deactivate_profile: Removing VIP {}/{} from {}",
+            "deactivate_profile: VIP {}/{} was managed by drbd-reactor",
             vip.address,
-            vip.netmask,
-            vip.interface
+            vip.netmask
         );
         state.send_progress(
             &operation_id,
             "deactivate_profile",
             Some(&profile.name),
             0,
-            "Removing VIP...",
+            "VIP was managed by drbd-reactor...",
             false,
             None,
         );
-        let vip_cmd = format!(
-            "ip addr del {}/{} dev {} 2>/dev/null || true",
-            vip.address, vip.netmask, vip.interface
-        );
-        let vip_output = run_shell_command(
-            &vip_cmd,
-            &format!(
-                "Remove VIP {}/{} from {}",
-                vip.address, vip.netmask, vip.interface
-            ),
-        )
-        .await;
-        tracing::info!("deactivate_profile: VIP remove result: {:?}", vip_output);
     }
 
     state.send_progress(

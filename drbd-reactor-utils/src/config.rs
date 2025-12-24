@@ -58,7 +58,6 @@ pub struct OcfAgentConfig {
 pub struct VipConfig {
     pub address: String,
     pub netmask: u8,
-    pub interface: String,
 }
 
 /// Configuration generator using Tera templates
@@ -110,7 +109,7 @@ start = [
     "{{ promoter.mount_unit }}",
 {% endif %}
 {% if promoter.vip %}
-    "ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }} nic={{ promoter.vip.interface }}",
+    "ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }}",
 {% endif %}
 {% for agent in promoter.ocf_agents %}
     "{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}",
@@ -161,7 +160,6 @@ mod tests {
             vip: Some(VipConfig {
                 address: "192.168.1.100".to_string(),
                 netmask: 24,
-                interface: "eth0".to_string(),
             }),
             ocf_agents: vec![],
             dependencies_as: Some("Wants".to_string()),
@@ -179,9 +177,9 @@ mod tests {
         assert!(output.contains("[promoter.resources.r0]"));
         assert!(output.contains("app.service"));
         assert!(output.contains("web.service"));
-        // VIP should be in OCF format inside start list (instance name, ip, cidr_netmask, nic)
+        // VIP should be in OCF format inside start list (instance name, ip, cidr_netmask)
         assert!(output
-            .contains("ocf:heartbeat:IPaddr2 r0_vip ip=192.168.1.100 cidr_netmask=24 nic=eth0"));
+            .contains("ocf:heartbeat:IPaddr2 r0_vip ip=192.168.1.100 cidr_netmask=24"));
         assert!(output.contains("runner = \"systemd\""));
 
         // Check new fields

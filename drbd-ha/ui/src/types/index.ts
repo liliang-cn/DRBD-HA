@@ -100,7 +100,6 @@ export interface ResourceAction {
 export interface VipConfig {
   address: string;
   netmask: number;
-  interface: string;
 }
 
 export interface ServiceOverride {

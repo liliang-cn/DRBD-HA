@@ -49,12 +49,9 @@ pub(crate) fn parse_vip_from_config(content: &str) -> Option<VipConfig> {
             }
 
             if let (Some(address), Some(netmask)) = (ip_addr, netmask) {
-                let interface = "eth0".to_string();
-
                 return Some(VipConfig {
                     address,
                     netmask,
-                    interface,
                 });
             }
         }

@@ -631,7 +631,6 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             ? {
                 address: haValues.vip_address,
                 netmask: haValues.vip_netmask || 24,
-                interface: haValues.vip_interface || 'eth0',
               }
             : undefined,
           migration: haValues.migrate_data

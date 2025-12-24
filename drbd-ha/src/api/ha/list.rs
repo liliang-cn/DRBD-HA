@@ -205,13 +205,11 @@ async fn fetch_profile_details(
         }
 
         if !active {
-            let cmd = format!("ip addr show {} | grep -q '{}'", vip.interface, vip.address);
+            // Check if VIP is active on any interface
+            let cmd = format!("ip addr show | grep -q '{}/'", vip.address);
             let output = run_shell_command(
                 &cmd,
-                &format!(
-                    "Check if VIP {} is active on interface {}",
-                    vip.address, vip.interface
-                ),
+                &format!("Check if VIP {} is active", vip.address),
             )
             .await?;
             active = output.success();

@@ -63,7 +63,7 @@ export const haProfilesApi = {
   // VIP management
   addVip: (
     id: string,
-    vip: { address: string; netmask: number; interface: string },
+    vip: { address: string; netmask: number },
   ) => api.post<{ message: string }>(`/ha/profiles/${id}/vip`, vip),
 
   removeVip: (id: string) =>

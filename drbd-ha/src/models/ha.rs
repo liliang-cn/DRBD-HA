@@ -119,8 +119,6 @@ pub struct VipConfig {
     pub address: String,
     /// CIDR netmask (e.g., 24 for /24)
     pub netmask: u8,
-    /// Network interface (e.g., "eth0")
-    pub interface: String,
 }
 
 impl VipConfig {

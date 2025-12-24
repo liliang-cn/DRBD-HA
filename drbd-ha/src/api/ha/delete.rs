@@ -85,15 +85,8 @@ pub async fn delete_profile(
         );
 
         if let Some(vip) = &profile.vip {
-            let vip_cmd = format!(
-                "ip addr del {}/{} dev {} 2>/dev/null || true",
-                vip.address, vip.netmask, vip.interface
-            );
-            let _ = run_shell_command(
-                &vip_cmd,
-                &format!("Remove VIP {} from {}", vip.address, vip.interface),
-            )
-            .await;
+            // VIP is managed by drbd-reactor
+            tracing::info!("delete_profile: VIP {}/{} was managed by drbd-reactor", vip.address, vip.netmask);
         }
 
         if let Some(mount_unit) = &profile.generated_units.mount_unit {

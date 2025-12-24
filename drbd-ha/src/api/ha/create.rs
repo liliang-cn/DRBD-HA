@@ -78,32 +78,7 @@ pub async fn create_profile(
         validator::validate_service_name(service)?;
     }
 
-    if let Some(vip) = &mut req.vip {
-        if vip.interface.is_empty() || vip.interface == "auto" || vip.interface == "eth0" {
-            if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
-                let mut interfaces = Vec::new();
-                for entry in entries.flatten() {
-                    if let Ok(name) = entry.file_name().into_string() {
-                        if name != "lo"
-                            && !name.starts_with("docker")
-                            && !name.starts_with("veth")
-                            && !name.starts_with("br-")
-                        {
-                            interfaces.push(name);
-                        }
-                    }
-                }
-                interfaces.sort();
-                if let Some(first) = interfaces.first() {
-                    tracing::info!(
-                        "Auto-detected VIP interface: {} (was {})",
-                        first,
-                        vip.interface
-                    );
-                    vip.interface = first.clone();
-                }
-            }
-        }
+    if let Some(vip) = &req.vip {
         validator::validate_ip_address(&vip.address)?;
         validator::validate_netmask(vip.netmask)?;
     }
@@ -1056,7 +1031,6 @@ pub async fn create_profile(
         vip: profile_for_gen.vip.as_ref().map(|v| drbd_reactor_utils::VipConfig {
             address: v.address.clone(),
             netmask: v.netmask,
-            interface: v.interface.clone(),
         }),
         ocf_agents: profile_for_gen.ocf_agents.iter().map(|a| drbd_reactor_utils::OcfAgentConfig {
             name: a.name.clone(),

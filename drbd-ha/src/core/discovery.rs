@@ -62,7 +62,7 @@ impl ReactorDiscovery {
 
         // Pre-compile regexes
         let vip_regex = Regex::new(
-            r"ocf:heartbeat:IPaddr2\s+\S+\s+ip=([0-9\.]+)\s+cidr_netmask=(\d+)\s+nic=(\S+)"
+            r"ocf:heartbeat:IPaddr2\s+\S+\s+ip=([0-9\.]+)\s+cidr_netmask=(\d+)"
         )
         .unwrap();
         let fs_regex = Regex::new(
@@ -113,7 +113,6 @@ impl ReactorDiscovery {
                                     vip = Some(VipConfig {
                                         address: caps[1].to_string(),
                                         netmask: caps[2].parse().unwrap_or(24),
-                                        interface: caps[3].to_string(),
                                     });
                                     continue;
                                 }

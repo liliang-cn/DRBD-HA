@@ -221,7 +221,6 @@ pub struct EvictProfileResponse {
 pub struct AddVipRequest {
     pub address: String,
     pub netmask: u8,
-    pub interface: String,
 }
 
 /// Response for VIP operations

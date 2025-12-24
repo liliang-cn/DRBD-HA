@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::core::{
     cluster_sync::{ClusterSync, HaSyncConfig},
-    run_shell_command, validator,
+    validator,
     ReactorConfigGenerator, ReactorConfigPaths,
 };
 use crate::error::{AppError, AppResult};
@@ -42,7 +42,6 @@ pub async fn add_vip(
     let vip = VipConfig {
         address: req.address.clone(),
         netmask: req.netmask,
-        interface: req.interface.clone(),
     };
 
     profile.vip = Some(vip.clone());
@@ -57,7 +56,6 @@ pub async fn add_vip(
         vip: Some(drbd_reactor_utils::VipConfig {
             address: vip.address.clone(),
             netmask: vip.netmask,
-            interface: vip.interface.clone(),
         }),
         ocf_agents: profile.ocf_agents.iter().map(|a| drbd_reactor_utils::OcfAgentConfig {
             name: a.name.clone(),
@@ -132,18 +130,11 @@ pub async fn remove_vip(
         .ok_or_else(|| AppError::Validation("No VIP configured for this profile".to_string()))?;
 
     if profile.status == HaProfileStatus::Active {
-        let vip_cmd = format!(
-            "ip addr del {}/{} dev {} 2>/dev/null || true",
-            old_vip.address, old_vip.netmask, old_vip.interface
+        // VIP is managed by drbd-reactor, nothing to do here
+        tracing::info!(
+            "remove_vip: VIP {}/{} was managed by drbd-reactor",
+            old_vip.address, old_vip.netmask
         );
-        let _ = run_shell_command(
-            &vip_cmd,
-            &format!(
-                "Remove VIP {}/{} from {}",
-                old_vip.address, old_vip.netmask, old_vip.interface
-            ),
-        )
-        .await;
     }
 
     profile.vip = None;
