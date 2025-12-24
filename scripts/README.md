@@ -140,6 +140,88 @@ sudo ./scripts/uninstall.sh --purge-all
 
 ---
 
+### update.sh - Remote Update (Local Machine)
+
+Updates an **already-deployed** service on a remote server.
+
+**Use case:**
+- Update the binary without full reinstallation
+- Quick iteration during development
+- Apply bug fixes to production servers
+
+**Usage:**
+```bash
+./scripts/update.sh <user@host> [OPTIONS]
+```
+
+**Arguments:**
+- `user@host` - Remote server (required)
+  - Examples: `root@orange1`, `admin@192.168.1.100`
+
+**Options:**
+- `--skip-build` - Skip building, update with existing binary
+- `--dev` - Build in debug mode
+
+**Examples:**
+```bash
+# Build and update
+./scripts/update.sh root@orange1
+
+# Update with existing binary
+./scripts/update.sh root@orange1 --skip-build
+
+# Debug build
+./scripts/update.sh root@192.168.1.100 --dev
+
+# Update multiple servers
+for host in orange1 orange2 orange3; do
+    ./scripts/update.sh root@$host
+done
+```
+
+**What it does:**
+1. **Builds locally** (unless `--skip-build`)
+   - Compiles Rust backend
+   - Builds React UI
+   - Embeds UI into binary
+
+2. **Stops the service** on remote server
+   - `systemctl stop drbd-ha`
+
+3. **Uploads new binary** via SCP
+   - Binary → `/tmp/drbd-ha-update/drbd-ha`
+
+4. **Replaces the old binary**
+   - Copy to `/opt/drbd-ha/drbd-ha`
+   - Set executable permissions
+
+5. **Starts the service**
+   - `systemctl start drbd-ha`
+
+**What it preserves:**
+- All configuration files (backs up config.toml before updating)
+- All data in `/var/lib/drbd-ha/`
+- All logs in `/var/log/drbd-ha/`
+- systemd service configuration
+
+**Requirements:**
+- Service must already be installed (use `deploy.sh` for first-time installation)
+- SSH access to remote server
+- Build tools on local machine (for building)
+
+**Comparison with deploy.sh:**
+
+| Feature | deploy.sh | update.sh |
+|---------|-----------|-----------|
+| Purpose | First-time installation | Updating existing installation |
+| Creates directories | Yes | No (already exists) |
+| Creates systemd service | Yes | No (already exists) |
+| Stops service | No | Yes (before update) |
+| Backs up config | Yes | Yes |
+| Overwrites binary | Yes | Yes |
+
+---
+
 ## SSH Key Configuration
 
 **IMPORTANT**: The drbd-ha service runs as **root**, so SSH keys must be configured for the root user.

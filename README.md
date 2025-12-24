@@ -63,6 +63,30 @@ The deployment script will:
 - **Local Machine**: Makefile, ssh/scp commands, SSH access to remote server
 - **Remote Server**: Root/sudo privileges, Linux with systemd, lvm2, drbd-utils, drbd-reactor
 
+### Updating Existing Deployment
+
+To update an already-deployed server without full reinstallation:
+
+```bash
+# Build and update
+./scripts/update.sh root@orange1
+
+# Update with existing binary (skip build)
+./scripts/update.sh root@orange1 --skip-build
+
+# Debug build
+./scripts/update.sh root@orange1 --dev
+```
+
+The update script will:
+1. **Build locally** (unless `--skip-build` is used)
+2. **Stop the service** on remote server
+3. **Upload new binary** via SCP
+4. **Replace the old binary**
+5. **Start the service**
+
+This preserves all configuration, data, and logs while updating the binary.
+
 ### Manual Installation
 
 If you prefer manual installation, follow these steps:
