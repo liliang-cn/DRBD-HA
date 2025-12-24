@@ -106,11 +106,13 @@ async fn fetch_profile_details(
         .ok_or_else(|| crate::error::AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
 
     // Step 1: Get DRBD status to determine which node is Primary (active)
-    let drbd = {
+    // We need to execute drbdadm status on the active node
+    // First try to get active node info from local DRBD status
+    let local_drbd_status = {
         let cmd = format!("drbdadm status {} 2>/dev/null", profile.resource_name);
         let output = run_shell_command(
             &cmd,
-            &format!("Get drbdadm status for {}", profile.resource_name),
+            &format!("Get local drbdadm status for {}", profile.resource_name),
         )
         .await?;
         if output.success() && !output.stdout.is_empty() {
@@ -120,90 +122,120 @@ async fn fetch_profile_details(
         }
     };
 
-    let drbd_role = drbd.as_ref().map(|d| d.role.as_str());
-
-    // Step 2: Determine the active node from DRBD role or reactor status
-    // First, get local hostname to check if we're on the active node
+    // Determine active node from local DRBD status
     let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
     let nodes = state.node_store.get_all()?;
 
-    // Determine active node: if local is Primary, active is local; otherwise, find the Primary peer
-    let active_node_from_drbd = if drbd_role == Some("Primary") {
-        Some(local_hostname.clone())
-    } else if let Some(drbd_status) = &drbd {
-        // Check if any peer is Primary
-        drbd_status.peers.iter()
-            .find(|p| p.role == "Primary")
-            .map(|p| p.name.clone())
+    let active_node_from_drbd = if let Some(ref status) = local_drbd_status {
+        if status.role == "Primary" {
+            Some(local_hostname.clone())
+        } else {
+            // Check peers for Primary
+            status.peers.iter()
+                .find(|p| p.role == "Primary")
+                .map(|p| p.name.clone())
+        }
     } else {
         None
     };
 
-    // Step 3: Execute drbd-reactorctl status on the ACTIVE node
-    let (active_node, reactor_status_raw) = if let Some(ref active_hostname) = active_node_from_drbd {
+    // Step 2: Execute drbdadm status AND drbd-reactorctl status on the ACTIVE node
+    let (drbd, active_node, reactor_status_raw) = if let Some(ref active_hostname) = active_node_from_drbd {
         // Find the active node from node store
         if let Some(active_node_obj) = nodes.iter().find(|n| &n.hostname == active_hostname) {
             if active_node_obj.is_local || &active_node_obj.hostname == &local_hostname {
                 // Active node is local, execute locally
-                tracing::info!("Executing drbd-reactorctl status {} locally (active node)", profile.name);
-                match DrbdReactorClient::status(Some(&profile.name)).await {
-                    Ok((statuses, raw_output)) => {
-                        let active = statuses.first().and_then(|s| s.active_node.clone());
-                        (active.or_else(|| Some(active_hostname.clone())), Some(raw_output))
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to get reactor status locally: {}", e);
-                        (Some(active_hostname.clone()), None)
-                    }
-                }
+                tracing::info!("Active node is local, getting status locally for {}", profile.resource_name);
+
+                let reactor_status = DrbdReactorClient::status(Some(&profile.name)).await;
+                let reactor_raw = reactor_status.as_ref().map(|(_, raw)| raw.clone()).ok();
+                let active_from_reactor = reactor_status.as_ref()
+                    .ok()
+                    .and_then(|(statuses, _)| statuses.first())
+                    .and_then(|s| s.active_node.clone());
+
+                (local_drbd_status, active_from_reactor.or_else(|| Some(active_hostname.clone())), reactor_raw)
             } else {
-                // Active node is remote, SSH to execute there
-                tracing::info!("Executing drbd-reactorctl status {} on remote node {}", profile.name, active_hostname);
+                // Active node is remote, SSH to execute both commands there
+                tracing::info!("Active node is remote {}, getting status via SSH for {}", active_hostname, profile.resource_name);
                 let credential = SshCredential::Password("ignored".to_string());
-                let cmd = format!("drbd-reactorctl status {}", profile.name);
-                let sudo_cmd = if active_node_obj.ssh_user != "root" {
-                    format!("sudo {}", cmd)
+
+                // Execute drbdadm status on remote node
+                let drbd_cmd = format!("drbdadm status {} 2>/dev/null", profile.resource_name);
+                let sudo_drbd_cmd = if active_node_obj.ssh_user != "root" {
+                    format!("sudo {}", drbd_cmd)
                 } else {
-                    cmd
+                    drbd_cmd
                 };
 
-                match state.ssh_manager.execute(
+                let remote_drbd = match state.ssh_manager.execute(
                     &active_node_obj.ip,
                     active_node_obj.ssh_port,
                     &active_node_obj.ssh_user,
                     &credential,
-                    &sudo_cmd,
+                    &sudo_drbd_cmd,
                 ).await {
                     Ok(output) => {
-                        // Parse the output
-                        let statuses = drbd_reactor_utils::parser::parse_reactor_status(&output.stdout, Some(&profile.name));
-                        let active = statuses.first().and_then(|s| s.active_node.clone());
-                        (active.or_else(|| Some(active_hostname.clone())), Some(output.stdout))
+                        if !output.stdout.is_empty() {
+                            parse_drbdadm_status(&output.stdout, &profile.resource_name)
+                        } else {
+                            None
+                        }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to get reactor status from remote node {}: {}", active_hostname, e);
-                        (Some(active_hostname.clone()), None)
+                        tracing::warn!("Failed to get drbdadm status from {}: {}", active_hostname, e);
+                        None
                     }
-                }
+                };
+
+                // Execute drbd-reactorctl status on remote node
+                let reactor_cmd = format!("drbd-reactorctl status {}", profile.name);
+                let sudo_reactor_cmd = if active_node_obj.ssh_user != "root" {
+                    format!("sudo {}", reactor_cmd)
+                } else {
+                    reactor_cmd
+                };
+
+                let reactor_result = state.ssh_manager.execute(
+                    &active_node_obj.ip,
+                    active_node_obj.ssh_port,
+                    &active_node_obj.ssh_user,
+                    &credential,
+                    &sudo_reactor_cmd,
+                ).await;
+
+                let (reactor_raw, active_from_reactor) = match reactor_result {
+                    Ok(output) => {
+                        let statuses = drbd_reactor_utils::parser::parse_reactor_status(&output.stdout, Some(&profile.name));
+                        let active = statuses.first().and_then(|s| s.active_node.clone());
+                        (Some(output.stdout), active)
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to get reactor status from {}: {}", active_hostname, e);
+                        (None, Some(active_hostname.clone()))
+                    }
+                };
+
+                (remote_drbd, active_from_reactor, reactor_raw)
             }
         } else {
             tracing::warn!("Active node {} not found in node store", active_hostname);
-            (Some(active_hostname.clone()), None)
+            (local_drbd_status, Some(active_hostname.clone()), None)
         }
     } else {
-        // No active node from DRBD, try local reactor status as fallback
-        tracing::info!("No active node determined from DRBD, trying local reactor status");
-        match DrbdReactorClient::status(Some(&profile.name)).await {
-            Ok((statuses, raw_output)) => {
-                let active = statuses.first().and_then(|s| s.active_node.clone());
-                (active, Some(raw_output))
-            }
-            Err(e) => {
-                tracing::warn!("Failed to get reactor status locally: {}", e);
-                (None, None)
-            }
-        }
+        // No active node from DRBD, use local status
+        tracing::info!("No active node determined from DRBD, using local status");
+        let reactor_status = DrbdReactorClient::status(Some(&profile.name)).await;
+        let reactor_raw = reactor_status.as_ref().map(|(_, raw)| raw.clone()).ok();
+        let active_from_reactor = reactor_status.as_ref()
+            .ok()
+            .and_then(|(statuses, _)| statuses.first())
+            .and_then(|s| s.active_node.clone());
+
+        (local_drbd_status, active_from_reactor, reactor_raw)
     };
+
+    let drbd_role = drbd.as_ref().map(|d| d.role.as_str());
 
     // Initialize service statuses from configured services
     let mut service_statuses: Vec<ServiceStatusInfo> = profile
