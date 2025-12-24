@@ -121,11 +121,21 @@ pub fn parse_drbdadm_status(output: &str, resource_name: &str) -> Option<DrbdRes
                     }
                 }
 
+                // If connection state is not explicitly shown, but peer is listed,
+                // assume Connected (peer wouldn't be listed if not connected)
+                let connection_state = connection.or_else(|| {
+                    if !peer_name.is_empty() {
+                        Some("Connected".to_string())
+                    } else {
+                        None
+                    }
+                });
+
                 peers.push(DrbdPeerStatus {
                     name: peer_name,
                     role: peer_role,
                     peer_disk,
-                    connection,
+                    connection: connection_state,
                     replication,
                     sync_percent,
                 });
