@@ -18,6 +18,8 @@ use crate::state::AppState;
 use super::types::{ConfigVisibility, HaProfileDetailResponse, HaProfileListResponse, ServiceStatusInfo};
 use super::utils::{create_profile_from_toml, get_all_ha_profile_names};
 
+use gethostname;
+
 /// Get the actual device name for a DRBD resource from its configuration file
 /// This is the authoritative source for device names
 #[allow(dead_code)]
@@ -316,16 +318,53 @@ async fn fetch_profile_details(
     let mut profile_out = profile.clone();
     profile_out.status = status.clone();
 
+    // Get DRBD device name from generated units
+    let drbd_device = profile.generated_units.drbd_device.clone();
+
+    // Build list of configured nodes from DRBD peers and node store
+    let configured_nodes = if let Ok(nodes) = state.node_store.get_all() {
+        let mut node_infos = Vec::new();
+
+        // Add local node
+        let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+        if let Some(local_node) = nodes.iter().find(|n| n.is_local || n.hostname == local_hostname) {
+            node_infos.push(super::types::NodeConfigInfo {
+                hostname: local_node.hostname.clone(),
+                ip: local_node.ip.clone(),
+                peer_role: drbd_role.map(|r| r.to_string()),
+            });
+        }
+
+        // Add peer nodes from DRBD status
+        if let Some(drbd_status) = &drbd {
+            for peer in &drbd_status.peers {
+                if let Some(node) = nodes.iter().find(|n| n.hostname == peer.name) {
+                    node_infos.push(super::types::NodeConfigInfo {
+                        hostname: node.hostname.clone(),
+                        ip: node.ip.clone(),
+                        peer_role: Some(peer.role.clone()),
+                    });
+                }
+            }
+        }
+
+        node_infos
+    } else {
+        Vec::new()
+    };
+
     Ok(Json(HaProfileDetailResponse {
         profile: profile_out,
         status,
         active_node,
         mount_point,
         drbd,
+        drbd_device,
         service_statuses,
         vip_active,
         config,
         reactor_status_raw,
+        configured_nodes,
     }))
 }
 

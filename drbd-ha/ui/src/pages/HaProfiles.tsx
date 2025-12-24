@@ -803,55 +803,89 @@ export function HaProfiles() {
                 <Descriptions.Item label="Active Node">
                   {checkResultsData.active_node || '-'}
                 </Descriptions.Item>
-                <Descriptions.Item label="Local Node Active">
-                  {checkResultsData.is_local_active ? (
-                    <Tag color="green">Yes</Tag>
+                <Descriptions.Item label="All Services Active">
+                  {checkResultsData.service_statuses && checkResultsData.service_statuses.length > 0 ? (
+                    checkResultsData.service_statuses.every((s: any) => s.active) ? (
+                      <Tag color="green">Yes</Tag>
+                    ) : (
+                      <Tag color="red">No</Tag>
+                    )
                   ) : (
-                    <Tag color="default">No</Tag>
+                    <Tag color="default">Unknown</Tag>
                   )}
                 </Descriptions.Item>
-                <Descriptions.Item label="All Services Running">
-                  {checkResultsData.all_services_running ? (
-                    <Tag color="green">Yes</Tag>
-                  ) : (
-                    <Tag color="red">No</Tag>
-                  )}
+                <Descriptions.Item label="DRBD Reactor">
+                  <Tag color={checkResultsData.config?.reactor_running ? 'green' : 'red'}>
+                    {checkResultsData.config?.reactor_running ? 'Running' : 'Stopped'}
+                  </Tag>
                 </Descriptions.Item>
               </Descriptions>
             </Card>
 
             {/* DRBD Status */}
-            {checkResultsData.drbd_status && (
+            {checkResultsData.drbd && (
               <Card title="DRBD Status" size="small">
                 <Descriptions bordered column={2} size="small">
                   <Descriptions.Item label="Resource">
-                    {checkResultsData.drbd_status.resource_name}
+                    {checkResultsData.drbd.resource}
                   </Descriptions.Item>
+                  {checkResultsData.drbd_device && (
+                    <Descriptions.Item label="DRBD Device">
+                      {checkResultsData.drbd_device}
+                    </Descriptions.Item>
+                  )}
                   <Descriptions.Item label="Role">
-                    <Tag color={roleColor[checkResultsData.drbd_status.local_role] || 'default'}>
-                      {checkResultsData.drbd_status.local_role}
+                    <Tag color={roleColor[checkResultsData.drbd.role] || 'default'}>
+                      {checkResultsData.drbd.role}
                     </Tag>
                   </Descriptions.Item>
                   <Descriptions.Item label="Disk State">
                     <Tag color={
-                      checkResultsData.drbd_status.local_disk_state === 'UpToDate' ? 'green' : 'orange'
+                      checkResultsData.drbd.disk === 'UpToDate' ? 'green' : 'orange'
                     }>
-                      {checkResultsData.drbd_status.local_disk_state}
+                      {checkResultsData.drbd.disk}
                     </Tag>
                   </Descriptions.Item>
-                  <Descriptions.Item label="Connection State">
-                    <Tag color={
-                      checkResultsData.drbd_status.connection_state === 'Connected' ? 'green' : 'orange'
-                    }>
-                      {checkResultsData.drbd_status.connection_state}
-                    </Tag>
+                  <Descriptions.Item label="Device Open">
+                    {checkResultsData.drbd.open ? (
+                      <Tag color="green">Yes</Tag>
+                    ) : (
+                      <Tag color="default">No</Tag>
+                    )}
                   </Descriptions.Item>
-                  {checkResultsData.drbd_status.sync_progress_percent !== undefined && (
+                  {checkResultsData.drbd.peers && checkResultsData.drbd.peers.length > 0 && (
+                    <Descriptions.Item label="Connection State" span={2}>
+                      {checkResultsData.drbd.peers.map((peer, idx) => (
+                        <div key={idx} className="mb-1">
+                          <Tag color={
+                            peer.connection === 'Connected' ? 'green' : 'orange'
+                          }>
+                            {peer.name}: {peer.connection || 'Unknown'}
+                          </Tag>
+                          {peer.replication && (
+                            <Tag color="blue" className="ml-1">
+                              {peer.replication}
+                            </Tag>
+                          )}
+                        </div>
+                      ))}
+                    </Descriptions.Item>
+                  )}
+                  {checkResultsData.drbd.peers && checkResultsData.drbd.peers.some(p => p.sync_percent !== undefined) && (
                     <Descriptions.Item label="Sync Progress" span={2}>
-                      <Progress
-                        percent={Math.round(checkResultsData.drbd_status.sync_progress_percent * 100)}
-                        status={checkResultsData.drbd_status.sync_progress_percent >= 1 ? 'success' : 'active'}
-                      />
+                      {checkResultsData.drbd.peers.map((peer, idx) => (
+                        peer.sync_percent !== undefined ? (
+                          <div key={idx} className="mb-1">
+                            <span className="mr-2">{peer.name}:</span>
+                            <Progress
+                              percent={Math.round(peer.sync_percent)}
+                              status={peer.sync_percent >= 100 ? 'success' : 'active'}
+                              style={{ display: 'inline-block', width: '200px' }}
+                              size="small"
+                            />
+                          </div>
+                        ) : null
+                      ))}
                     </Descriptions.Item>
                   )}
                 </Descriptions>
@@ -867,17 +901,22 @@ export function HaProfiles() {
                       <div className="flex-1">
                         <div className="font-medium">{svc.name}</div>
                         <div className="text-xs text-gray-500">
-                          {svc.active_state} / {svc.sub_state}
+                          {svc.state}
+                          {svc.enabled !== undefined && (
+                            <span className="ml-2">
+                              ({svc.enabled ? 'enabled' : 'disabled'})
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {svc.running ? (
+                        {svc.active ? (
                           <CheckCircleOutlined className="text-green-500" />
                         ) : (
                           <ExclamationCircleOutlined className="text-red-500" />
                         )}
-                        <Tag color={svc.running ? 'green' : 'red'}>
-                          {svc.running ? 'Running' : 'Stopped'}
+                        <Tag color={svc.active ? 'green' : 'red'}>
+                          {svc.active ? 'Active' : 'Inactive'}
                         </Tag>
                       </div>
                     </div>
@@ -887,43 +926,48 @@ export function HaProfiles() {
             )}
 
             {/* Reactor Status */}
-            {checkResultsData.reactor_status && (
-              <Card title="DRBD Reactor Status" size="small">
-                <Descriptions bordered column={1} size="small">
-                  <Descriptions.Item label="Status">
-                    <Tag color={checkResultsData.reactor_status.running ? 'green' : 'red'}>
-                      {checkResultsData.reactor_status.running ? 'Running' : 'Stopped'}
-                    </Tag>
+            <Card title="DRBD Reactor Status" size="small">
+              <Descriptions bordered column={1} size="small">
+                <Descriptions.Item label="Status">
+                  <Tag color={checkResultsData.config?.reactor_running ? 'green' : 'red'}>
+                    {checkResultsData.config?.reactor_running ? 'Running' : 'Stopped'}
+                  </Tag>
+                </Descriptions.Item>
+                {checkResultsData.mount_point && (
+                  <Descriptions.Item label="Mount Point">
+                    {checkResultsData.mount_point}
                   </Descriptions.Item>
-                  {checkResultsData.reactor_status.promoter_status && (
-                    <Descriptions.Item label="Promoter">
-                      {checkResultsData.reactor_status.promoter_status}
-                    </Descriptions.Item>
-                  )}
-                </Descriptions>
+                )}
+              </Descriptions>
+            </Card>
+
+            {/* Configured Nodes */}
+            {checkResultsData.configured_nodes && checkResultsData.configured_nodes.length > 0 && (
+              <Card title="Configured Nodes" size="small">
+                <div className="space-y-2">
+                  {checkResultsData.configured_nodes.map((node: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                      <div className="flex-1">
+                        <div className="font-medium">{node.hostname}</div>
+                        <div className="text-xs text-gray-500">{node.ip}</div>
+                      </div>
+                      {node.peer_role && (
+                        <Tag color={roleColor[node.peer_role] || 'default'}>
+                          {node.peer_role}
+                        </Tag>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </Card>
             )}
 
-            {/* Mount Status */}
-            {checkResultsData.mount_status && (
-              <Card title="Mount Status" size="small">
-                <Descriptions bordered column={2} size="small">
-                  <Descriptions.Item label="Mounted">
-                    {checkResultsData.mount_status.mounted ? (
-                      <Tag color="green">Yes</Tag>
-                    ) : (
-                      <Tag color="red">No</Tag>
-                    )}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Mount Point">
-                    {checkResultsData.mount_status.mount_point || '-'}
-                  </Descriptions.Item>
-                  {checkResultsData.mount_status.fs_type && (
-                    <Descriptions.Item label="File System" span={2}>
-                      {checkResultsData.mount_status.fs_type}
-                    </Descriptions.Item>
-                  )}
-                </Descriptions>
+            {/* Raw Reactor Status Output */}
+            {checkResultsData.reactor_status_raw && (
+              <Card title="Raw drbd-reactorctl Output" size="small">
+                <pre className="bg-gray-900 text-gray-100 p-4 rounded text-xs overflow-auto max-h-64">
+                  {checkResultsData.reactor_status_raw}
+                </pre>
               </Card>
             )}
           </div>

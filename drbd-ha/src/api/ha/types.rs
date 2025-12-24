@@ -55,6 +55,9 @@ pub struct HaProfileDetailResponse {
     pub mount_point: Option<String>,
     /// Detailed DRBD resource status
     pub drbd: Option<DrbdResourceStatus>,
+    /// DRBD device name (e.g., /dev/drbd0)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drbd_device: Option<String>,
     pub service_statuses: Vec<ServiceStatusInfo>,
     pub vip_active: Option<bool>,
     /// Configuration visibility info
@@ -62,6 +65,17 @@ pub struct HaProfileDetailResponse {
     /// Raw output from drbd-reactorctl status
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reactor_status_raw: Option<String>,
+    /// Nodes that have this HA profile configured
+    pub configured_nodes: Vec<NodeConfigInfo>,
+}
+
+/// Node configuration info for HA profile
+#[derive(Serialize)]
+pub struct NodeConfigInfo {
+    pub hostname: String,
+    pub ip: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_role: Option<String>,
 }
 
 /// Configuration visibility information

@@ -118,66 +118,93 @@ export function DeploymentStatusStep({
               <Descriptions.Item label="Active Node">
                 {statusData.active_node || '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="Local Node Active">
-                {statusData.is_local_active ? (
-                  <Tag color="green">Yes</Tag>
+              <Descriptions.Item label="All Services Active">
+                {statusData.service_statuses && statusData.service_statuses.length > 0 ? (
+                  statusData.service_statuses.every((s: any) => s.active) ? (
+                    <Tag color="green">Yes</Tag>
+                  ) : (
+                    <Tag color="red">No</Tag>
+                  )
                 ) : (
-                  <Tag color="default">No</Tag>
+                  <Tag color="default">Unknown</Tag>
                 )}
               </Descriptions.Item>
-              <Descriptions.Item label="All Services Running">
-                {statusData.all_services_running ? (
-                  <Tag color="green">Yes</Tag>
-                ) : (
-                  <Tag color="red">No</Tag>
-                )}
+              <Descriptions.Item label="DRBD Reactor">
+                <Tag color={statusData.config?.reactor_running ? 'green' : 'red'}>
+                  {statusData.config?.reactor_running ? 'Running' : 'Stopped'}
+                </Tag>
               </Descriptions.Item>
             </Descriptions>
           </Card>
 
           {/* DRBD Status */}
-          {statusData.drbd_status && (
+          {statusData.drbd && (
             <Card title="DRBD Resource Status" size="small">
               <Descriptions bordered column={2} size="small">
                 <Descriptions.Item label="Resource">
-                  {statusData.drbd_status.resource_name}
+                  {statusData.drbd.resource}
                 </Descriptions.Item>
+                {statusData.drbd_device && (
+                  <Descriptions.Item label="DRBD Device">
+                    {statusData.drbd_device}
+                  </Descriptions.Item>
+                )}
                 <Descriptions.Item label="Role">
-                  <Tag color={roleColor[statusData.drbd_status.local_role] || 'default'}>
-                    {statusData.drbd_status.local_role}
+                  <Tag color={roleColor[statusData.drbd.role] || 'default'}>
+                    {statusData.drbd.role}
                   </Tag>
                 </Descriptions.Item>
                 <Descriptions.Item label="Disk State">
                   <Tag
                     color={
-                      statusData.drbd_status.local_disk_state === 'UpToDate'
+                      statusData.drbd.disk === 'UpToDate'
                         ? 'green'
                         : 'orange'
                     }
                   >
-                    {statusData.drbd_status.local_disk_state}
+                    {statusData.drbd.disk}
                   </Tag>
                 </Descriptions.Item>
-                <Descriptions.Item label="Connection State">
-                  <Tag
-                    color={
-                      statusData.drbd_status.connection_state === 'Connected'
-                        ? 'green'
-                        : 'orange'
-                    }
-                  >
-                    {statusData.drbd_status.connection_state}
-                  </Tag>
+                <Descriptions.Item label="Device Open">
+                  {statusData.drbd.open ? (
+                    <Tag color="green">Yes</Tag>
+                  ) : (
+                    <Tag color="default">No</Tag>
+                  )}
                 </Descriptions.Item>
-                {statusData.drbd_status.sync_progress_percent !== undefined && (
+                {statusData.drbd.peers && statusData.drbd.peers.length > 0 && (
+                  <Descriptions.Item label="Connection State" span={2}>
+                    {statusData.drbd.peers.map((peer: any, idx: number) => (
+                      <div key={idx} className="mb-1">
+                        <Tag color={
+                          peer.connection === 'Connected' ? 'green' : 'orange'
+                        }>
+                          {peer.name}: {peer.connection || 'Unknown'}
+                        </Tag>
+                        {peer.replication && (
+                          <Tag color="blue" className="ml-1">
+                            {peer.replication}
+                          </Tag>
+                        )}
+                      </div>
+                    ))}
+                  </Descriptions.Item>
+                )}
+                {statusData.drbd.peers && statusData.drbd.peers.some((p: any) => p.sync_percent !== undefined) && (
                   <Descriptions.Item label="Sync Progress" span={2}>
-                    <Progress
-                      percent={Math.round(
-                        statusData.drbd_status.sync_progress_percent * 100
-                      )}
-                      status={statusData.drbd_status.sync_progress_percent >= 1 ? 'success' : 'active'}
-                      size="small"
-                    />
+                    {statusData.drbd.peers.map((peer: any, idx: number) => (
+                      peer.sync_percent !== undefined ? (
+                        <div key={idx} className="mb-1">
+                          <span className="mr-2">{peer.name}:</span>
+                          <Progress
+                            percent={Math.round(peer.sync_percent)}
+                            status={peer.sync_percent >= 100 ? 'success' : 'active'}
+                            style={{ display: 'inline-block', width: '200px' }}
+                            size="small"
+                          />
+                        </div>
+                      ) : null
+                    ))}
                   </Descriptions.Item>
                 )}
               </Descriptions>
@@ -193,17 +220,22 @@ export function DeploymentStatusStep({
                     <div className="flex-1">
                       <div className="font-medium">{svc.name}</div>
                       <div className="text-xs text-gray-500">
-                        {svc.active_state} / {svc.sub_state}
+                        {svc.state}
+                        {svc.enabled !== undefined && (
+                          <span className="ml-2">
+                            ({svc.enabled ? 'enabled' : 'disabled'})
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {svc.running ? (
+                      {svc.active ? (
                         <CheckCircleOutlined className="text-green-500" />
                       ) : (
                         <ExclamationCircleOutlined className="text-red-500" />
                       )}
-                      <Tag color={svc.running ? 'green' : 'red'}>
-                        {svc.running ? 'Running' : 'Stopped'}
+                      <Tag color={svc.active ? 'green' : 'red'}>
+                        {svc.active ? 'Active' : 'Inactive'}
                       </Tag>
                     </div>
                   </div>
@@ -213,48 +245,44 @@ export function DeploymentStatusStep({
           )}
 
           {/* Reactor Status */}
-          {statusData.reactor_status && (
-            <Card title="DRBD Reactor Status" size="small">
-              <Descriptions bordered column={1} size="small">
-                <Descriptions.Item label="Status">
-                  <Tag color={statusData.reactor_status.running ? 'green' : 'red'}>
-                    {statusData.reactor_status.running ? 'Running' : 'Stopped'}
-                  </Tag>
-                </Descriptions.Item>
-                {statusData.reactor_status.promoter_status && (
-                  <Descriptions.Item label="Promoter">
-                    {statusData.reactor_status.promoter_status}
-                  </Descriptions.Item>
-                )}
-              </Descriptions>
-            </Card>
-          )}
-
-          {/* Mount Status */}
-          {statusData.mount_status && (
-            <Card title="Mount Status" size="small">
-              <Descriptions bordered column={2} size="small">
-                <Descriptions.Item label="Mounted">
-                  {statusData.mount_status.mounted ? (
-                    <Tag color="green">Yes</Tag>
-                  ) : (
-                    <Tag color="red">No</Tag>
-                  )}
-                </Descriptions.Item>
+          <Card title="DRBD Reactor Status" size="small">
+            <Descriptions bordered column={1} size="small">
+              <Descriptions.Item label="Status">
+                <Tag color={statusData.config?.reactor_running ? 'green' : 'red'}>
+                  {statusData.config?.reactor_running ? 'Running' : 'Stopped'}
+                </Tag>
+              </Descriptions.Item>
+              {statusData.mount_point && (
                 <Descriptions.Item label="Mount Point">
-                  {statusData.mount_status.mount_point || '-'}
+                  {statusData.mount_point}
                 </Descriptions.Item>
-                {statusData.mount_status.fs_type && (
-                  <Descriptions.Item label="File System" span={2}>
-                    {statusData.mount_status.fs_type}
-                  </Descriptions.Item>
-                )}
-              </Descriptions>
+              )}
+            </Descriptions>
+          </Card>
+
+          {/* Configured Nodes */}
+          {statusData.configured_nodes && statusData.configured_nodes.length > 0 && (
+            <Card title="Configured Nodes" size="small">
+              <div className="space-y-2">
+                {statusData.configured_nodes.map((node: any, idx: number) => (
+                  <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                    <div className="flex-1">
+                      <div className="font-medium">{node.hostname}</div>
+                      <div className="text-xs text-gray-500">{node.ip}</div>
+                    </div>
+                    {node.peer_role && (
+                      <Tag color={roleColor[node.peer_role] || 'default'}>
+                        {node.peer_role}
+                      </Tag>
+                    )}
+                  </div>
+                ))}
+              </div>
             </Card>
           )}
 
           {/* Success Message */}
-          {statusData.status === 'active' && statusData.all_services_running && (
+          {statusData.status === 'active' && statusData.service_statuses && statusData.service_statuses.length > 0 && statusData.service_statuses.every((s: any) => s.active) && (
             <Result
               status="success"
               title="Deployment Successful!"

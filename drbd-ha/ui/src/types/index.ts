@@ -250,6 +250,7 @@ export interface HaProfileStatus {
       replication?: string;
     }>;
   };
+  drbd_device?: string;
   service_statuses: Array<{
     name: string;
     active: boolean;
@@ -263,6 +264,12 @@ export interface HaProfileStatus {
     promoter_config_path: string;
     reactor_running: boolean;
   };
+  reactor_status_raw?: string;
+  configured_nodes: Array<{
+    hostname: string;
+    ip: string;
+    peer_role?: string;
+  }>;
 }
 
 // Service types
