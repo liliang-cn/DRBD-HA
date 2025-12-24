@@ -14,7 +14,7 @@ pub use models::{
     ConnectionStatus, DeviceStatus, DrbdPeerStatus, DrbdResourceStatus, DrbdStatus,
     PeerDeviceStatus, ResourceStatus,
 };
-pub use parser::parse_drbdadm_status;
+pub use parser::{convert_resource_status, parse_drbdadm_status};
 pub use sync::{check_drbd_sync_complete, get_drbd_sync_status, SyncStatus, PeerSyncStatus};
 pub use verification::{
     DrbdVerifier, VerificationConfig, VerificationResult, VerificationDetails,
