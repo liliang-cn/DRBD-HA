@@ -105,38 +105,38 @@ async fn fetch_profile_details(
         .ok_or_else(|| crate::error::AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
 
     // Step 1: Get DRBD status to determine which node is Primary (active)
-    // Use drbdadm status --json for complete status including connection state
+    // Use drbdsetup status --json for complete status including connection state
     let local_drbd_status = {
-        let cmd = format!("drbdadm status {} --json 2>/dev/null", profile.resource_name);
+        let cmd = format!("drbdsetup status {} --json 2>/dev/null", profile.resource_name);
         let output = run_shell_command(
             &cmd,
             &format!("Get local DRBD status for {}", profile.resource_name),
         )
         .await?;
 
-        tracing::debug!("drbdadm status --json exit_code: {}, stdout: {}",
+        tracing::debug!("drbdsetup status --json exit_code: {}, stdout: {}",
             output.exit_code,
             if output.stdout.is_empty() { "(empty)".to_string() } else { output.stdout.clone() });
 
         if output.success() && !output.stdout.is_empty() {
-            // Parse JSON output from drbdadm
+            // Parse JSON output from drbdsetup
             match drbd_utils::parse_drbd_status(&output.stdout) {
                 Ok(resources) => {
                     // Find our resource
                     if let Some(resource) = resources.iter().find(|r| r.name == profile.resource_name) {
                         Some(drbd_utils::convert_resource_status(resource))
                     } else {
-                        tracing::warn!("Resource '{}' not found in drbdadm status output", profile.resource_name);
+                        tracing::warn!("Resource '{}' not found in drbdsetup status output", profile.resource_name);
                         None
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to parse drbdadm JSON output: {}", e);
+                    tracing::warn!("Failed to parse drbdsetup JSON output: {}", e);
                     None
                 }
             }
         } else {
-            tracing::warn!("drbdadm status failed or empty for resource '{}', exit_code: {}",
+            tracing::warn!("drbdsetup status failed or empty for resource '{}', exit_code: {}",
                 profile.resource_name, output.exit_code);
             None
         }
@@ -180,8 +180,8 @@ async fn fetch_profile_details(
                 tracing::info!("Active node is remote {}, getting status via SSH for {}", active_hostname, profile.resource_name);
                 let credential = SshCredential::Password("ignored".to_string());
 
-                // Execute drbdadm status --json on remote node
-                let drbd_cmd = format!("drbdadm status {} --json 2>/dev/null", profile.resource_name);
+                // Execute drbdsetup status --json on remote node
+                let drbd_cmd = format!("drbdsetup status {} --json 2>/dev/null", profile.resource_name);
                 let sudo_drbd_cmd = if active_node_obj.ssh_user != "root" {
                     format!("sudo {}", drbd_cmd)
                 } else {
@@ -197,7 +197,7 @@ async fn fetch_profile_details(
                 ).await {
                     Ok(output) => {
                         if !output.stdout.is_empty() {
-                            // Parse JSON output from drbdadm
+                            // Parse JSON output from drbdsetup
                             match drbd_utils::parse_drbd_status(&output.stdout) {
                                 Ok(resources) => {
                                     if let Some(resource) = resources.iter().find(|r| r.name == profile.resource_name) {
@@ -213,7 +213,7 @@ async fn fetch_profile_details(
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to get drbdadm status from {}: {}", active_hostname, e);
+                        tracing::warn!("Failed to get drbdsetup status from {}: {}", active_hostname, e);
                         None
                     }
                 };
