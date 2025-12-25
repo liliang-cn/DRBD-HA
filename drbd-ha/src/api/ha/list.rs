@@ -240,7 +240,7 @@ async fn fetch_profile_details(
 
                 let (reactor_raw, active_from_reactor) = match reactor_result {
                     Ok(output) => {
-                        let statuses = drbd_reactor_utils::parser::parse_reactor_status(&output.stdout, Some(&profile.name));
+                        let _statuses = drbd_reactor_utils::parser::parse_reactor_status(&output.stdout, Some(&profile.name));
                         // When fetching from remote node, don't trust parsed "this node"
                         // Use the actual remote hostname we already know is active
                         (Some(output.stdout), Some(active_hostname.clone()))
