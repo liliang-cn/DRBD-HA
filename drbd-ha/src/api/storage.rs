@@ -3,10 +3,12 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use serde::Serialize;
 use std::sync::Arc;
 use tracing::info;
+use utoipa::ToSchema;
 
-use crate::core::{get_vg_info, list_vg_info, validator, LvmProvider, SafetyChecker, StorageProvider};
+use crate::core::{get_vg_info, list_vg_info, run_shell_command, validator, LvmProvider, SafetyChecker, StorageProvider};
 use crate::error::{AppError, AppResult};
 use crate::models::storage::{
     CreateStoragePoolRequest, CreateStoragePoolResponse, CreateVolumeRequest, CreateVolumeResponse,
@@ -242,4 +244,108 @@ pub async fn create_volume(
             device_path,
         }),
     ))
+}
+
+/// Zpool status check response
+#[derive(Serialize, ToSchema)]
+pub struct ZpoolCheckResponse {
+    pub installed: bool,
+    pub available: bool,
+    pub version: Option<String>,
+    pub message: String,
+    pub pools: Vec<ZpoolInfo>,
+}
+
+/// Information about a zpool
+#[derive(Serialize, ToSchema)]
+pub struct ZpoolInfo {
+    pub name: String,
+    pub size: String,
+    pub capacity: String,
+    pub health: String,
+}
+
+/// GET /api/v1/storage/zpool/check
+#[utoipa::path(
+    get,
+    path = "/api/v1/storage/zpool/check",
+    tag = "storage",
+    responses(
+        (status = 200, description = "Zpool status checked", body = ZpoolCheckResponse)
+    )
+)]
+pub async fn check_zpool(State(_state): State<Arc<AppState>>) -> AppResult<Json<ZpoolCheckResponse>> {
+    info!("Checking ZFS/zpool availability");
+
+    // First check if zpool command exists
+    let which_cmd = "which zpool";
+    let check_installed = run_shell_command(which_cmd, "Check if zpool is installed").await;
+
+    let installed = check_installed.is_ok() && check_installed.as_ref().map(|o| o.exit_code == 0).unwrap_or(false);
+
+    if !installed {
+        return Ok(Json(ZpoolCheckResponse {
+            installed: false,
+            available: false,
+            version: None,
+            message: "zpool command not found. ZFS is not installed on this system.".to_string(),
+            pools: vec![],
+        }));
+    }
+
+    // Check zpool version
+    let version_cmd = "zpool version 2>&1 | head -n 1";
+    let version_output = run_shell_command(version_cmd, "Get zpool version").await;
+    let version = if version_output.is_ok() {
+        version_output.ok().and_then(|o| {
+            let stdout = o.stdout.trim();
+            if stdout.is_empty() {
+                None
+            } else {
+                Some(stdout.to_string())
+            }
+        })
+    } else {
+        None
+    };
+
+    // Try to list pools to check if zpool is functional
+    let list_cmd = "zpool list -H -o name,size,capacity,health 2>/dev/null";
+    let list_output = run_shell_command(list_cmd, "List zpools").await;
+
+    let available = list_output.is_ok();
+    let mut pools = vec![];
+
+    if let Ok(output) = list_output {
+        // Parse zpool list output
+        // Format: name\tsize\tcapacity\thealth
+        for line in output.stdout.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 4 {
+                pools.push(ZpoolInfo {
+                    name: parts[0].to_string(),
+                    size: parts[1].to_string(),
+                    capacity: parts[2].to_string(),
+                    health: parts[3].to_string(),
+                });
+            }
+        }
+    }
+
+    let message = if available {
+        format!(
+            "ZFS is installed and available. Found {} pool(s).",
+            pools.len()
+        )
+    } else {
+        "ZFS is installed but zpool command failed. ZFS kernel module may not be loaded.".to_string()
+    };
+
+    Ok(Json(ZpoolCheckResponse {
+        installed: true,
+        available,
+        version,
+        message,
+        pools,
+    }))
 }
