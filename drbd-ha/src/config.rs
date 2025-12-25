@@ -125,7 +125,7 @@ fn default_log_level() -> String {
 }
 
 fn default_log_file() -> Option<String> {
-    None
+    Some("/var/log/drbd-ha/drbd-ha.log".to_string())
 }
 
 /// Authentication configuration

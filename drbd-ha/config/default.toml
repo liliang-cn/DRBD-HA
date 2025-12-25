@@ -36,3 +36,5 @@ enabled = false
 [log]
 # Log level: trace, debug, info, warn, error
 level = "info"
+# Log file path (optional, if not set logs to stdout/journal only)
+file = "/var/log/drbd-ha/drbd-ha.log"
