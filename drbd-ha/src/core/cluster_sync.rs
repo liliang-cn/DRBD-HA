@@ -520,7 +520,8 @@ impl ClusterSync {
             };
 
             // Bring down the resource on remote node
-            let down_cmd = format!("drbdadm down {} 2>/dev/null || true", resource_name);
+            let base_cmd = crate::core::drbd_cmd::DrbdCmd::down_cmd(resource_name)?;
+            let down_cmd = format!("{} 2>/dev/null || true", base_cmd);
             let _ = self
                 .ssh_manager
                 .execute(

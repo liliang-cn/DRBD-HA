@@ -806,9 +806,9 @@ name = "drbd-reactor-utils"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "config-gen",
  "gethostname 0.4.3",
  "serde",
- "tera",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -818,12 +818,12 @@ dependencies = [
 name = "drbd-utils"
 version = "0.1.0"
 dependencies = [
+ "config-gen",
  "regex",
  "serde",
  "serde_json",
  "serial_test",
  "shell-cmd",
- "tera",
  "thiserror 2.0.17",
  "tokio",
  "tracing",

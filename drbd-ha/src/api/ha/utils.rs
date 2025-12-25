@@ -1,4 +1,4 @@
-use crate::core::run_shell_command;
+use crate::core::{run_shell_command, drbd_cmd::DrbdCmd};
 use crate::error::AppResult;
 use crate::models::{HaProfile, HaProfileStatus, HaType, Node, PromoterSettings, VipConfig};
 use crate::state::AppState;
@@ -128,7 +128,7 @@ pub async fn find_next_free_drbd_minor() -> AppResult<u32> {
 
     // 2. Check active resources via drbdsetup
     // This prevents race conditions or out-of-sync configs
-    if let Ok(output) = run_shell_command("drbdsetup status --json", "Get active DRBD minors").await {
+    if let Ok(output) = run_shell_command(&DrbdCmd::status_cmd(), "Get active DRBD minors").await {
         if output.success() {
             // We use a simplified parse here or import drbd_utils if available
             // Since drbd_utils::parse_drbd_status exists, use it

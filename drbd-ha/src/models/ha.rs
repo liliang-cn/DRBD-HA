@@ -326,7 +326,6 @@ mod tests {
         let vip = VipConfig {
             address: "192.168.1.100".to_string(),
             netmask: 24,
-            interface: "eth0".to_string(),
         };
         assert_eq!(vip.cidr(), "192.168.1.100/24");
     }
@@ -340,8 +339,7 @@ mod tests {
             "services": ["nginx.service"],
             "vip": {
                 "address": "192.168.1.100",
-                "netmask": 24,
-                "interface": "eth0"
+                "netmask": 24
             }
         }"#;
 

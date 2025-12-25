@@ -9,9 +9,11 @@ use crate::core::{
     run_shell_command,
     systemd_ctrl::SystemdController,
     DrbdConfigPaths, ReactorConfigPaths,
+    drbd_cmd::DrbdCmd,
 };
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
+use systemd_utils::SystemdCmd;
 
 use super::types::DeleteProfileQuery;
 use super::utils::create_profile_from_toml;
@@ -42,7 +44,7 @@ pub async fn delete_profile(
         None,
     );
 
-    let status_cmd = format!("drbdadm status {}", profile.resource_name);
+    let status_cmd = DrbdCmd::adm_status_cmd(&profile.resource_name)?;
     let status_output = run_shell_command(
         &status_cmd,
         &format!("Check DRBD status for {}", profile.resource_name),
@@ -96,13 +98,13 @@ pub async fn delete_profile(
 
         if let Some(mount_unit) = &profile.generated_units.mount_unit {
             let _ = run_shell_command(
-                &format!("systemctl stop {}", mount_unit),
+                &SystemdCmd::stop_cmd(mount_unit),
                 "Stop mount unit",
             )
             .await;
 
             let _ = run_shell_command(
-                &format!("systemctl disable {}", mount_unit),
+                &SystemdCmd::disable_cmd(mount_unit),
                 "Disable mount unit",
             )
             .await;
@@ -110,14 +112,14 @@ pub async fn delete_profile(
 
         for service in &profile.promoter.services {
             let _ = run_shell_command(
-                &format!("systemctl stop {}", service),
+                &SystemdCmd::stop_cmd(service),
                 &format!("Stop service {}", service),
             )
             .await;
         }
 
         let _ = run_shell_command(
-            &format!("drbdadm secondary {}", resource_name),
+            &DrbdCmd::secondary_cmd(&resource_name)?,
             "Demote DRBD resource",
         )
         .await;
@@ -229,14 +231,15 @@ pub async fn delete_profile(
     // Down DRBD on all nodes
     for node in &all_nodes {
         if node.is_local {
-            let down_cmd = format!("drbdadm down {}", profile.resource_name);
+            let down_cmd = DrbdCmd::down_cmd(&profile.resource_name)?;
             let _ = run_shell_command(&down_cmd, "Down DRBD resource locally").await;
         } else {
             let credential = crate::core::SshCredential::Password("ignored".to_string());
+            let base_cmd = DrbdCmd::down_cmd(&profile.resource_name)?;
             let down_cmd = if node.ssh_user != "root" {
-                format!("sudo drbdadm down {}", profile.resource_name)
+                format!("sudo {}", base_cmd)
             } else {
-                format!("drbdadm down {}", profile.resource_name)
+                base_cmd
             };
             let _ = state.ssh_manager.execute(
                 &node.ip,
@@ -371,11 +374,11 @@ pub async fn delete_profile(
             }
         } else {
             let cred = crate::core::SshCredential::Password("ignored".to_string());
-            let reload_cmd = "sudo systemctl reload drbd-reactor.service";
+            let reload_cmd = format!("sudo {}", SystemdCmd::reload_service_cmd("drbd-reactor.service"));
 
             if state
                 .ssh_manager
-                .execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, reload_cmd)
+                .execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, &reload_cmd)
                 .await
                 .is_ok()
             {
@@ -399,7 +402,7 @@ pub async fn delete_profile(
 
     // 1. Verify DRBD resource is gone (check on local node)
     tracing::info!("Verifying DRBD resource deletion...");
-    let verify_cmd = format!("drbdadm status {}", profile.resource_name);
+    let verify_cmd = DrbdCmd::adm_status_cmd(&profile.resource_name)?;
     match run_shell_command(&verify_cmd, "Verify DRBD resource deleted").await {
         Ok(output) => {
             if output.stdout.contains(&profile.resource_name) {

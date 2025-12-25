@@ -1,16 +1,91 @@
 use crate::error::Result;
-use crate::models::ReactorProfileStatus;
+use crate::models::{EvictOptions, ReactorProfileStatus, StatusOptions};
 use crate::parser;
 
 pub struct DrbdReactorClient;
 
 impl DrbdReactorClient {
-    pub async fn status(profile_name: Option<&str>) -> Result<(Vec<ReactorProfileStatus>, String)> {
-        let args = if let Some(name) = profile_name {
-            vec!["status", name]
-        } else {
-            vec!["status"]
-        };
+    /// Build the drbd-reactorctl evict command arguments as a string
+    ///
+    /// This is useful when you need to execute the command via SSH or other means.
+    pub fn build_evict_command(profile_name: &str, options: Option<&EvictOptions>) -> String {
+        let default_opts = EvictOptions::default();
+        let opts = options.unwrap_or(&default_opts);
+        let mut cmd = String::from("drbd-reactorctl evict");
+
+        // Add context if specified
+        if let Some(context) = &opts.context {
+            cmd.push_str(&format!(" --context {}", context));
+        }
+
+        // Add nodes filter if specified
+        if let Some(nodes) = &opts.nodes {
+            if !nodes.is_empty() {
+                cmd.push_str(&format!(" --nodes {}", nodes.join(" ")));
+            }
+        }
+
+        // Add delay if specified (default is 20)
+        if let Some(delay) = opts.delay {
+            cmd.push_str(&format!(" --delay {}", delay));
+        }
+
+        // Add force flag if specified
+        if opts.force {
+            cmd.push_str(" --force");
+        }
+
+        // Add keep_masked flag if specified
+        if opts.keep_masked {
+            cmd.push_str(" --keep-masked");
+        }
+
+        // Add unmask flag if specified
+        if opts.unmask {
+            cmd.push_str(" --unmask");
+        }
+
+        // Add profile name
+        cmd.push_str(" ");
+        cmd.push_str(profile_name);
+
+        cmd
+    }
+
+    /// Get status of drbd-reactor profiles
+    ///
+    /// # Arguments
+    /// * `profile_name` - Optional profile name to filter
+    /// * `options` - Optional status options (resource filter, verbose)
+    pub async fn status(
+        profile_name: Option<&str>,
+        options: Option<StatusOptions>,
+    ) -> Result<(Vec<ReactorProfileStatus>, String)> {
+        let opts = options.unwrap_or_default();
+
+        // Build command arguments
+        let mut args_vec = vec!["status".to_string()];
+
+        // Add resource filter if specified
+        if let Some(resources) = opts.resources {
+            if !resources.is_empty() {
+                args_vec.push("-r".to_string());
+                args_vec.extend(resources);
+            }
+        }
+
+        // Add verbose flag if specified
+        if opts.verbose {
+            args_vec.push("-v".to_string());
+        }
+
+        // Add profile name if specified
+        if let Some(name) = profile_name {
+            args_vec.push(name.to_string());
+        }
+
+        // Convert to &str slice for run_command
+        let args: Vec<&str> = args_vec.iter().map(|s| s.as_str()).collect();
 
         // Suppress stderr to avoid noise if not found
         let output = crate::error::run_command("drbd-reactorctl", &args)
@@ -26,8 +101,59 @@ impl DrbdReactorClient {
         Ok(())
     }
 
-    pub async fn evict(profile_name: &str) -> Result<()> {
-        crate::error::run_command("drbd-reactorctl", &["evict", profile_name]).await?;
+    /// Evict a promoter plugin controlled resource
+    ///
+    /// # Arguments
+    /// * `profile_name` - Profile name to evict
+    /// * `options` - Optional evict options (delay, force, keep_masked, etc.)
+    pub async fn evict(profile_name: &str, options: Option<EvictOptions>) -> Result<()> {
+        let opts = options.unwrap_or_default();
+
+        // Build command arguments
+        let mut args_vec = vec!["evict".to_string()];
+
+        // Add context if specified
+        if let Some(context) = &opts.context {
+            args_vec.push("--context".to_string());
+            args_vec.push(context.clone());
+        }
+
+        // Add nodes filter if specified
+        if let Some(nodes) = &opts.nodes {
+            if !nodes.is_empty() {
+                args_vec.push("--nodes".to_string());
+                args_vec.extend(nodes.clone());
+            }
+        }
+
+        // Add delay if specified (default is 20)
+        if let Some(delay) = opts.delay {
+            args_vec.push("--delay".to_string());
+            args_vec.push(delay.to_string());
+        }
+
+        // Add force flag if specified
+        if opts.force {
+            args_vec.push("--force".to_string());
+        }
+
+        // Add keep_masked flag if specified
+        if opts.keep_masked {
+            args_vec.push("--keep-masked".to_string());
+        }
+
+        // Add unmask flag if specified
+        if opts.unmask {
+            args_vec.push("--unmask".to_string());
+        }
+
+        // Add profile name
+        args_vec.push(profile_name.to_string());
+
+        // Convert to &str slice for run_command
+        let args: Vec<&str> = args_vec.iter().map(|s| s.as_str()).collect();
+
+        crate::error::run_command("drbd-reactorctl", &args).await?;
         Ok(())
     }
 

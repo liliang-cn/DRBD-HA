@@ -17,6 +17,8 @@ use crate::core::{
     validator,
     DrbdConfigGenerator as ConfigGenerator, DrbdConfigPaths as ConfigPaths, NodeConfig, ResourceConfig,
 };
+use lvm_utils::LvmCmd;
+use zfs_utils::ZfsCmd;
 use crate::error::{AppError, AppResult};
 use crate::models::{
     CreateFilesystemRequest, CreateResourceRequest, MountRequest, ResourceAction,
@@ -235,12 +237,12 @@ pub async fn create_resource(
             // Note: -ff (force) is used to overwrite existing headers if any (careful!)
             // Using -y to assume yes
             let cmds = [
-                format!("pvcreate -y -ff {}", disk),
-                format!("vgcreate -y -ff {} {}", vg_name, disk),
+                LvmCmd::pvcreate_cmd(disk),
+                LvmCmd::vgcreate_cmd(vg_name, disk),
                 // Create thin pool (metadata size is about 1% of pool size by default)
-                format!("lvcreate -y -L {} --type thin -n {} {}", thin_pool_size, thin_pool_name, vg_name),
+                LvmCmd::create_thin_pool_cmd(vg_name, thin_pool_name, thin_pool_size),
                 // Create thin volume from thin pool
-                format!("lvcreate -y -V {} --type thin -n {} --thinpool {} {}", lv_size, lv_name, thin_pool_name, vg_name),
+                LvmCmd::create_thin_volume_cmd(vg_name, thin_pool_name, lv_name, lv_size),
             ];
             let cmd_str = cmds.join(" && ");
 
@@ -269,18 +271,21 @@ pub async fn create_resource(
             // ZFS thin provisioning (sparse volume) by default
             let use_thin = req.zfs_thin_volume;
 
-            let cmds = [
-                // Create ZFS pool if it doesn't exist
-                format!("zpool list {} || zpool create -f {} {}", pool_name, pool_name, disk),
-                // Create ZFS volume with thin provisioning (sparse) or pre-allocated
-                if use_thin {
-                    // Sparse volume: -s flag creates a sparse (thin) volume
-                    format!("zfs create -s -V {}G -b 128K {}/{}", volume_size_gb, pool_name, volume_name)
-                } else {
-                    // Pre-allocated volume (thick)
-                    format!("zfs create -V {}G -b 128K {}/{}", volume_size_gb, pool_name, volume_name)
-                },
-            ];
+            // Create ZFS pool if it doesn't exist
+            let check_cmd = ZfsCmd::zpool_list_cmd(pool_name);
+            let create_cmd = ZfsCmd::zpool_create_cmd(pool_name, disk);
+            let pool_cmd = format!("{} || {}", check_cmd, create_cmd);
+
+            // Create ZFS volume with thin provisioning (sparse) or pre-allocated
+            let volume_cmd = if use_thin {
+                // Sparse volume: -s flag creates a sparse (thin) volume
+                ZfsCmd::zfs_create_sparse_volume_cmd(pool_name, volume_name, &volume_size_gb.to_string())
+            } else {
+                // Pre-allocated volume (thick)
+                ZfsCmd::zfs_create_volume_cmd(pool_name, volume_name, &volume_size_gb.to_string())
+            };
+
+            let cmds = [pool_cmd, volume_cmd];
             let cmd_str = cmds.join(" && ");
 
             info!("Initializing ZFS with thin provisioning={} on {}: {}", use_thin, node.hostname, cmd_str);
@@ -966,7 +971,7 @@ pub async fn init_resource(
 
     // Create metadata on remote nodes
     let mut progress = 25;
-    let create_md_cmd = format!("drbdadm create-md --force {} 2>&1 || true", name);
+    let create_md_cmd = format!("{} 2>&1 || true", DrbdCmd::create_md_cmd(&name)?);
     info!("init_resource: Creating metadata on remote nodes");
 
     for node in &remote_nodes {
@@ -1074,7 +1079,7 @@ pub async fn init_resource(
 
     // Bring up resource on remote nodes
     info!("init_resource: Bringing up resource on remote nodes");
-    let up_remote_cmd = format!("drbdadm up {} 2>&1 || true", name);
+    let up_remote_cmd = format!("{} 2>&1 || true", DrbdCmd::up_cmd(&name)?);
     progress = 60;
 
     for node in &remote_nodes {
@@ -1223,7 +1228,7 @@ pub async fn create_filesystem(
         );
 
         // Try normal promote first
-        let promote_cmd = format!("drbdadm primary {}", name);
+        let promote_cmd = DrbdCmd::primary_cmd(&name, false)?;
         info!("create_filesystem: Running '{}'", promote_cmd);
         let promote_output =
             run_shell_command(&promote_cmd, &format!("Promote DRBD resource {}", name)).await?;
@@ -1240,7 +1245,7 @@ pub async fn create_filesystem(
                 .contains("Need access to UpToDate data")
             {
                 info!("create_filesystem: Normal promote failed with 'Need access to UpToDate data', trying force promote");
-                let force_cmd = format!("drbdadm primary --force {}", name);
+                let force_cmd = DrbdCmd::primary_cmd(&name, true)?;
                 info!("create_filesystem: Running '{}'", force_cmd);
                 let force_output =
                     run_shell_command(&force_cmd, &format!("Force promote DRBD resource {}", name))

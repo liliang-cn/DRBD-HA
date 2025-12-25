@@ -15,7 +15,9 @@ use crate::core::{
     systemd_ctrl::{RemoteSystemdController, SystemdController},
     validator, LvmProvider, ServiceInitFactory, StorageProvider, ZfsProvider,
     DrbdConfigGenerator, DrbdConfigPaths, ReactorConfigGenerator, ReactorConfigPaths, NodeConfig, ResourceConfig,
+    drbd_cmd::DrbdCmd,
 };
+use systemd_utils::SystemdCmd;
 use crate::error::{AppError, AppResult};
 use crate::models::{
     CreateHaProfileRequest, GeneratedUnits, HaProfile, HaProfileStatus, HaType, Node,
@@ -320,8 +322,8 @@ pub async fn create_profile(
             }
         }
 
-        let create_md_cmd = format!("drbdadm create-md --force {}", req.resource_name);
-        let up_cmd = format!("drbdadm up {}", req.resource_name);
+        let create_md_cmd = DrbdCmd::create_md_cmd(&req.resource_name)?;
+        let up_cmd = DrbdCmd::up_cmd(&req.resource_name)?;
 
         run_shell_command(&create_md_cmd, "Create local metadata").await?;
         run_shell_command(&up_cmd, "Up local resource").await?;
@@ -528,8 +530,8 @@ pub async fn create_profile(
             }
         }
 
-        let create_md_cmd = format!("drbdadm create-md --force {}", req.resource_name);
-        let up_cmd = format!("drbdadm up {}", req.resource_name);
+        let create_md_cmd = DrbdCmd::create_md_cmd(&req.resource_name)?;
+        let up_cmd = DrbdCmd::up_cmd(&req.resource_name)?;
 
         run_shell_command(&create_md_cmd, "Create local metadata").await?;
         run_shell_command(&up_cmd, "Up local resource").await?;
@@ -627,7 +629,7 @@ pub async fn create_profile(
                 );
 
                 run_shell_command(
-                    &format!("drbdadm primary {}", req.resource_name),
+                    &DrbdCmd::primary_cmd(&req.resource_name, false)?,
                     "Promote for setup",
                 )
                 .await?;
@@ -670,7 +672,7 @@ pub async fn create_profile(
                                 )
                                 .await;
                                 let _ = run_shell_command(
-                                    &format!("drbdadm secondary {}", req.resource_name),
+                                    &DrbdCmd::secondary_cmd(&req.resource_name)?,
                                     "Cleanup secondary",
                                 )
                                 .await;
@@ -687,7 +689,7 @@ pub async fn create_profile(
                 )
                 .await?;
                 run_shell_command(
-                    &format!("drbdadm secondary {}", req.resource_name),
+                    &DrbdCmd::secondary_cmd(&req.resource_name)?,
                     "Demote after setup",
                 )
                 .await?;
@@ -788,7 +790,7 @@ pub async fn create_profile(
                         for node in &remote_nodes {
                             let credential =
                                 crate::core::SshCredential::Password("ignored".to_string());
-                            let cmd = format!("drbdadm secondary {}", req.resource_name);
+                            let cmd = DrbdCmd::secondary_cmd(&req.resource_name)?;
                             tracing::info!(
                                 "Ensuring remote node {} is Secondary for {}",
                                 node.hostname,
@@ -1026,7 +1028,6 @@ pub async fn create_profile(
 
     let promoter_config = drbd_reactor_utils::PromoterConfig {
         resource: profile_for_gen.resource_name.clone(),
-        profile_name: profile_for_gen.name.clone(),
         mount_unit: profile_for_gen.generated_units.mount_unit.clone(),
         start: _start_services.clone(),
         stop_services_on_exit: profile_for_gen.promoter.stop_on_demote,
@@ -1232,11 +1233,11 @@ pub async fn create_profile(
             }
         } else {
             let cred = crate::core::SshCredential::Password("ignored".to_string());
-            let reload_cmd = "sudo systemctl reload drbd-reactor.service";
+            let reload_cmd = format!("sudo {}", SystemdCmd::reload_service_cmd("drbd-reactor.service"));
 
             match state
                 .ssh_manager
-                .execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, reload_cmd)
+                .execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, &reload_cmd)
                 .await
             {
                 Ok(output) => {

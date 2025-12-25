@@ -4,6 +4,7 @@ use crate::core::shell_cmd::run_shell_command;
 use crate::core::{CommandOutput, SshCredential, SshManager};
 use anyhow::{bail, Result};
 use async_trait::async_trait;
+use lvm_utils::LvmCmd;
 use std::sync::Arc;
 
 // Test-only mocking framework for execute_command
@@ -144,7 +145,7 @@ impl LvmProvider {
 #[async_trait]
 impl StorageProvider for LvmProvider {
     async fn init_pool(&self, disk: &str) -> Result<()> {
-        let command = format!("vgcreate {} {}", self.vg_name, disk);
+        let command = LvmCmd::vgcreate_cmd(&self.vg_name, disk);
         let output = self
             .execute_command(
                 &command,
@@ -164,15 +165,9 @@ impl StorageProvider for LvmProvider {
     async fn create_volume(&self, vol_name: &str, size_gb: u64) -> Result<String> {
         // Use thin pool if configured, otherwise create thick volume
         let command = if let Some(ref thin_pool) = self.thin_pool_name {
-            format!(
-                "lvcreate -V {}G --type thin -n {} --thinpool {} {} --yes",
-                size_gb, vol_name, thin_pool, self.vg_name
-            )
+            LvmCmd::create_thin_volume_cmd(&self.vg_name, thin_pool, vol_name, &format!("{}G", size_gb))
         } else {
-            format!(
-                "lvcreate -L {}G -n {} {} --yes",
-                size_gb, vol_name, self.vg_name
-            )
+            LvmCmd::create_lv_cmd(&self.vg_name, vol_name, size_gb)
         };
 
         let description = if self.thin_pool_name.is_some() {
@@ -199,7 +194,7 @@ impl StorageProvider for LvmProvider {
     }
 
     async fn delete_volume(&self, vol_name: &str) -> Result<()> {
-        let command = format!("lvremove -f /dev/{}/{}", self.vg_name, vol_name);
+        let command = LvmCmd::lvremove_cmd(&self.vg_name, vol_name);
         let output = self
             .execute_command(
                 &command,
@@ -217,10 +212,7 @@ impl StorageProvider for LvmProvider {
     }
 
     async fn resize_volume(&self, vol_name: &str, new_size_gb: u64) -> Result<()> {
-        let command = format!(
-            "lvextend -L {}G /dev/{}/{}",
-            new_size_gb, self.vg_name, vol_name
-        );
+        let command = LvmCmd::lvextend_cmd(&self.vg_name, vol_name, new_size_gb);
         let output = self
             .execute_command(
                 &command,

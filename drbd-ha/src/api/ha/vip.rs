@@ -49,7 +49,6 @@ pub async fn add_vip(
     let config_gen = ReactorConfigGenerator::new()?;
     let promoter_config = drbd_reactor_utils::PromoterConfig {
         resource: profile.resource_name.clone(),
-        profile_name: profile.name.clone(),
         mount_unit: profile.generated_units.mount_unit.clone(),
         start: profile.promoter.services.clone(),
         stop_services_on_exit: profile.promoter.stop_on_demote,
@@ -143,7 +142,6 @@ pub async fn remove_vip(
     let config_gen = ReactorConfigGenerator::new()?;
     let promoter_config = drbd_reactor_utils::PromoterConfig {
         resource: profile.resource_name.clone(),
-        profile_name: profile.name.clone(),
         mount_unit: profile.generated_units.mount_unit.clone(),
         start: profile.promoter.services.clone(),
         stop_services_on_exit: profile.promoter.stop_on_demote,

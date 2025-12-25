@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use tracing::{info, warn};
+use zfs_utils::ZfsCmd;
 
 #[allow(unused_imports)]
 use crate::core::{run_shell_command, SshCredential, CommandOutput};
@@ -80,7 +81,7 @@ impl ZfsProvider {
 
     /// Check if ZFS dataset/volume exists
     async fn dataset_exists(&self, dataset_name: &str) -> Result<bool> {
-        let command = format!("zfs list -H -o name {}", dataset_name);
+        let command = ZfsCmd::zfs_list_cmd(dataset_name);
         match self.execute_command(&command, "Check if ZFS dataset exists").await {
             Ok(output) => Ok(output.stdout.trim() == dataset_name),
             Err(_) => Ok(false),
@@ -137,10 +138,7 @@ impl StorageProvider for ZfsProvider {
 
         // Create ZFS volume
         // -V specifies volume size, -b specifies block size (default 128K is good for most workloads)
-        let command = format!(
-            "zfs create -V {}G -b 128K {}",
-            size_gb, dataset_name
-        );
+        let command = ZfsCmd::zfs_create_volume_cmd(&self.pool_name, vol_name, &format!("{}", size_gb));
 
         self.execute_command(&command, "Create ZFS volume").await?;
 
@@ -173,7 +171,7 @@ impl StorageProvider for ZfsProvider {
         }
 
         // Force destroy the volume and any snapshots
-        let command = format!("zfs destroy -Rf {}", dataset_name);
+        let command = ZfsCmd::zfs_destroy_cmd(&dataset_name);
         self.execute_command(&command, "Delete ZFS volume").await?;
 
         info!("Successfully deleted ZFS volume '{}'", vol_name);

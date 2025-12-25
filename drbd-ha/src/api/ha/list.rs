@@ -10,9 +10,11 @@ use crate::core::{
     run_shell_command,
     systemd_ctrl::SystemdController,
     ReactorConfigPaths as ConfigPaths,
+    drbd_cmd::DrbdCmd,
 };
 use crate::error::AppResult;
 use crate::state::AppState;
+use systemd_utils::SystemdCmd;
 
 use super::types::{ConfigVisibility, HaProfileDetailResponse, HaProfileListResponse, ServiceStatusInfo};
 use super::utils::{create_profile_from_toml, get_all_ha_profile_names};
@@ -60,7 +62,7 @@ pub async fn list_profiles(
         if let Ok(content) = tokio::fs::read_to_string(&config_path).await {
             if let Some(mut profile) = create_profile_from_toml(name, &content) {
                 // Update status from drbd-reactorctl
-                if let Ok((statuses, _)) = DrbdReactorClient::status(Some(name)).await {
+                if let Ok((statuses, _)) = DrbdReactorClient::status(Some(name), None).await {
                     if let Some(status) = statuses.first() {
                         if status.is_active {
                             profile.status = crate::models::HaProfileStatus::Active;
@@ -107,7 +109,7 @@ async fn fetch_profile_details(
     // Step 1: Get DRBD status to determine which node is Primary (active)
     // Use drbdsetup status --json for complete status including connection state
     let local_drbd_status = {
-        let cmd = format!("drbdsetup status {} --json 2>/dev/null", profile.resource_name);
+        let cmd = format!("{} 2>/dev/null", DrbdCmd::resource_status_cmd(&profile.resource_name)?);
         let output = run_shell_command(
             &cmd,
             &format!("Get local DRBD status for {}", profile.resource_name),
@@ -171,7 +173,7 @@ async fn fetch_profile_details(
                 // Active node is local, execute locally
                 tracing::info!("Active node is local, getting status locally for {}", profile.resource_name);
 
-                let reactor_status = DrbdReactorClient::status(Some(&profile.name)).await;
+                let reactor_status = DrbdReactorClient::status(Some(&profile.name), None).await;
                 let reactor_raw = reactor_status.as_ref().map(|(_, raw)| raw.clone()).ok();
                 let active_from_reactor = reactor_status.as_ref()
                     .ok()
@@ -185,7 +187,8 @@ async fn fetch_profile_details(
                 let credential = SshCredential::Password("ignored".to_string());
 
                 // Execute drbdsetup status --json on remote node
-                let drbd_cmd = format!("drbdsetup status {} --json 2>/dev/null", profile.resource_name);
+                let base_drbd_cmd = DrbdCmd::resource_status_cmd(&profile.resource_name)?;
+                let drbd_cmd = format!("{} 2>/dev/null", base_drbd_cmd);
                 let sudo_drbd_cmd = if active_node_obj.ssh_user != "root" {
                     format!("sudo {}", drbd_cmd)
                 } else {
@@ -260,7 +263,7 @@ async fn fetch_profile_details(
     } else {
         // No active node from DRBD, use local status
         tracing::info!("No active node determined from DRBD, using local status");
-        let reactor_status = DrbdReactorClient::status(Some(&profile.name)).await;
+        let reactor_status = DrbdReactorClient::status(Some(&profile.name), None).await;
         let reactor_raw = reactor_status.as_ref().map(|(_, raw)| raw.clone()).ok();
         let active_from_reactor = reactor_status.as_ref()
             .ok()
@@ -333,7 +336,7 @@ async fn fetch_profile_details(
                             continue;
                         }
                         // Run systemctl is-enabled on remote node
-                        let cmd = format!("systemctl is-enabled {}", service_info.name);
+                        let cmd = SystemdCmd::is_enabled_cmd(&service_info.name);
                         let sudo_cmd = if node.ssh_user != "root" {
                             format!("sudo {}", cmd)
                         } else {

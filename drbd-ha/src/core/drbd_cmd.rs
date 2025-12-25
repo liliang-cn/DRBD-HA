@@ -120,6 +120,20 @@ impl DrbdCmd {
     pub fn mkdir_cmd(mount_point: &str) -> AppResult<String> {
         drbd_utils::DrbdCmd::mkdir_cmd(mount_point).map_err(|e| AppError::Validation(e.to_string()))
     }
+
+    pub fn sh_dev_cmd(resource: &str) -> AppResult<String> {
+        drbd_utils::DrbdCmd::sh_dev_cmd(resource)
+            .map_err(|e| AppError::Validation(e.to_string()))
+    }
+
+    pub fn status_all_cmd() -> String {
+        drbd_utils::DrbdCmd::status_all_cmd()
+    }
+
+    pub fn adm_status_cmd(resource: &str) -> AppResult<String> {
+        drbd_utils::DrbdCmd::adm_status_cmd(resource)
+            .map_err(|e| AppError::Validation(e.to_string()))
+    }
 }
 
 pub fn parse_drbd_status(json_output: &str) -> AppResult<Vec<ResourceStatus>> {

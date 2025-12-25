@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::core::run_shell_command;
 use crate::error::{AppError, AppResult};
 use crate::state::{AppState, NotificationLevel};
+use drbd_reactor_utils::{DrbdReactorClient, EvictOptions};
 
 use super::types::{EvictProfileRequest, EvictProfileResponse};
 use super::utils::create_profile_from_toml;
@@ -25,17 +26,18 @@ pub async fn evict_profile(
     let profile = create_profile_from_toml(&id_or_name, &content)
         .ok_or_else(|| AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
 
-    let mut evict_cmd = format!("sudo drbd-reactorctl evict {}", profile.name);
+    // Build evict options from request
+    let mut evict_options = EvictOptions::default();
 
+    // Only set delay if not default (20)
     if request.delay != 20 {
-        evict_cmd.push_str(&format!(" --delay {}", request.delay));
+        evict_options.delay = Some(request.delay);
     }
-    if request.keep_masked {
-        evict_cmd.push_str(" --keep-masked");
-    }
-    if request.force {
-        evict_cmd.push_str(" --force");
-    }
+    evict_options.force = request.force;
+    evict_options.keep_masked = request.keep_masked;
+
+    // Build command using drbd-reactor-utils
+    let evict_cmd = DrbdReactorClient::build_evict_command(&profile.name, Some(&evict_options));
 
     let target_node: crate::models::Node = if let Some(ref node_id) = request.node {
         let nodes = state.node_store.get_all()?;

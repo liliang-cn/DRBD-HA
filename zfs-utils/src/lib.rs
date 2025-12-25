@@ -1,5 +1,5 @@
 pub mod client;
-mod cmd;
+pub mod cmd;
 pub mod config;
 pub mod error;
 #[cfg(test)]
@@ -10,4 +10,5 @@ pub use client::{
     list_thin_volumes, ZfsClient, ZfsDatasetInfo, ZpoolCheckResult, ZfsPoolInfo,
     ZpoolStatus, ZfsThinVolumeInfo,
 };
+pub use cmd::ZfsCmd;
 pub use config::configure_zfs_cache;

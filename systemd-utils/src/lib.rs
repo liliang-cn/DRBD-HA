@@ -1,10 +1,12 @@
 pub mod client;
+pub mod cmd;
 pub mod error;
 pub mod remote;
 pub mod service;
 mod validator;
 
 pub use client::SystemdController;
+pub use cmd::SystemdCmd;
 pub use error::{SystemdError, SystemdResult};
 pub use remote::{CommandExecutor, CommandOutput, RemoteSystemdController};
 pub use service::{ServiceFileInfo, ServiceInfo, ServiceStatus};

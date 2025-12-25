@@ -68,7 +68,8 @@ impl MountUnitGenerator {
         }
 
         // Method 2: Query drbdadm for device path
-        let cmd = format!("drbdadm sh-dev {} 2>/dev/null", resource_name);
+        let base_cmd = crate::core::drbd_cmd::DrbdCmd::sh_dev_cmd(resource_name)?;
+        let cmd = format!("{} 2>/dev/null", base_cmd);
         let output = run_shell_command(
             &cmd,
             &format!("Get DRBD device path for resource {}", resource_name),

@@ -127,6 +127,23 @@ impl DrbdCmd {
         "modprobe drbd".to_string()
     }
 
+    /// Get device path for a resource (drbdadm sh-dev)
+    pub fn sh_dev_cmd(resource: &str) -> DrbdResult<String> {
+        validator::validate_resource_name(resource)?;
+        Ok(format!("drbdadm sh-dev {}", resource))
+    }
+
+    /// Get status for all resources (drbdadm status)
+    pub fn status_all_cmd() -> String {
+        "drbdadm status".to_string()
+    }
+
+    /// Get status for a specific resource (drbdadm status)
+    pub fn adm_status_cmd(resource: &str) -> DrbdResult<String> {
+        validator::validate_resource_name(resource)?;
+        Ok(format!("drbdadm status {}", resource))
+    }
+
     /// Create filesystem on DRBD device
     pub fn mkfs_cmd(device: &str, fstype: &str) -> DrbdResult<String> {
         validator::validate_block_device(device)?;

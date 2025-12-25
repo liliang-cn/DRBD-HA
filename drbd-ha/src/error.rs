@@ -102,6 +102,12 @@ impl From<drbd_utils::DrbdError> for AppError {
     }
 }
 
+impl From<config_gen::ConfigError> for AppError {
+    fn from(err: config_gen::ConfigError) -> Self {
+        AppError::Config(err.to_string())
+    }
+}
+
 use utoipa::ToSchema;
 
 /// Error response body for API
