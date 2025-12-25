@@ -23,9 +23,8 @@ use gethostname;
 
 /// Get the actual device name for a DRBD resource from its configuration file
 /// This is the authoritative source for device names
-#[allow(dead_code)]
-async fn get_drbd_device_for_resource(resource_name: &str) -> Option<String> {
-    let config_path = format!("/etc/drbd.d/{}.res", resource_name);
+async fn get_drbd_device_for_resource(resource_name: &str, state: &AppState) -> Option<String> {
+    let config_path = state.drbd_resource_path(resource_name);
 
     match tokio::fs::read_to_string(&config_path).await {
         Ok(content) => {
@@ -51,10 +50,10 @@ async fn get_drbd_device_for_resource(resource_name: &str) -> Option<String> {
 
 /// GET /api/v1/ha/profiles
 pub async fn list_profiles(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
 ) -> AppResult<Json<HaProfileListResponse>> {
     // Read all profiles from toml files
-    let profile_names = get_all_ha_profile_names().await?;
+    let profile_names = get_all_ha_profile_names(&state).await?;
     let mut profiles = Vec::new();
 
     for name in &profile_names {

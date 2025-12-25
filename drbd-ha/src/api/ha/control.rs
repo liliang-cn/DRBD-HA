@@ -1153,7 +1153,7 @@ pub async fn deactivate_profile(
     );
 
     // Remove drbd-reactor configuration file
-    let config_path = format!("/etc/drbd-reactor.d/{}.toml", profile.name);
+    let config_path = state.reactor_config_path(&profile.name);
     tracing::info!("deactivate_profile: Removing config file '{}'", config_path);
     let _ = run_shell_command(
         &format!("rm -f '{}'", config_path),

@@ -324,10 +324,11 @@ impl DrbdTransactionBuilder {
         &self,
         resource_name: &str,
         config_content: &str,
+        config_path: &str,
         nodes: Vec<NodeTarget>,
     ) -> Transaction {
         let mut tx = Transaction::new(self.ssh_manager.clone());
-        let config_path = format!("/etc/drbd.d/{}.res", resource_name);
+        let config_path = format!("{}/{}.res", config_path, resource_name);
 
         // Write config to all nodes
         for target in &nodes {
@@ -373,9 +374,9 @@ impl DrbdTransactionBuilder {
     }
 
     /// Build transaction for deleting a DRBD resource
-    pub fn delete_resource(&self, resource_name: &str, nodes: Vec<NodeTarget>) -> Transaction {
+    pub fn delete_resource(&self, resource_name: &str, config_path: &str, nodes: Vec<NodeTarget>) -> Transaction {
         let mut tx = Transaction::new(self.ssh_manager.clone());
-        let config_path = format!("/etc/drbd.d/{}.res", resource_name);
+        let config_path = format!("{}/{}.res", config_path, resource_name);
 
         // Down resource on all nodes
         for target in &nodes {

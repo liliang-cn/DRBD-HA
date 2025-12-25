@@ -173,4 +173,32 @@ impl AppState {
         tracing::warn!("Could not detect local IP address, using 127.0.0.1");
         "127.0.0.1".to_string()
     }
+
+    /// Get DRBD resource configuration file path
+    pub fn drbd_resource_path(&self, resource_name: &str) -> String {
+        format!("{}/{}.res", self.config.drbd.config_path, resource_name)
+    }
+
+    /// Get DRBD configuration directory path
+    pub fn drbd_config_dir(&self) -> &str {
+        &self.config.drbd.config_path
+    }
+
+    /// Get drbd-reactor promoter configuration file path
+    pub fn reactor_config_path(&self, profile_name: &str) -> String {
+        format!(
+            "{}/{}.toml",
+            self.config.drbd.reactor_config_path, profile_name
+        )
+    }
+
+    /// Get drbd-reactor configuration directory path
+    pub fn reactor_config_dir(&self) -> &str {
+        &self.config.drbd.reactor_config_path
+    }
+
+    /// Get systemd unit file directory path
+    pub fn systemd_unit_dir(&self) -> &str {
+        &self.config.drbd.systemd_unit_path
+    }
 }

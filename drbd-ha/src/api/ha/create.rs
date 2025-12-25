@@ -28,8 +28,8 @@ use crate::state::{AppState, NotificationLevel};
 use super::types::HaProfileCreateResponse;
 
 /// Get the actual device name for a DRBD resource from its configuration file
-async fn get_drbd_device_for_resource(resource_name: &str) -> Option<String> {
-    let config_path = format!("/etc/drbd.d/{}.res", resource_name);
+async fn get_drbd_device_for_resource(resource_name: &str, state: &AppState) -> Option<String> {
+    let config_path = state.drbd_resource_path(resource_name);
 
     match tokio::fs::read_to_string(&config_path).await {
         Ok(content) => {
@@ -101,13 +101,13 @@ pub async fn create_profile(
     let drbd_port = if let Some(p) = req.drbd_port {
         p
     } else {
-        super::utils::find_next_free_drbd_port().await?
+        super::utils::find_next_free_drbd_port(&state).await?
     };
 
     let drbd_minor = if let Some(m) = req.drbd_minor {
         m
     } else {
-        super::utils::find_next_free_drbd_minor().await?
+        super::utils::find_next_free_drbd_minor(&state).await?
     };
 
     let mut manual_filesystem_agent_present = false;
@@ -122,7 +122,7 @@ pub async fn create_profile(
                     .is_some_and(|s| s.is_empty());
 
             if device_missing_or_empty && !agent.params.contains_key("device") {
-                match get_drbd_device_for_resource(&req.resource_name).await {
+                match get_drbd_device_for_resource(&req.resource_name, &state).await {
                     Some(device) => {
                         agent.params.insert("device".to_string(), device);
                     }
@@ -589,7 +589,7 @@ pub async fn create_profile(
             tracing::info!(
                 "Manual Filesystem OCF agent detected, skipping systemd mount unit generation"
             );
-            match get_drbd_device_for_resource(&req.resource_name).await {
+            match get_drbd_device_for_resource(&req.resource_name, &state).await {
                 Some(device) => {
                     generated_units.drbd_device = Some(device);
                 }
@@ -634,7 +634,7 @@ pub async fn create_profile(
                 )
                 .await?;
 
-                let drbd_device = get_drbd_device_for_resource(&req.resource_name).await
+                let drbd_device = get_drbd_device_for_resource(&req.resource_name, &state).await
                     .ok_or_else(|| AppError::Validation(format!(
                         "DRBD resource '{}' not found. Cannot create filesystem on non-existent device.",
                         req.resource_name

@@ -205,7 +205,7 @@ pub async fn create_resource(
         None,
     );
 
-    validator::validate_device_unique(&temp_config.device).await?;
+    validator::validate_device_unique(&temp_config.device, state.drbd_config_dir()).await?;
 
     tracing::info!("Device name '{}' is available for resource '{}'", temp_config.device, req.name);
 

@@ -505,7 +505,7 @@ impl ClusterSync {
     }
 
     /// Remove DRBD resource from all remote nodes
-    pub async fn remove_drbd_resource(&self, resource_name: &str) -> AppResult<Vec<String>> {
+    pub async fn remove_drbd_resource(&self, resource_name: &str, config_path: &str) -> AppResult<Vec<String>> {
         let nodes = self.node_store.get_all()?;
         let mut synced_nodes = Vec::new();
 
@@ -534,7 +534,7 @@ impl ClusterSync {
                 .await;
 
             // Remove config file
-            let config_path = format!("/etc/drbd.d/{}.res", resource_name);
+            let config_path = format!("{}/{}.res", config_path, resource_name);
             let rm_cmd = format!("rm -f '{}'", config_path);
             let _ = self
                 .ssh_manager

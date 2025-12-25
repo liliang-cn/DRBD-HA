@@ -153,9 +153,9 @@ pub fn validate_minor(minor: u32) -> AppResult<()> {
 }
 
 /// Check if DRBD device name conflicts with existing resources
-pub async fn validate_device_unique(device_name: &str) -> AppResult<()> {
+pub async fn validate_device_unique(device_name: &str, config_dir: &str) -> AppResult<()> {
     // Check against existing DRBD configuration files
-    let config_dir = "/etc/drbd.d";
+    let config_dir = config_dir;
 
     // List all .res files
     match tokio::fs::read_dir(config_dir).await {

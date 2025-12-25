@@ -79,12 +79,12 @@ pub(crate) fn parse_mount_point_from_config(content: &str) -> Option<String> {
     None
 }
 
-/// Find the next available DRBD minor number by scanning /etc/drbd.d/*.res AND checking active resources
-pub async fn find_next_free_drbd_minor() -> AppResult<u32> {
+/// Find the next available DRBD minor number by scanning config files AND checking active resources
+pub async fn find_next_free_drbd_minor(state: &AppState) -> AppResult<u32> {
     let mut used_minors = HashSet::new();
-    
+
     // 1. Scan config files
-    let config_dir = "/etc/drbd.d";
+    let config_dir = state.drbd_config_dir();
 
     if let Ok(mut entries) = fs::read_dir(config_dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -149,10 +149,10 @@ pub async fn find_next_free_drbd_minor() -> AppResult<u32> {
     Ok(minor)
 }
 
-/// Find the next available DRBD port by scanning /etc/drbd.d/*.res
-pub async fn find_next_free_drbd_port() -> AppResult<u16> {
+/// Find the next available DRBD port by scanning config files
+pub async fn find_next_free_drbd_port(state: &AppState) -> AppResult<u16> {
     let mut used_ports = HashSet::new();
-    let config_dir = "/etc/drbd.d";
+    let config_dir = state.drbd_config_dir();
 
     if let Ok(mut entries) = fs::read_dir(config_dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -185,10 +185,10 @@ pub async fn find_next_free_drbd_port() -> AppResult<u16> {
     Ok(port)
 }
 
-/// Get all HA profile names from /etc/drbd-reactor.d/*.toml
-pub async fn get_all_ha_profile_names() -> AppResult<Vec<String>> {
+/// Get all HA profile names from drbd-reactor config directory
+pub async fn get_all_ha_profile_names(state: &AppState) -> AppResult<Vec<String>> {
     let mut profiles = Vec::new();
-    let reactor_dir = "/etc/drbd-reactor.d";
+    let reactor_dir = state.reactor_config_dir();
 
     if let Ok(mut entries) = fs::read_dir(reactor_dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {

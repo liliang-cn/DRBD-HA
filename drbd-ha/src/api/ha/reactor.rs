@@ -201,12 +201,12 @@ pub async fn reload_reactor(
     )
 )]
 pub async fn list_unmanaged_profiles(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
 ) -> AppResult<Json<Vec<HaProfile>>> {
     tracing::info!("Scanning for unmanaged HA profiles");
     let discovered = match ReactorDiscovery::scan_profiles() {
         Ok(profiles) => {
-            tracing::info!("Found {} profiles in /etc/drbd-reactor.d", profiles.len());
+            tracing::info!("Found {} profiles in {}", profiles.len(), state.reactor_config_dir());
             profiles
         }
         Err(e) => {
@@ -216,7 +216,7 @@ pub async fn list_unmanaged_profiles(
     };
 
     // Get existing profiles from toml files instead of database
-    let existing_profiles = super::utils::get_all_ha_profile_names().await?;
+    let existing_profiles = super::utils::get_all_ha_profile_names(&state).await?;
     tracing::info!(
         "Found {} existing profiles in toml files",
         existing_profiles.len()
@@ -248,11 +248,11 @@ pub async fn list_unmanaged_profiles(
     )
 )]
 pub async fn import_profiles(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(req): Json<ImportProfilesRequest>,
 ) -> AppResult<Json<ImportProfilesResponse>> {
     let discovered = ReactorDiscovery::scan_profiles().map_err(|e| AppError::Internal(e.to_string()))?;
-    let existing_profiles = super::utils::get_all_ha_profile_names().await?;
+    let existing_profiles = super::utils::get_all_ha_profile_names(&state).await?;
 
     let mut imported = Vec::new();
     let mut failed = Vec::new();
