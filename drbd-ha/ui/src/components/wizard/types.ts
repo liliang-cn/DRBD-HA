@@ -1,6 +1,7 @@
 import type {
   BlockDevice,
   HaType,
+  Node,
   ServiceFileInfo,
   StoragePool,
 } from '@/types';
@@ -16,6 +17,8 @@ export interface WizardSharedState {
   setStoragePools: (pools: StoragePool[]) => void;
   services: ServiceFileInfo[];
   setServices: (services: ServiceFileInfo[]) => void;
+  selectedNodes: Node[];
+  setSelectedNodes: (nodes: Node[]) => void;
 }
 
 export interface StepProps {

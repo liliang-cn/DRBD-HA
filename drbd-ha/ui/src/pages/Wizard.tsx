@@ -5,20 +5,17 @@ import {
   LoadingOutlined,
   RocketOutlined,
 } from '@ant-design/icons';
-import { Button, Form, Modal, message, Steps, Typography } from 'antd';
+import { Button, Form, message, Steps, Typography } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { v4 as uuidv4 } from 'uuid';
+import { useNavigate } from 'react-router-dom';
 import { haProfilesApi, nodesApi, resourcesApi, servicesApi } from '@/api';
 import {
   DeploymentStatusStep,
   HaConfigStep,
   NodesVerificationStep,
   PreviewConfigStep,
-  SessionRestoreModal,
   StorageConfigStep,
 } from '@/components/wizard';
-import { useWizardSession } from '@/hooks/useWizardSession';
 import { useHaProfilesStore } from '@/stores/ha-profiles';
 import { useNodesStore } from '@/stores/nodes';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -26,6 +23,7 @@ import { useResourcesStore } from '@/stores/resources';
 import type {
   BlockDevice,
   CreateHaProfileRequest,
+  Node,
   ServiceFileInfo,
 } from '@/types';
 
@@ -35,42 +33,12 @@ export interface WizardProps {
 
 export function Wizard({ mode = 'service' }: WizardProps) {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const { nodes, fetch: fetchNodes } = useNodesStore();
   const { resources, fetch: fetchResources } = useResourcesStore();
   const { fetch: fetchProfiles } = useHaProfilesStore();
   const progressEvents = useNotificationsStore((s) => s.progress);
 
-  // Wizard session management
-  const sessionId = searchParams.get('session');
-  const stepParam = searchParams.get('step');
-  const stepFromUrl = stepParam ? parseInt(stepParam, 10) : 0;
-  const {
-    session,
-    loading: sessionLoading,
-    error: sessionError,
-    createSession,
-    saveStep,
-    loadSession,
-    getStepData,
-    clearSession,
-    getRecentSessions,
-  } = useWizardSession({ mode, sessionId: sessionId || undefined });
-
   const [step, setStep] = useState(0);
-  const [sessionInitialized, setSessionInitialized] = useState(false);
-
-  // Function to update URL with session ID and step without reload
-  const updateUrlWithSessionAndStep = useCallback(
-    (sessionId: string, stepNumber: number) => {
-      const currentUrl = new URL(window.location.href);
-      currentUrl.searchParams.set('session', sessionId);
-      currentUrl.searchParams.set('step', stepNumber.toString());
-      // Use replaceState to update URL without reload
-      window.history.replaceState({}, '', currentUrl.toString());
-    },
-    [],
-  );
   const [loading, setLoading] = useState(false);
   const [availableDisks, setAvailableDisks] = useState<
     Record<string, BlockDevice[]>
@@ -78,6 +46,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const [services, setServices] = useState<ServiceFileInfo[]>([]);
   // HA Type state
   const [haType, setHaType] = useState<'generic'>('generic');
+  // Selected nodes for HA profile
+  const [selectedNodes, setSelectedNodes] = useState<Node[]>([]);
 
   const [resourceForm] = Form.useForm();
   const [haForm] = Form.useForm();
@@ -133,131 +103,6 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     fetchNodes();
     fetchResources();
   }, [fetchNodes, fetchResources]);
-
-  // Simple immediate session creation and URL update
-  useEffect(() => {
-    const initializeSession = async () => {
-      // If no session in URL, create one immediately
-      if (!sessionId && !sessionInitialized) {
-        const newSessionId = uuidv4();
-        updateUrlWithSessionAndStep(newSessionId, 0);
-
-        // Create session in background
-        createSession();
-
-        setSessionInitialized(true);
-      } else if (sessionId) {
-        // Load existing session
-        const loadedSession = await loadSession(sessionId);
-
-        if (loadedSession) {
-          // IMPORTANT: Set step immediately from session data
-          const sessionStep = loadedSession?.current_step ?? stepFromUrl;
-          console.log(
-            '🔍 Loading session step:',
-            sessionStep,
-            'from session current_step:',
-            loadedSession?.current_step,
-          );
-
-          // Set step immediately
-          if (sessionStep >= 0 && sessionStep <= 4) {
-            setStep(sessionStep);
-            console.log('✅ Step set to:', sessionStep);
-          }
-
-          // Restore form data IMMEDIATELY
-          if (loadedSession.step_data) {
-            const step1Data = loadedSession.step_data['step_1'] || {};
-            const step2Data = loadedSession.step_data['step_2'] || {};
-
-            console.log('📝 Step 1 data from session:', step1Data);
-            console.log('📝 Step 2 data from session:', step2Data);
-
-            // Restore form data synchronously
-            if (Object.keys(step1Data).length > 0) {
-              resourceForm.setFieldsValue(step1Data);
-              console.log('✅ Step 1 form restored');
-            }
-            if (Object.keys(step2Data).length > 0) {
-              haForm.setFieldsValue(step2Data);
-              if (step2Data.haType) {
-                setHaType(step2Data.haType);
-              }
-              console.log('✅ Step 2 form restored');
-            }
-          }
-        } else {
-          console.log('❌ No loaded session found');
-        }
-
-        setSessionInitialized(true);
-      }
-    };
-
-    initializeSession();
-  }, [sessionId, sessionInitialized, stepFromUrl]);
-
-  // Update URL when step changes
-  useEffect(() => {
-    // Try to get session ID from session, URL, or current session
-    const currentSessionId = session?.id || sessionId;
-
-    if (currentSessionId) {
-      updateUrlWithSessionAndStep(currentSessionId, step);
-    }
-  }, [step, session?.id, sessionId, updateUrlWithSessionAndStep]);
-
-  // Save form data when step changes
-  const saveCurrentStepData = useCallback(
-    async (currentStep: number) => {
-      // Use sessionId from URL if available, otherwise wait for session
-      const currentSessionId = session?.id || sessionId;
-
-      if (!currentSessionId) {
-        console.log('❌ No session ID available for saving');
-        return;
-      }
-
-      try {
-        let stepData: Record<string, any> = {};
-
-        switch (currentStep) {
-          case 0:
-            // Save nodes verification data (if needed)
-            stepData = { nodesVerified: true };
-            break;
-          case 1: {
-            // Save storage configuration
-            const resourceValues = resourceForm.getFieldsValue();
-            stepData = resourceValues;
-            break;
-          }
-          case 2: {
-            // Save HA configuration
-            const haValues = haForm.getFieldsValue(true);
-            stepData = { ...haValues, haType };
-            break;
-          }
-          case 3:
-            // Preview step - no additional data needed
-            stepData = { previewCompleted: true };
-            break;
-          case 4:
-            // Activation step - no additional data needed
-            stepData = { activationCompleted: true };
-            break;
-        }
-
-        console.log(`💾 Saving step ${currentStep} data:`, stepData);
-        await wizardApi.saveStep(currentSessionId, currentStep, stepData);
-        console.log('✅ Step data saved successfully');
-      } catch (err) {
-        console.error('❌ Failed to save step data:', err);
-      }
-    },
-    [session?.id, sessionId, resourceForm, haForm, haType],
-  );
 
   const loadServices = useCallback(async () => {
     try {
@@ -425,7 +270,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         a.operation_id.localeCompare(b.operation_id),
       );
 
-      // Update Progress Steps for Modal/Activation View
+      // Update Progress Steps for Activation View
       const newSteps = sortedProgress
         .map((p) => ({
           message: p.message,
@@ -513,9 +358,6 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   };
 
   const handleNext = async () => {
-    // Save current step data before proceeding
-    await saveCurrentStepData(step);
-
     if (step === 0) {
       if (nodes.length < 2) {
         message.warning('At least 2 nodes are required for HA');
@@ -712,7 +554,25 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const renderStepContent = () => {
     switch (step) {
       case 0:
-        return <NodesVerificationStep nodes={nodes} />;
+        return (
+          <NodesVerificationStep
+            nodes={nodes}
+            sharedState={{
+              storageStrategy: 'raw',
+              setStorageStrategy: () => {},
+              haType,
+              setHaType,
+              availableDisks,
+              setAvailableDisks,
+              storagePools: [],
+              setStoragePools: () => {},
+              services,
+              setServices,
+              selectedNodes,
+              setSelectedNodes,
+            }}
+          />
+        );
 
       case 1:
         return (
@@ -720,7 +580,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             form={resourceForm}
             storageStrategy="raw"
             onStrategyChange={() => {}}
-            nodes={nodes}
+            nodes={selectedNodes}
             availableDisks={availableDisks}
           />
         );

@@ -7,6 +7,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Form,
   Input,
   InputNumber,
@@ -17,10 +18,11 @@ import {
   Table,
   Tag,
 } from 'antd';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { nodesApi } from '@/api';
 import { useNodesStore } from '@/stores/nodes';
 import type { AddNodeRequest, Node } from '@/types';
+import type { WizardSharedState } from './types';
 
 const statusColor: Record<string, string> = {
   online: 'green',
@@ -31,13 +33,30 @@ const statusColor: Record<string, string> = {
 
 interface NodesVerificationStepProps {
   nodes: Node[];
+  sharedState: WizardSharedState;
 }
 
-export function NodesVerificationStep({ nodes }: NodesVerificationStepProps) {
+export function NodesVerificationStep({ nodes, sharedState }: NodesVerificationStepProps) {
   const { add, remove, fetch } = useNodesStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm<AddNodeRequest>();
   const [submitting, setSubmitting] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+
+  // Initialize selected nodes with all nodes by default
+  useEffect(() => {
+    if (nodes.length > 0 && selectedRowKeys.length === 0) {
+      const allKeys = nodes.map(n => n.id);
+      setSelectedRowKeys(allKeys);
+      sharedState.setSelectedNodes(nodes);
+    }
+  }, [nodes]);
+
+  const handleSelectionChange = (newSelectedRowKeys: React.Key[]) => {
+    setSelectedRowKeys(newSelectedRowKeys);
+    const selectedNodes = nodes.filter(n => newSelectedRowKeys.includes(n.id));
+    sharedState.setSelectedNodes(selectedNodes);
+  };
 
   const handleAdd = async (values: AddNodeRequest) => {
     setSubmitting(true);
@@ -142,11 +161,20 @@ export function NodesVerificationStep({ nodes }: NodesVerificationStepProps) {
         columns={columns}
         rowKey="id"
         pagination={false}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: handleSelectionChange,
+          getCheckboxProps: (record: Node) => ({
+            // Disable checkbox for nodes that are offline
+            disabled: record.status !== 'online',
+            name: record.hostname,
+          }),
+        }}
       />
 
-      {nodes.length < 2 && (
+      {selectedRowKeys.length < 2 && (
         <Alert
-          message="At least 2 nodes are required for HA"
+          message="At least 2 nodes must be selected for HA"
           type="warning"
           showIcon
           className="mt-4"
