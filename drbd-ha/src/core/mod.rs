@@ -17,6 +17,7 @@ pub mod storage;
 pub mod systemd_ctrl;
 pub mod transaction;
 pub mod validator;
+pub mod zfs_utils;
 
 pub use cluster_sync::{ClusterSync, HaSyncConfig};
 pub use discovery::ReactorDiscovery;
@@ -30,6 +31,7 @@ pub use shell_cmd::{run_shell_command, CommandOutput};
 pub use ssh_manager::{SshCredential, SshManager};
 pub use store::NodeStore;
 pub use storage::{LvmProvider, StorageProvider, ZfsProvider};
+pub use zfs_utils::{check_zpool as check_zpool_local, ZfsClient as ZfsUtilsClient};
 
 // Re-export from external crates
 pub use drbd_utils::{ConfigGenerator as DrbdConfigGenerator, ConfigPaths as DrbdConfigPaths, NodeConfig, ResourceConfig};

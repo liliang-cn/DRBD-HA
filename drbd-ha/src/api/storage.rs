@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::info;
 use utoipa::ToSchema;
 
-use crate::core::{get_vg_info, list_vg_info, run_shell_command, validator, LvmProvider, SafetyChecker, StorageProvider};
+use crate::core::{get_vg_info, list_vg_info, validator, LvmProvider, SafetyChecker, StorageProvider, ZfsUtilsClient};
 use crate::error::{AppError, AppResult};
 use crate::models::storage::{
     CreateStoragePoolRequest, CreateStoragePoolResponse, CreateVolumeRequest, CreateVolumeResponse,
@@ -274,78 +274,96 @@ pub struct ZpoolInfo {
         (status = 200, description = "Zpool status checked", body = ZpoolCheckResponse)
     )
 )]
-pub async fn check_zpool(State(_state): State<Arc<AppState>>) -> AppResult<Json<ZpoolCheckResponse>> {
-    info!("Checking ZFS/zpool availability");
+pub async fn check_zpool(
+    State(_state): State<Arc<AppState>>,
+) -> AppResult<Json<ZpoolCheckResponse>> {
+    info!("Checking ZFS/zpool availability on local node");
 
-    // First check if zpool command exists
-    let which_cmd = "which zpool";
-    let check_installed = run_shell_command(which_cmd, "Check if zpool is installed").await;
+    // Use zfs-utils to check local zpool
+    let result = crate::core::check_zpool_local()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to check zpool: {}", e)))?;
 
-    let installed = check_installed.is_ok() && check_installed.as_ref().map(|o| o.exit_code == 0).unwrap_or(false);
-
-    if !installed {
-        return Ok(Json(ZpoolCheckResponse {
-            installed: false,
-            available: false,
-            version: None,
-            message: "zpool command not found. ZFS is not installed on this system.".to_string(),
-            pools: vec![],
-        }));
-    }
-
-    // Check zpool version
-    let version_cmd = "zpool version 2>&1 | head -n 1";
-    let version_output = run_shell_command(version_cmd, "Get zpool version").await;
-    let version = if version_output.is_ok() {
-        version_output.ok().and_then(|o| {
-            let stdout = o.stdout.trim();
-            if stdout.is_empty() {
-                None
-            } else {
-                Some(stdout.to_string())
-            }
+    // Convert zfs-utils result to API response
+    let pools = result
+        .pools
+        .into_iter()
+        .map(|p| ZpoolInfo {
+            name: p.name,
+            size: p.size,
+            capacity: p.capacity,
+            health: p.health,
         })
-    } else {
-        None
-    };
-
-    // Try to list pools to check if zpool is functional
-    let list_cmd = "zpool list -H -o name,size,capacity,health 2>/dev/null";
-    let list_output = run_shell_command(list_cmd, "List zpools").await;
-
-    let available = list_output.is_ok();
-    let mut pools = vec![];
-
-    if let Ok(output) = list_output {
-        // Parse zpool list output
-        // Format: name\tsize\tcapacity\thealth
-        for line in output.stdout.lines() {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 4 {
-                pools.push(ZpoolInfo {
-                    name: parts[0].to_string(),
-                    size: parts[1].to_string(),
-                    capacity: parts[2].to_string(),
-                    health: parts[3].to_string(),
-                });
-            }
-        }
-    }
-
-    let message = if available {
-        format!(
-            "ZFS is installed and available. Found {} pool(s).",
-            pools.len()
-        )
-    } else {
-        "ZFS is installed but zpool command failed. ZFS kernel module may not be loaded.".to_string()
-    };
+        .collect();
 
     Ok(Json(ZpoolCheckResponse {
-        installed: true,
-        available,
-        version,
-        message,
+        installed: result.installed,
+        available: result.available,
+        version: result.version,
+        message: result.message,
+        pools,
+    }))
+}
+
+/// GET /api/v1/storage/zpool/check/{node_id}
+#[utoipa::path(
+    get,
+    path = "/api/v1/storage/zpool/check/{node_id}",
+    tag = "storage",
+    params(
+        ("node_id" = String, Path, description = "Node ID to check")
+    ),
+    responses(
+        (status = 200, description = "Zpool status checked on remote node", body = ZpoolCheckResponse),
+        (status = 404, description = "Node not found")
+    )
+)]
+pub async fn check_zpool_on_node(
+    State(state): State<Arc<AppState>>,
+    Path(node_id): Path<String>,
+) -> AppResult<Json<ZpoolCheckResponse>> {
+    let node = state
+        .node_store
+        .get(&node_id)?
+        .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_id)))?;
+
+    info!("Checking ZFS/zpool availability on node: {}", node.hostname);
+
+    let zfs_client = if node.is_local {
+        ZfsUtilsClient::new_local()
+    } else {
+        let credential = crate::core::SshCredential::Password("ignored".to_string());
+        ZfsUtilsClient::new_remote(
+            state.ssh_manager.clone(),
+            node.ip.clone(),
+            node.ssh_port,
+            node.ssh_user.clone(),
+            credential,
+        )
+    };
+
+    let result = zfs_client
+        .check_zpool()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to check zpool on {}: {}", node.hostname, e)))?;
+
+    // Convert zfs-utils result to API response
+    let pools = result
+        .pools
+        .into_iter()
+        .map(|p| ZpoolInfo {
+            name: p.name,
+            size: p.size,
+            capacity: p.capacity,
+            health: p.health,
+        })
+        .collect();
+
+    Ok(Json(ZpoolCheckResponse {
+        installed: result.installed,
+        available: result.available,
+        version: result.version,
+        message: result.message,
         pools,
     }))
 }

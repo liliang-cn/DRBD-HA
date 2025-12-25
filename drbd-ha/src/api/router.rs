@@ -65,6 +65,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/pools/{pool_id}/volumes", post(storage::create_volume))
         // Zpool check
         .route("/storage/zpool/check", get(storage::check_zpool))
+        .route("/storage/zpool/check/{node_id}", get(storage::check_zpool_on_node))
         // HA Profile management
         .route("/ha/profiles", get(ha::list_profiles))
         .route("/ha/profiles", post(ha::create_profile))

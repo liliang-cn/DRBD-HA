@@ -1,9 +1,29 @@
 use crate::error::{ZfsError, ZfsResult};
+use serde::Serialize;
 use ssh_cmd::{CommandOutput, SshCredential, SshManager};
 use std::sync::Arc;
 
 #[cfg(not(test))]
 use crate::cmd::run_local_command;
+
+/// Zpool availability check result
+#[derive(Debug, Clone, Serialize)]
+pub struct ZpoolCheckResult {
+    pub installed: bool,
+    pub available: bool,
+    pub version: Option<String>,
+    pub message: String,
+    pub pools: Vec<ZpoolStatus>,
+}
+
+/// Zpool status information
+#[derive(Debug, Clone, Serialize)]
+pub struct ZpoolStatus {
+    pub name: String,
+    pub size: String,
+    pub capacity: String,
+    pub health: String,
+}
 
 /// Represents ZFS Pool information
 #[derive(Debug, Clone)]
@@ -687,6 +707,79 @@ pub async fn list_thin_volumes() -> ZfsResult<Vec<ZfsThinVolumeInfo>> {
 /// Wraps `ZfsClient::new_local().get_thin_volume_info(volume_name)`
 pub async fn get_thin_volume_info(volume_name: &str) -> ZfsResult<Option<ZfsThinVolumeInfo>> {
     ZfsClient::new_local().get_thin_volume_info(volume_name).await
+}
+
+impl ZfsClient {
+    /// Check if zpool is installed and available
+    pub async fn check_zpool(&self) -> ZfsResult<ZpoolCheckResult> {
+        // First check if zpool command exists
+        let which_output = self.execute("which zpool", "Check if zpool is installed").await?;
+
+        let installed = which_output.exit_code == 0;
+
+        if !installed {
+            return Ok(ZpoolCheckResult {
+                installed: false,
+                available: false,
+                version: None,
+                message: "zpool command not found. ZFS is not installed on this system.".to_string(),
+                pools: vec![],
+            });
+        }
+
+        // Check zpool version
+        let version_output = self.execute("zpool version 2>&1 | head -n 1", "Get zpool version").await?;
+        let version = if version_output.exit_code == 0 && !version_output.stdout.trim().is_empty() {
+            Some(version_output.stdout.trim().to_string())
+        } else {
+            None
+        };
+
+        // Try to list pools to check if zpool is functional
+        let list_output = self.execute("zpool list -H -o name,size,capacity,health 2>/dev/null", "List zpools").await?;
+
+        let available = list_output.exit_code == 0;
+        let mut pools = vec![];
+
+        if available {
+            // Parse zpool list output
+            // Format: name\tsize\tcapacity\thealth
+            for line in list_output.stdout.lines() {
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() >= 4 {
+                    pools.push(ZpoolStatus {
+                        name: parts[0].to_string(),
+                        size: parts[1].to_string(),
+                        capacity: parts[2].to_string(),
+                        health: parts[3].to_string(),
+                    });
+                }
+            }
+        }
+
+        let message = if available {
+            format!(
+                "ZFS is installed and available. Found {} pool(s).",
+                pools.len()
+            )
+        } else {
+            "ZFS is installed but zpool command failed. ZFS kernel module may not be loaded.".to_string()
+        };
+
+        Ok(ZpoolCheckResult {
+            installed: true,
+            available,
+            version,
+            message,
+            pools,
+        })
+    }
+}
+
+/// Check if zpool is installed and available (Local).
+/// Wraps `ZfsClient::new_local().check_zpool()`
+pub async fn check_zpool() -> ZfsResult<ZpoolCheckResult> {
+    ZfsClient::new_local().check_zpool().await
 }
 
 #[cfg(test)]
