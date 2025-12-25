@@ -371,12 +371,48 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         await resourceForm.validateFields();
         const values = resourceForm.getFieldsValue();
 
+        // Build DRBD net_options from advanced form fields
+        const netOptions: Record<string, string> = {};
+
+        // Basic network options
+        if (values.protocol) {
+          netOptions['protocol'] = values.protocol;
+        }
+        if (values.verify_alg && values.verify_alg !== 'none') {
+          netOptions['verify-alg'] = values.verify_alg;
+        }
+        if (values.max_epoch_size) {
+          netOptions['max-epoch-size'] = values.max_epoch_size.toString();
+        }
+
+        // Split-brain recovery policies
+        if (values.after_sb_0pri) {
+          netOptions['after-sb-0pri'] = values.after_sb_0pri;
+        }
+        if (values.after_sb_1pri) {
+          netOptions['after-sb-1pri'] = values.after_sb_1pri;
+        }
+        if (values.after_sb_2pri) {
+          netOptions['after-sb-2pri'] = values.after_sb_2pri;
+        }
+
+        // Resync and integrity options
+        if (values.rs_discard_granularity) {
+          netOptions['rs-discard-granularity'] = values.rs_discard_granularity;
+        }
+        if (values.data_integrity_alg && values.data_integrity_alg !== 'none') {
+          netOptions['data-integrity-alg'] = values.data_integrity_alg;
+        }
+
+        // Add net_options to request
+        const createRequest = { ...values, net_options: netOptions };
+
         // Start SSE monitoring for resource creation
         setCreatingResourceName(values.name);
         setLoading(true);
         addLog(`Starting DRBD resource creation: ${values.name}`);
 
-        await resourcesApi.create(values);
+        await resourcesApi.create(createRequest);
         message.success('DRBD resource created');
         addLog(`DRBD resource '${values.name}' created successfully`);
 

@@ -469,6 +469,17 @@ pub async fn create_resource(
     // Generate configuration
     let config_gen = ConfigGenerator::new()?;
 
+    // Build net_options from request or use defaults
+    let net_options = if let Some(ref opts) = req.net_options {
+        opts.clone()
+    } else {
+        // Default options from drbd-utils
+        let mut opts = std::collections::HashMap::new();
+        opts.insert("protocol".to_string(), "C".to_string());
+        opts.insert("verify-alg".to_string(), "sha256".to_string());
+        opts
+    };
+
     // DRBD requires device name to match minor number (e.g., /dev/drbd10 minor 10)
     let resource_config = ResourceConfig {
         name: req.name.clone(),
@@ -477,6 +488,7 @@ pub async fn create_resource(
         device: format!("/dev/drbd{}", req.minor),
         nodes: node_configs,
         auto_promote: false, // Hardcoded as requested
+        net_options,
         ..Default::default()
     };
 

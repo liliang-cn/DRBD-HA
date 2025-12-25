@@ -3,6 +3,7 @@ import {
   Card,
   Checkbox,
   Col,
+  Collapse,
   Divider,
   Form,
   Input,
@@ -10,8 +11,12 @@ import {
   Row,
   Radio,
   Select,
+  Tooltip,
+  Typography,
 } from 'antd';
 import type { BlockDevice, Node, StoragePool } from '@/types';
+
+const { Text } = Typography;
 
 interface StorageConfigStepProps {
   form: FormInstance;
@@ -215,7 +220,186 @@ export function StorageConfigStep({
           }}
         </Form.Item>
 
-  
+        <Divider orientation="left">DRBD Advanced Options</Divider>
+        <Collapse
+          items={[
+            {
+              key: 'drbd-advanced',
+              label: <span className="font-semibold">DRBD Network & Split-Brain Policies</span>,
+              children: (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                    <Text type="secondary" className="text-xs">
+                      ℹ️ These options control DRBD behavior during network partitions and split-brain scenarios.
+                      For two-node clusters, <strong>preferred-nodes</strong> in HA Config is typically sufficient.
+                      These policies provide additional automatic recovery mechanisms.
+                    </Text>
+                  </div>
+
+                  <Row gutter={16}>
+                    <Col span={8}>
+                      <Form.Item
+                        name="protocol"
+                        label="Replication Protocol"
+                        initialValue="C"
+                        tooltip={
+                          <span>
+                            <strong>A:</strong> Async (fastest, risk of data loss)<br/>
+                            <strong>B:</strong> Semi-sync (balanced)<br/>
+                            <strong>C:</strong> Sync (safest, recommended)
+                          </span>
+                        }
+                      >
+                        <Select>
+                          <Select.Option value="A">A (Async)</Select.Option>
+                          <Select.Option value="B">B (Semi-sync)</Select.Option>
+                          <Select.Option value="C">C (Sync)</Select.Option>
+                        </Select>
+                      </Form.Item>
+                    </Col>
+
+                    <Col span={8}>
+                      <Form.Item
+                        name="verify_alg"
+                        label="Data Integrity"
+                        initialValue="sha256"
+                        tooltip="Algorithm for verifying data integrity during replication"
+                      >
+                        <Select>
+                          <Select.Option value="none">None</Select.Option>
+                          <Select.Option value="crc32c">CRC32C (Fast)</Select.Option>
+                          <Select.Option value="sha1">SHA1</Select.Option>
+                          <Select.Option value="sha256">SHA256 (Secure)</Select.Option>
+                        </Select>
+                      </Form.Item>
+                    </Col>
+
+                    <Col span={8}>
+                      <Form.Item
+                        name="max_epoch_size"
+                        label="Max Epoch Size"
+                        initialValue={2048}
+                        tooltip="Maximum number of write requests before barrier"
+                      >
+                        <InputNumber min={1} max={20000} className="w-full" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+
+                  <Divider orientation="left" className="text-xs">Split-Brain Recovery Policies</Divider>
+
+                  <div className="bg-yellow-50 p-3 rounded border border-yellow-200 mb-4">
+                    <Text type="secondary" className="text-xs">
+                      ⚠️ <strong>Split-brain</strong> occurs when both nodes become Primary due to network partition.
+                      These policies define automatic recovery. For manual recovery, use the "Recover Split-Brain" action.
+                    </Text>
+                  </div>
+
+                  <Row gutter={16}>
+                    <Col span={24}>
+                      <Form.Item
+                        name="after_sb_0pri"
+                        label="After-SB-0Pri (Both Secondary)"
+                        initialValue="disconnect"
+                        tooltip="Policy when both nodes are Secondary after split-brain"
+                      >
+                        <Select>
+                          <Select.Option value="disconnect">
+                            disconnect (Manual recovery required)
+                          </Select.Option>
+                          <Select.Option value="discard-zero-changes">
+                            discard-zero-changes (Auto-discard unchanged data)
+                          </Select.Option>
+                          <Select.Option value="call-pri-lost-after-sb">
+                            call-pri-lost-after-sb (Call recovery script)
+                          </Select.Option>
+                        </Select>
+                      </Form.Item>
+                    </Col>
+
+                    <Col span={24}>
+                      <Form.Item
+                        name="after_sb_1pri"
+                        label="After-SB-1Pri (One Primary)"
+                        initialValue="disconnect"
+                        tooltip="Policy when one node is Primary after split-brain"
+                      >
+                        <Select>
+                          <Select.Option value="disconnect">
+                            disconnect (Manual recovery required)
+                          </Select.Option>
+                          <Select.Option value="consensus">
+                            consensus (Requires both nodes to agree)
+                          </Select.Option>
+                          <Select.Option value="call-pri-lost-after-sb">
+                            call-pri-lost-after-sb (Call recovery script)
+                          </Select.Option>
+                          <Select.Option value="violently-as-0pri">
+                            violently-as-0pri (Force both to Secondary)
+                          </Select.Option>
+                        </Select>
+                      </Form.Item>
+                    </Col>
+
+                    <Col span={24}>
+                      <Form.Item
+                        name="after_sb_2pri"
+                        label="After-SB-2Pri (Both Primary)"
+                        initialValue="disconnect"
+                        tooltip="Policy when both nodes are Primary after split-brain (dangerous!)"
+                      >
+                        <Select>
+                          <Select.Option value="disconnect">
+                            disconnect (Safest - Manual recovery)
+                          </Select.Option>
+                          <Select.Option value="violently-as-0pri">
+                            violently-as-0pri (Force both to Secondary - DATA LOSS RISK)
+                          </Select.Option>
+                          <Select.Option value="call-pri-lost-after-sb">
+                            call-pri-lost-after-sb (Call recovery script)
+                          </Select.Option>
+                        </Select>
+                      </Form.Item>
+                    </Col>
+
+                    <Col span={12}>
+                      <Form.Item
+                        name="rs_discard_granularity"
+                        label="Resync Granularity"
+                        initialValue="1M"
+                        tooltip="Granularity for resync operations (e.g., 1K, 1M, 4M)"
+                      >
+                        <Select>
+                          <Select.Option value="1K">1K (Finest)</Select.Option>
+                          <Select.Option value="4K">4K</Select.Option>
+                          <Select.Option value="1M">1M (Default)</Select.Option>
+                          <Select.Option value="4M">4M</Select.Option>
+                          <Select.Option value="8M">8M (Coarsest)</Select.Option>
+                        </Select>
+                      </Form.Item>
+                    </Col>
+
+                    <Col span={12}>
+                      <Form.Item
+                        name="data_integrity_alg"
+                        label="Data Integrity Algorithm"
+                        initialValue="crc32c"
+                        tooltip="Algorithm for end-to-end data integrity verification"
+                      >
+                        <Select>
+                          <Select.Option value="none">None</Select.Option>
+                          <Select.Option value="crc32c">CRC32C</Select.Option>
+                          <Select.Option value="sha1">SHA1</Select.Option>
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </div>
+              ),
+            },
+          ]}
+        />
+
         <Divider />
         <Form.Item
           name="force"

@@ -549,6 +549,9 @@ pub struct CreateResourceRequest {
     /// Optional: Use sparse (thin) volume for ZFS (default: true)
     #[serde(default = "default_true")]
     pub zfs_thin_volume: bool,
+    /// Optional: DRBD network options (protocol, after-sb-*, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub net_options: Option<std::collections::HashMap<String, String>>,
 }
 
 fn default_true() -> bool {

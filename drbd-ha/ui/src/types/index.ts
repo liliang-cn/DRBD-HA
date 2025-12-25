@@ -80,6 +80,8 @@ export interface CreateResourceRequest {
   zfs_volume_size_gb?: number;
   // ZFS thin provisioning (default: true)
   zfs_thin_volume?: boolean;
+  // DRBD network options (protocol, after-sb-*, etc.)
+  net_options?: Record<string, string>;
 }
 
 export interface ResourceAction {
