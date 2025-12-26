@@ -46,3 +46,12 @@ pub struct EvictOptions {
     /// Only use given nodes from the context
     pub nodes: Option<Vec<String>>,
 }
+
+/// Built-in plugin status (e.g., prometheus, events)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuiltinPluginStatus {
+    pub name: String,
+    pub plugin_type: String,
+    pub is_listening: bool,
+    pub address: Option<String>,
+}

@@ -1020,6 +1020,7 @@ pub async fn create_profile(
         status: HaProfileStatus::Unknown,
         active_node: None,
         generated_units: generated_units.clone(),
+        is_builtin_plugin: false,
     };
 
     let reactor_config_gen = ReactorConfigGenerator::new()?;

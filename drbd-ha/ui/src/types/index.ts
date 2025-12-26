@@ -151,6 +151,7 @@ export interface HaProfile {
   nfs?: NfsConfig;
   iscsi?: IscsiConfig;
   nvmeof?: NvmeOfConfig;
+  is_builtin_plugin?: boolean;
 }
 
 export interface StoragePool {

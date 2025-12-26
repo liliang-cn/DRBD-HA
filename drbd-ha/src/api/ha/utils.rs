@@ -256,6 +256,9 @@ pub fn create_profile_from_toml(name: &str, content: &str) -> Option<HaProfile> 
     let resource_name = parse_resource_name_from_config(content)
         .unwrap_or_else(|| name.to_string()); // Fallback to profile name
 
+    // Use drbd-reactor-utils to detect if this is a built-in plugin
+    let is_builtin_plugin = drbd_reactor_utils::parser::is_builtin_plugin(content, name);
+
     Some(HaProfile {
         id: name.to_string(),
         name: name.to_string(),
@@ -280,5 +283,6 @@ pub fn create_profile_from_toml(name: &str, content: &str) -> Option<HaProfile> 
         status: HaProfileStatus::Unknown,
         active_node: None,
         generated_units: Default::default(),
+        is_builtin_plugin,
     })
 }

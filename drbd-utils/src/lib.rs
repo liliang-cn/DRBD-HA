@@ -2,6 +2,7 @@ pub mod cmd;
 pub mod error;
 pub mod models;
 pub mod parser;
+pub mod remote;
 pub mod sync;
 pub mod validator;
 pub mod verification;
@@ -15,7 +16,8 @@ pub use models::{
     ConnectionStatus, DeviceStatus, DrbdPeerStatus, DrbdResourceStatus, DrbdStatus,
     PeerDeviceStatus, ResourceStatus,
 };
-pub use parser::{convert_resource_status, parse_drbdadm_status};
+pub use parser::{convert_resource_status, parse_drbdadm_status, parse_res_file_for_nodes};
+pub use remote::{resolve_hostname_to_ip, CommandOutput, RemoteDrbdQuery, RemoteExecutor};
 pub use sync::{check_drbd_sync_complete, get_drbd_sync_status, SyncStatus, PeerSyncStatus};
 pub use verification::{
     DrbdVerifier, VerificationConfig, VerificationResult, VerificationDetails,

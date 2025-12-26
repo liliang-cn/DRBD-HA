@@ -1,14 +1,93 @@
-use crate::models::{ReactorProfileStatus, ReactorServiceDetail, ReactorServiceStatus};
+use crate::models::{BuiltinPluginStatus, ReactorProfileStatus, ReactorServiceDetail, ReactorServiceStatus};
+
+/// Detect if a drbd-reactor config file is a built-in plugin (e.g., prometheus, events)
+/// rather than a promoter-based HA profile
+pub fn is_builtin_plugin(toml_content: &str, profile_name: &str) -> bool {
+    // Built-in plugins don't have [promoter] section
+    if toml_content.contains("[promoter]") {
+        return false;
+    }
+
+    // Check for known built-in plugin sections
+    if toml_content.contains("[[prometheus]]")
+        || toml_content.contains("[[events]]")
+        || toml_content.contains("[[grafana]]")
+    {
+        return true;
+    }
+
+    // Check by known profile names
+    matches!(profile_name, "prometheus" | "events" | "grafana")
+}
+
+/// Parse status for built-in plugins from drbd-reactorctl output
+/// Expected format:
+///   /etc/drbd-reactor.d/prometheus.toml:
+///   Prometheus: listening on 0.0.0.0:9942
+///
+/// Returns Some(status) if this is a built-in plugin status line, None otherwise
+pub fn parse_builtin_plugin_status(line: &str, profile_name: &str) -> Option<BuiltinPluginStatus> {
+    let trimmed = line.trim();
+
+    // Built-in plugin status format: "PluginType: listening on address"
+    // e.g., "Prometheus: listening on 0.0.0.0:9942"
+    //       "Events: listening on /run/drbd-reactor/events.sock"
+
+    if !trimmed.contains(": listening on") {
+        return None;
+    }
+
+    // Extract plugin type and address
+    let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let plugin_type = parts[0].trim();
+    let status_part = parts[1].trim();
+
+    // Check if this matches the profile we're looking for
+    // Map plugin type to profile name (case-insensitive)
+    let is_match = match plugin_type.to_lowercase().as_str() {
+        "prometheus" => profile_name.eq_ignore_ascii_case("prometheus"),
+        "events" => profile_name.eq_ignore_ascii_case("events"),
+        "grafana" => profile_name.eq_ignore_ascii_case("grafana"),
+        _ => false,
+    };
+
+    if !is_match {
+        return None;
+    }
+
+    // Parse "listening on address"
+    if !status_part.starts_with("listening on") {
+        return None;
+    }
+
+    let address = status_part["listening on".len()..].trim().to_string();
+
+    Some(BuiltinPluginStatus {
+        name: profile_name.to_string(),
+        plugin_type: plugin_type.to_string(),
+        is_listening: true,
+        address: Some(address),
+    })
+}
 
 pub fn parse_reactor_status(output: &str, profile_name: Option<&str>) -> Vec<ReactorProfileStatus> {
     let mut statuses = Vec::new();
     // Simplified parsing logic based on observation
     // Expected format for `drbd-reactorctl status`:
-    // /etc/drbd-reactor.d/profile.toml:
-    // Promoter: Currently active on node 'node1'
+    // Promoter profiles:
+    //   /etc/drbd-reactor.d/profile.toml:
+    //   Promoter: Currently active on node 'node1'
+    // Built-in plugins:
+    //   /etc/drbd-reactor.d/prometheus.toml:
+    //   Prometheus: listening on 0.0.0.0:9942
 
     let mut current_profile: Option<String> = None;
     let mut current_active_node: Option<String> = None;
+    let mut builtin_plugin_active = false;
 
     for line in output.lines() {
         let trimmed = line.trim();
@@ -17,10 +96,16 @@ pub fn parse_reactor_status(output: &str, profile_name: Option<&str>) -> Vec<Rea
             if let Some(name) = current_profile.take() {
                 statuses.push(ReactorProfileStatus {
                     name,
-                    active_node: current_active_node.clone(),
-                    is_active: current_active_node.is_some(),
+                    // For builtin plugins, use local hostname as active node
+                    active_node: if builtin_plugin_active {
+                        Some(gethostname::gethostname().to_string_lossy().to_string())
+                    } else {
+                        current_active_node.clone()
+                    },
+                    is_active: builtin_plugin_active || current_active_node.is_some(),
                 });
                 current_active_node = None;
+                builtin_plugin_active = false;
             }
 
             // New profile
@@ -31,7 +116,12 @@ pub fn parse_reactor_status(output: &str, profile_name: Option<&str>) -> Vec<Rea
             }
         }
 
-        if trimmed.contains("Promoter: Currently active on node") {
+        // Check for built-in plugin status (e.g., "Prometheus: listening on 0.0.0.0:9942")
+        if trimmed.contains(": listening on") {
+            builtin_plugin_active = true;
+        }
+        // Promoter status for regular profiles
+        else if trimmed.contains("Promoter: Currently active on node") {
             if let Some(start) = trimmed.find('\x27') {
                 if let Some(end) = trimmed.rfind('\x27') {
                     if end > start {
@@ -48,8 +138,12 @@ pub fn parse_reactor_status(output: &str, profile_name: Option<&str>) -> Vec<Rea
     if let Some(name) = current_profile {
         statuses.push(ReactorProfileStatus {
             name,
-            active_node: current_active_node.clone(),
-            is_active: current_active_node.is_some(),
+            active_node: if builtin_plugin_active {
+                Some(gethostname::gethostname().to_string_lossy().to_string())
+            } else {
+                current_active_node.clone()
+            },
+            is_active: builtin_plugin_active || current_active_node.is_some(),
         });
     }
 

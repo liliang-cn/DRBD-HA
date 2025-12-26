@@ -1,4 +1,130 @@
 use crate::models::{DrbdPeerStatus, DrbdResourceStatus, ResourceStatus};
+use std::collections::HashMap;
+
+/// Parse DRBD res file to extract node information (hostname and IP)
+/// Returns a HashMap mapping hostname to IP address
+/// Supports both standard DRBD format and LINSTOR-generated format
+///
+/// Standard format:
+///   on "hostname" {
+///     device minor 0;
+///     address 10.43.7.11:7789;
+///   }
+///
+/// LINSTOR format:
+///   connection {
+///     host "gui01" address ipv4 192.168.123.117:7006;
+///     host "gui02" address ipv4 192.168.123.118:7006;
+///   }
+pub fn parse_res_file_for_nodes(content: &str) -> HashMap<String, String> {
+    let mut nodes = HashMap::new();
+
+    // First pass: try standard DRBD format
+    // Parse lines like "on hostname {" and "address ip:port;"
+    let mut current_hostname: Option<String> = None;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Match "on hostname {" (quoted or unquoted)
+        if trimmed.starts_with("on ") && trimmed.ends_with('{') {
+            let hostname_part = trimmed
+                .strip_prefix("on ")
+                .unwrap_or("")
+                .trim_end_matches('{')
+                .trim()
+                .trim_start_matches('"')
+                .trim_end_matches('"');
+            if !hostname_part.is_empty() {
+                current_hostname = Some(hostname_part.to_string());
+            }
+        }
+        // Match "address ip:port;"
+        else if trimmed.starts_with("address ") && trimmed.ends_with(';') {
+            let address_part = trimmed
+                .strip_prefix("address ")
+                .unwrap_or("")
+                .trim_end_matches(';')
+                .trim();
+
+            // Extract IP from "ip:port" format
+            if let Some(ip_with_port) = address_part.split(':').next() {
+                if let Some(hostname) = current_hostname.clone() {
+                    nodes.insert(hostname, ip_with_port.to_string());
+                }
+            }
+        }
+        // Reset on closing brace
+        else if trimmed == "}" {
+            current_hostname = None;
+        }
+    }
+
+    // If no nodes found in standard format, try LINSTOR format
+    if nodes.is_empty() {
+        let mut in_connection = false;
+        let mut current_hostname: Option<String> = None;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            // Start of connection block
+            if trimmed == "connection" || trimmed == "connection{" {
+                in_connection = true;
+                continue;
+            }
+
+            // End of connection block
+            if trimmed == "}" || (trimmed.starts_with('}') && in_connection) {
+                in_connection = false;
+                current_hostname = None;
+                continue;
+            }
+
+            // Only parse within connection blocks
+            if !in_connection {
+                continue;
+            }
+
+            // Match: host "hostname" address ipv4 ip:port;
+            if trimmed.contains("host ") && trimmed.contains("address") {
+                // Extract hostname
+                if let Some(start) = trimmed.find("host ") {
+                    let after_host = &trimmed[start + 5..];
+                    // Find quoted hostname - find first quote, then second quote
+                    if let Some(first_quote) = after_host.find('"') {
+                        let after_first_quote = &after_host[first_quote + 1..];
+                        if let Some(second_quote) = after_first_quote.find('"') {
+                            let hostname = &after_first_quote[..second_quote];
+                            current_hostname = Some(hostname.to_string());
+                        }
+                    }
+                }
+
+                // Extract IP from "address ipv4 ip:port;" or "address ipv6 ip:port;"
+                if let Some(addr_start) = trimmed.find("address") {
+                    let after_addr = &trimmed[addr_start..];
+                    // Skip "address" and find "ipv4" or "ipv6"
+                    if let Some(ipv_start) = after_addr.find("ipv4").or(after_addr.find("ipv6")) {
+                        let after_ipv = &after_addr[ipv_start + 4..];
+                        let ip_port = after_ipv.trim();
+                        // Extract IP from "ip:port;" format
+                        if let Some(semicolon_pos) = ip_port.find(';') {
+                            let ip_with_port = &ip_port[..semicolon_pos];
+                            if let Some(ip) = ip_with_port.split(':').next() {
+                                if let Some(hostname) = current_hostname.clone() {
+                                    nodes.insert(hostname, ip.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    nodes
+}
 
 /// Parse drbdadm status output into structured format
 pub fn parse_drbdadm_status(output: &str, resource_name: &str) -> Option<DrbdResourceStatus> {

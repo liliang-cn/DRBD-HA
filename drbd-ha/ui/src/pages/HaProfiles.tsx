@@ -48,7 +48,7 @@ const statusColor: Record<string, string> = {
 
 const statusIcons: Record<string, React.ReactNode> = {
   active: <CheckCircleOutlined className="text-green-500" />,
-  standby: <LoadingOutlined className="text-orange-500" />,
+  standby: <PauseCircleOutlined className="text-orange-500" />,
   stopped: <ExclamationCircleOutlined className="text-gray-400" />,
   error: <ExclamationCircleOutlined className="text-red-500" />,
   unknown: <LoadingOutlined className="text-gray-400" />,
@@ -371,10 +371,17 @@ export function HaProfiles() {
       title: 'Type',
       dataIndex: 'ha_type',
       key: 'ha_type',
-      render: (t: string) => (
-        <Tag className="px-3 py-1 rounded-full font-medium">
-          {(t || 'generic').toUpperCase()}
-        </Tag>
+      render: (_: unknown, record: HaProfile) => (
+        <Space>
+          <Tag className="px-3 py-1 rounded-full font-medium">
+            {(record.ha_type || 'generic').toUpperCase()}
+          </Tag>
+          {record.is_builtin_plugin && (
+            <Tag color="cyan" className="px-2 py-1 rounded text-xs">
+              Built-in
+            </Tag>
+          )}
+        </Space>
       ),
     },
     {
@@ -390,6 +397,35 @@ export function HaProfiles() {
           )}
         </Space>
       ),
+    },
+    {
+      title: 'Service IP',
+      key: 'vip',
+      render: (_: unknown, record: HaProfile) => {
+        // Built-in plugins don't have VIP
+        if (record.is_builtin_plugin) {
+          return (
+            <span className={currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'}>
+              N/A
+            </span>
+          );
+        }
+        if (record.vip) {
+          return (
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <span className="font-medium" style={{ color: ACCENT_COLORS.sky }}>
+                {record.vip.address}/{record.vip.netmask}
+              </span>
+            </div>
+          );
+        }
+        return (
+          <span className={currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'}>
+            Not Enabled
+          </span>
+        );
+      },
     },
     {
       title: 'Status',
@@ -423,7 +459,7 @@ export function HaProfiles() {
             ) : (
               <span className={currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'}>-</span>
             )}
-            {isActive && node && (
+            {isActive && node && !record.is_builtin_plugin && (
               <Popconfirm
                 title="Evict Profile"
                 description={`Are you sure you want to evict the HA profile from ${node}?`}
@@ -451,14 +487,16 @@ export function HaProfiles() {
       key: 'actions',
       render: (_: unknown, record: HaProfile) => (
         <Space>
-          <Button
-            size="small"
-            type="text"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => openDeleteModal(record)}
-            className="hover:!bg-red-50"
-          />
+          {!record.is_builtin_plugin && (
+            <Button
+              size="small"
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => openDeleteModal(record)}
+              className="hover:!bg-red-50"
+            />
+          )}
         </Space>
       ),
     },
@@ -466,6 +504,19 @@ export function HaProfiles() {
 
   // Render expanded row content
   const expandedRowRender = (record: HaProfile) => {
+    // Built-in plugins don't support detailed status
+    if (record.is_builtin_plugin) {
+      return (
+        <div className="p-6">
+          <div className={`p-4 rounded-lg text-center ${
+            currentTheme === 'dark' ? 'bg-slate-700/50 text-slate-400' : 'bg-slate-50 text-slate-500'
+          }`}>
+            Built-in plugins do not support detailed status view.
+          </div>
+        </div>
+      );
+    }
+
     const status = profileStatuses[record.id];
     const isLoading = statusLoading[record.id];
 
@@ -487,6 +538,18 @@ export function HaProfiles() {
             <Text className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
               Loading status...
             </Text>
+          </div>
+        </div>
+      );
+    }
+
+    if (!status) {
+      return (
+        <div className="p-6">
+          <div className={`p-4 rounded-lg text-center ${
+            currentTheme === 'dark' ? 'bg-slate-700/50 text-slate-400' : 'bg-slate-50 text-slate-500'
+          }`}>
+            Status information not available.
           </div>
         </div>
       );
@@ -544,18 +607,18 @@ export function HaProfiles() {
                   <div className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
                     VIP Status
                   </div>
-                  <Tag color={status.vip_active ? 'green' : 'default'}>
-                    {status.vip_active ? 'Active' : 'Inactive'}
+                  <Tag color={status?.vip_active ? 'green' : 'default'}>
+                    {status?.vip_active ? 'Active' : 'Inactive'}
                   </Tag>
                 </div>
               )}
-              {status?.service_statuses && status.service_statuses.length > 0 && (
+              {status?.service_statuses && status?.service_statuses.length > 0 && (
                 <div className="text-right">
                   <div className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
                     Services
                   </div>
                   <div className="flex gap-1">
-                    {status.service_statuses.map((s: any, idx: number) => (
+                    {status?.service_statuses.map((s: any, idx: number) => (
                       <Tag key={idx} color={s.active ? 'green' : 'red'} className="mb-0">
                         {s.name}
                       </Tag>
@@ -1096,9 +1159,22 @@ export function HaProfiles() {
               rowKey="id"
               pagination={false}
               expandable={{
-                expandedRowRender,
-                onExpand: handleRowExpand,
+                expandedRowRender: (record: HaProfile) => {
+                  // Built-in plugins don't support expand
+                  if (record.is_builtin_plugin) {
+                    return null;
+                  }
+                  return expandedRowRender(record);
+                },
+                onExpand: (expanded, record) => {
+                  // Built-in plugins don't support expand
+                  if (record.is_builtin_plugin) {
+                    return false;
+                  }
+                  return handleRowExpand(expanded, record);
+                },
                 expandedRowKeys: expandedProfileId ? [expandedProfileId] : [],
+                rowExpandable: (record: HaProfile) => !record.is_builtin_plugin,
               }}
               className="shadow-lg rounded-xl overflow-hidden"
             />

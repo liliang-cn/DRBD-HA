@@ -59,6 +59,10 @@ pub struct HaProfile {
     /// Generated systemd unit information
     #[serde(default)]
     pub generated_units: GeneratedUnits,
+    /// Whether this is a built-in drbd-reactor plugin (e.g., prometheus.toml)
+    /// Built-in plugins don't support expand/collapse for detailed status
+    #[serde(default)]
+    pub is_builtin_plugin: bool,
 }
 
 /// Promoter settings for drbd-reactor

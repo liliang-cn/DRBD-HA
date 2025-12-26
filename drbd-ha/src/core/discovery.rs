@@ -199,6 +199,7 @@ impl ReactorDiscovery {
                                     mount_unit: generated_mount_unit,
                                     ..Default::default()
                                 },
+                                is_builtin_plugin: false,
                             };
                             discovered.push(profile);
                         }
