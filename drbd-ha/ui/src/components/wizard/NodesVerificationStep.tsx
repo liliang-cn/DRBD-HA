@@ -21,6 +21,7 @@ import {
 import { useEffect, useState } from 'react';
 import { nodesApi } from '@/api';
 import { useNodesStore } from '@/stores/nodes';
+import { useThemeStore } from '@/stores/theme';
 import type { AddNodeRequest, Node } from '@/types';
 import type { WizardSharedState } from './types';
 
@@ -38,6 +39,7 @@ interface NodesVerificationStepProps {
 
 export function NodesVerificationStep({ nodes, sharedState }: NodesVerificationStepProps) {
   const { add, remove, fetch } = useNodesStore();
+  const { theme: currentTheme } = useThemeStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm<AddNodeRequest>();
   const [submitting, setSubmitting] = useState(false);
@@ -144,7 +146,7 @@ export function NodesVerificationStep({ nodes, sharedState }: NodesVerificationS
     <Card
       title={
         <div className="flex justify-between items-center">
-          <span>Step 1: Select or Add Cluster Nodes</span>
+          <span className="text-lg font-semibold">Step 1: Select or Add Cluster Nodes</span>
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -154,32 +156,34 @@ export function NodesVerificationStep({ nodes, sharedState }: NodesVerificationS
           </Button>
         </div>
       }
-      className="max-w-4xl mx-auto"
+      className="max-w-5xl mx-auto"
     >
-      <Table
-        dataSource={nodes}
-        columns={columns}
-        rowKey="id"
-        pagination={false}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: handleSelectionChange,
-          getCheckboxProps: (record: Node) => ({
-            // Disable checkbox for nodes that are offline
-            disabled: record.status !== 'online',
-            name: record.hostname,
-          }),
-        }}
-      />
-
-      {selectedRowKeys.length < 2 && (
-        <Alert
-          message="At least 2 nodes must be selected for HA"
-          type="warning"
-          showIcon
-          className="mt-4"
+      <div className="p-4">
+        <Table
+          dataSource={nodes}
+          columns={columns}
+          rowKey="id"
+          pagination={false}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: handleSelectionChange,
+            getCheckboxProps: (record: Node) => ({
+              // Disable checkbox for nodes that are offline
+              disabled: record.status !== 'online',
+              name: record.hostname,
+            }),
+          }}
         />
-      )}
+
+        {selectedRowKeys.length < 2 && (
+          <Alert
+            message="At least 2 nodes must be selected for HA"
+            type="warning"
+            showIcon
+            className="mt-6"
+          />
+        )}
+      </div>
 
       <Modal
         title="Add Cluster Node"

@@ -129,6 +129,13 @@ install_binary() {
         exit 1
     fi
 
+    # Stop service if running (to release the binary file)
+    if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+        echo "Stopping $SERVICE_NAME service..."
+        systemctl stop "$SERVICE_NAME"
+        sleep 1
+    fi
+
     # Copy binary to /opt/drbd-ha
     cp "$DEPLOY_DIR/drbd-ha" "$INSTALL_DIR/$SERVICE_NAME"
     chmod +x "$INSTALL_DIR/$SERVICE_NAME"

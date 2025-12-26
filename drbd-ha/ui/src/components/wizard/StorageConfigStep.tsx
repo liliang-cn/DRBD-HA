@@ -14,18 +14,14 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import type { BlockDevice, Node, StoragePool } from '@/types';
+import type { BlockDevice, Node } from '@/types';
 
 const { Text } = Typography;
 
 interface StorageConfigStepProps {
   form: FormInstance;
-  storageStrategy: 'raw' | 'lvm';
-  onStrategyChange: (strategy: 'raw' | 'lvm') => void;
   nodes: Node[];
   availableDisks: Record<string, BlockDevice[]>;
-  storagePools: StoragePool[];
-  refreshPools?: () => void;
 }
 
 export function StorageConfigStep({
@@ -34,8 +30,9 @@ export function StorageConfigStep({
   availableDisks,
 }: StorageConfigStepProps) {
   return (
-    <Card title="Step 2: Storage Configuration" className="max-w-4xl mx-auto">
-      <Form form={form} layout="vertical">
+    <Card title={<span className="text-lg font-semibold">Step 2: Storage Configuration</span>} className="max-w-5xl mx-auto">
+      <div className="p-4">
+        <Form form={form} layout="vertical">
         <Form.Item
           name="name"
           label="Resource Name"
@@ -362,37 +359,7 @@ export function StorageConfigStep({
                       </Form.Item>
                     </Col>
 
-                    <Col span={12}>
-                      <Form.Item
-                        name="rs_discard_granularity"
-                        label="Resync Granularity"
-                        initialValue="1M"
-                        tooltip="Granularity for resync operations (e.g., 1K, 1M, 4M)"
-                      >
-                        <Select>
-                          <Select.Option value="1K">1K (Finest)</Select.Option>
-                          <Select.Option value="4K">4K</Select.Option>
-                          <Select.Option value="1M">1M (Default)</Select.Option>
-                          <Select.Option value="4M">4M</Select.Option>
-                          <Select.Option value="8M">8M (Coarsest)</Select.Option>
-                        </Select>
-                      </Form.Item>
-                    </Col>
-
-                    <Col span={12}>
-                      <Form.Item
-                        name="data_integrity_alg"
-                        label="Data Integrity Algorithm"
-                        initialValue="crc32c"
-                        tooltip="Algorithm for end-to-end data integrity verification"
-                      >
-                        <Select>
-                          <Select.Option value="none">None</Select.Option>
-                          <Select.Option value="crc32c">CRC32C</Select.Option>
-                          <Select.Option value="sha1">SHA1</Select.Option>
-                        </Select>
-                      </Form.Item>
-                    </Col>
+                    {/* Removed rs-discard-granularity and data-integrity-alg as they are rarely used */}
                   </Row>
                 </div>
               ),
@@ -412,6 +379,7 @@ export function StorageConfigStep({
           </Checkbox>
         </Form.Item>
       </Form>
+      </div>
     </Card>
   );
 }

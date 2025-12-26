@@ -2,12 +2,15 @@ import {
   ArrowLeftOutlined,
   ArrowRightOutlined,
   CheckCircleOutlined,
+  DatabaseOutlined,
   LoadingOutlined,
   RocketOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { Button, Form, message, Steps, Typography } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import gsap from 'gsap';
 import { haProfilesApi, nodesApi, resourcesApi, servicesApi } from '@/api';
 import {
   DeploymentStatusStep,
@@ -20,6 +23,8 @@ import { useHaProfilesStore } from '@/stores/ha-profiles';
 import { useNodesStore } from '@/stores/nodes';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useResourcesStore } from '@/stores/resources';
+import { useThemeStore } from '@/stores/theme';
+import { ACCENT_COLORS, getColor } from '@/theme/colors';
 import type {
   BlockDevice,
   CreateHaProfileRequest,
@@ -37,9 +42,16 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const { resources, fetch: fetchResources } = useResourcesStore();
   const { fetch: fetchProfiles } = useHaProfilesStore();
   const progressEvents = useNotificationsStore((s) => s.progress);
+  const { theme: currentTheme } = useThemeStore();
 
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  // GSAP Refs
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mainPanelRef = useRef<HTMLDivElement>(null);
+  const logPanelRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [availableDisks, setAvailableDisks] = useState<
     Record<string, BlockDevice[]>
   >({});
@@ -87,10 +99,54 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
   }, []);
 
-  // Scroll logs to bottom
+  // Scroll logs to bottom only when logs change AND already have content
   useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (logs.length > 0 && logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [logs]);
+
+  // GSAP Entrance Animations
+  useEffect(() => {
+    const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+
+    if (containerRef.current) {
+      gsap.fromTo(
+        containerRef.current,
+        { opacity: 0 },
+        { opacity: 1, duration: 0.4 },
+      );
+    }
+
+    if (mainPanelRef.current) {
+      tl.fromTo(
+        mainPanelRef.current,
+        { x: -50, opacity: 0 },
+        { x: 0, opacity: 1, duration: 0.6 },
+        0.2,
+      );
+    }
+
+    if (logPanelRef.current) {
+      tl.fromTo(
+        logPanelRef.current,
+        { x: 50, opacity: 0 },
+        { x: 0, opacity: 1, duration: 0.6 },
+        0.3,
+      );
+    }
+  }, []);
+
+  // Animate content when step changes
+  useEffect(() => {
+    if (contentRef.current) {
+      gsap.fromTo(
+        contentRef.current,
+        { y: 20, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.4, ease: 'power2.out' },
+      );
+    }
+  }, [step]);
 
   // Reset generated port when leaving step 1
   useEffect(() => {
@@ -396,13 +452,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           netOptions['after-sb-2pri'] = values.after_sb_2pri;
         }
 
-        // Resync and integrity options
-        if (values.rs_discard_granularity) {
-          netOptions['rs-discard-granularity'] = values.rs_discard_granularity;
-        }
-        if (values.data_integrity_alg && values.data_integrity_alg !== 'none') {
-          netOptions['data-integrity-alg'] = values.data_integrity_alg;
-        }
+        // Note: rs-discard-granularity is a disk option, not net option
+        // Note: data-integrity-alg is rarely used and has been removed from UI
 
         // Add net_options to request
         const createRequest = { ...values, net_options: netOptions };
@@ -651,51 +702,66 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-[1400px] mx-auto px-4 flex gap-6 items-start">
+    <div ref={containerRef} className="h-[calc(100vh-3rem)]">
+      <div className="flex gap-4 h-full">
         {/* Main Wizard Area */}
-        <div className="flex-1 max-w-5xl bg-white p-8 rounded-lg shadow">
-          <div className="text-center mb-8">
-            <RocketOutlined className="text-4xl text-blue-500 mb-2" />
-            <h1 className="text-2xl font-bold">
-              {mode === 'storage'
-                ? 'Storage Sharing Wizard'
-                : 'HA Service Wizard'}
-            </h1>
-            <p className="text-gray-500">
-              {mode === 'storage'
-                ? 'Configure NFS, iSCSI, or NVMe-oF sharing'
-                : 'Configure high availability for application services'}
-            </p>
+        <div
+          ref={mainPanelRef}
+          className={`flex-1 p-10 rounded-2xl shadow-lg border overflow-y-auto ${
+            currentTheme === 'dark'
+              ? 'bg-slate-800 border-slate-700'
+              : 'bg-white border-slate-200'
+          }`}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <img src="/favicon.svg" alt="DRBD HA" className="w-8 h-8" />
+              <h1 className="text-2xl font-bold">
+                <span
+                  className="bg-clip-text text-transparent"
+                  style={{
+                    backgroundImage: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
+                  }}
+                >
+                  {mode === 'storage' ? 'Storage Sharing' : 'HA Service'}
+                </span>
+              </h1>
+            </div>
+            <span
+              className={`text-sm ${
+                currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+              }`}
+            >
+              Configuration Wizard
+            </span>
           </div>
 
+          {/* Steps */}
           <Steps
             current={step}
-            className="mb-8 max-w-3xl mx-auto"
+            className="mb-8"
             items={[
-              { title: 'Nodes', description: 'Configure cluster nodes' },
-              { title: 'Storage', description: 'Configure DRBD storage' },
-              {
-                title: 'HA',
-                description:
-                  mode === 'storage'
-                    ? 'Configure Sharing'
-                    : 'Define HA services',
-              },
-              { title: 'Preview', description: 'Review configuration' },
-              { title: 'Status', description: 'Check deployment status' },
+              { title: 'Nodes' },
+              { title: 'Storage' },
+              { title: 'Services' },
+              { title: 'Preview' },
+              { title: 'Deploy' },
             ]}
           />
 
-          {renderStepContent()}
+          {/* Step Content */}
+          <div ref={contentRef} className="py-6">
+            {renderStepContent()}
+          </div>
 
-          <div
-            className="flex mt-8 max-w-4xl mx-auto justify-between"
-          >
+          {/* Navigation */}
+          <div className="flex mt-8 max-w-4xl mx-auto justify-between">
             {step < 4 && (
               <Button
                 icon={<ArrowLeftOutlined />}
                 onClick={step === 0 ? () => navigate('/') : handlePrev}
+                className="hover:!bg-slate-100"
               >
                 {step === 0 ? 'Cancel' : 'Previous'}
               </Button>
@@ -707,51 +773,110 @@ export function Wizard({ mode = 'service' }: WizardProps) {
                 icon={<ArrowRightOutlined />}
                 onClick={handleNext}
                 loading={loading}
+                className="!h-10 !px-6"
               >
                 {step === 3 ? 'Check Status' : 'Next'}
               </Button>
             ) : null}
           </div>
         </div>
+
         {/* Right Side Log Panel */}
-        <div className="w-80 shrink-0 bg-white p-4 rounded-lg shadow border border-gray-100 sticky top-8 h-[calc(100vh-6rem)] flex flex-col">
-          <div className="mb-4 pb-2 border-b border-gray-100 flex justify-between items-center">
-            <Typography.Title level={5} className="!mb-0">
-              Operation Logs
-            </Typography.Title>
+        <div
+          ref={logPanelRef}
+          className={`w-96 shrink-0 p-4 rounded-2xl shadow-lg border flex flex-col ${
+            currentTheme === 'dark'
+              ? 'bg-slate-800 border-slate-700'
+              : 'bg-white border-slate-200'
+          }`}
+        >
+          <div
+            className={`mb-4 pb-3 border-b flex justify-between items-center ${
+              currentTheme === 'dark' ? 'border-slate-700' : 'border-slate-100'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <div
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                style={{
+                  background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
+                }}
+              >
+                <ThunderboltOutlined className="text-sm" />
+              </div>
+              <Typography.Title
+                level={5}
+                className={`!mb-0 ${currentTheme === 'dark' ? '!text-slate-100' : ''}`}
+              >
+                Operation Logs
+              </Typography.Title>
+            </div>
             <Button size="small" type="text" onClick={() => setLogs([])}>
               Clear
             </Button>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-2 font-mono text-xs">
-            {progressSteps.length > 0 && (
-              <div className="flex flex-col gap-2 mb-4">
-                {progressSteps.map((s, idx) => (
+          {/* Progress Steps */}
+          {progressSteps.length > 0 && (
+            <div
+              className="mb-4 p-3 rounded-xl border"
+              style={{
+                background: `linear-gradient(135deg, ${ACCENT_COLORS.mint}15, ${ACCENT_COLORS.cyan}15)`,
+                borderColor: `${ACCENT_COLORS.mint}40`,
+              }}
+            >
+              <div
+                className="text-xs font-medium mb-2"
+                style={{ color: ACCENT_COLORS.sky }}
+              >
+                Progress:
+              </div>
+              <div className="flex flex-col gap-2">
+                {progressSteps.slice(-3).map((s, idx) => (
                   <div key={idx} className="flex items-start gap-2 text-sm">
                     {s.done ? (
-                      <CheckCircleOutlined className="text-green-500 mt-1 shrink-0" />
+                      <CheckCircleOutlined
+                        className="mt-0.5 shrink-0"
+                        style={{ color: ACCENT_COLORS.mint }}
+                      />
                     ) : (
-                      <LoadingOutlined className="text-blue-500 mt-1 shrink-0" />
+                      <LoadingOutlined
+                        className="mt-0.5 shrink-0 animate-spin"
+                        style={{ color: ACCENT_COLORS.sky }}
+                      />
                     )}
                     <span
-                      className={
-                        s.done ? 'text-gray-700' : 'text-blue-600 font-medium'
-                      }
+                      className={s.done ? 'text-slate-600' : 'font-medium'}
+                      style={s.done ? {} : { color: ACCENT_COLORS.sky }}
                     >
                       {s.message}
                     </span>
                   </div>
                 ))}
               </div>
-            )}
+            </div>
+          )}
+
+          {/* Logs */}
+          <div className="flex-1 overflow-y-auto space-y-2 font-mono text-xs">
             {logs.length === 0 && progressSteps.length === 0 ? (
-              <div className="text-gray-400 text-center mt-10">No logs yet</div>
+              <div
+                className={`flex flex-col items-center justify-center h-full ${
+                  currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
+                <ThunderboltOutlined className="text-4xl mb-2 opacity-30" />
+                <div>No logs yet</div>
+              </div>
             ) : (
               logs.map((log, i) => (
                 <div
                   key={i}
-                  className="break-words leading-relaxed text-gray-600 border-b border-gray-50 pb-1 last:border-0"
+                  className={`break-words leading-relaxed border-b pb-1.5 last:border-0 ${
+                    currentTheme === 'dark'
+                      ? 'text-slate-300 border-slate-700'
+                      : 'text-slate-600 border-slate-50'
+                  }`}
                 >
                   {log}
                 </div>
