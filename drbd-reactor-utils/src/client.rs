@@ -1,6 +1,7 @@
 use crate::error::Result;
 use crate::models::{EvictOptions, ReactorProfileStatus, StatusOptions};
 use crate::parser;
+use std::path::Path;
 
 pub struct DrbdReactorClient;
 
@@ -96,9 +97,66 @@ impl DrbdReactorClient {
         Ok((statuses, output))
     }
 
+    /// Disable a drbd-reactor profile
+    ///
+    /// This renames the config file from `/etc/drbd-reactor.d/{name}.toml`
+    /// to `/etc/drbd-reactor.d/{name}.toml.disabled`
+    ///
+    /// # Arguments
+    /// * `profile_name` - Profile name to disable
     pub async fn disable(profile_name: &str) -> Result<()> {
         crate::error::run_command("drbd-reactorctl", &["disable", profile_name]).await?;
         Ok(())
+    }
+
+    /// Enable a drbd-reactor profile
+    ///
+    /// This renames the config file from `/etc/drbd-reactor.d/{name}.toml.disabled`
+    /// back to `/etc/drbd-reactor.d/{name}.toml`
+    ///
+    /// # Arguments
+    /// * `profile_name` - Profile name to enable
+    pub async fn enable(profile_name: &str) -> Result<()> {
+        crate::error::run_command("drbd-reactorctl", &["enable", profile_name]).await?;
+        Ok(())
+    }
+
+    /// Check if a profile is disabled on the local node
+    ///
+    /// # Arguments
+    /// * `profile_name` - Profile name to check
+    /// * `reactor_dir` - Path to drbd-reactor config directory (default: "/etc/drbd-reactor.d")
+    ///
+    /// # Returns
+    /// * `Ok(true)` if the profile is disabled (.toml.disabled exists)
+    /// * `Ok(false)` if the profile is enabled (.toml exists)
+    /// * `Err` if there's an error checking
+    pub fn is_disabled_with_dir(profile_name: &str, reactor_dir: &str) -> Result<bool> {
+        let disabled_path = Path::new(reactor_dir).join(format!("{}.toml.disabled", profile_name));
+        let enabled_path = Path::new(reactor_dir).join(format!("{}.toml", profile_name));
+
+        // Profile is disabled if .toml.disabled exists
+        if disabled_path.exists() {
+            Ok(true)
+        } else if enabled_path.exists() {
+            Ok(false)
+        } else {
+            // Neither exists - treat as not disabled (profile may not exist)
+            Ok(false)
+        }
+    }
+
+    /// Check if a profile is disabled on the local node (uses default reactor config directory)
+    ///
+    /// # Arguments
+    /// * `profile_name` - Profile name to check
+    ///
+    /// # Returns
+    /// * `Ok(true)` if the profile is disabled (.toml.disabled exists)
+    /// * `Ok(false)` if the profile is enabled (.toml exists)
+    /// * `Err` if there's an error checking
+    pub fn is_disabled(profile_name: &str) -> Result<bool> {
+        Self::is_disabled_with_dir(profile_name, crate::ConfigPaths::REACTOR_CONF_DIR)
     }
 
     /// Evict a promoter plugin controlled resource

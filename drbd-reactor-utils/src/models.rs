@@ -47,6 +47,13 @@ pub struct EvictOptions {
     pub nodes: Option<Vec<String>>,
 }
 
+/// Profile disabled status on a specific node
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileDisabledStatus {
+    pub node: String,
+    pub disabled: bool,
+}
+
 /// Built-in plugin status (e.g., prometheus, events)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuiltinPluginStatus {

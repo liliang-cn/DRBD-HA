@@ -80,7 +80,7 @@ export function DeploymentStatusStep({
               backgroundImage: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
             }}
           >
-            Step 5: Deployment Results
+            Status
           </span>
         </Title>
         <div className="flex-1 flex flex-col items-center justify-center">
@@ -111,7 +111,7 @@ export function DeploymentStatusStep({
               backgroundImage: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
             }}
           >
-            Step 5: Deployment Results
+            Status
           </span>
         </Title>
         <div className="flex-1 flex items-center justify-center">
@@ -144,7 +144,7 @@ export function DeploymentStatusStep({
               backgroundImage: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
             }}
           >
-            Step 5: Deployment Results
+            Status
           </span>
         </Title>
         <Button icon={<ReloadOutlined />} onClick={fetchStatus}>
@@ -479,6 +479,47 @@ export function DeploymentStatusStep({
                   </div>
                 </div>
               )}
+            </Card>
+          )}
+
+          {/* DRBD Reactor Status Raw */}
+          {statusData.reactor_status_raw && (
+            <Card
+              title={
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center"
+                    style={{
+                      background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}30, ${ACCENT_COLORS.gold}30)`,
+                    }}
+                  >
+                    <FileTextOutlined
+                      className="text-lg"
+                      style={{ color: ACCENT_COLORS.orange }}
+                    />
+                  </div>
+                  <span>DRBD Reactor Status</span>
+                </div>
+              }
+              className="shadow-sm"
+              style={{
+                borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+              }}
+            >
+              <pre
+                className={`p-4 rounded-lg overflow-x-auto text-xs font-mono ${
+                  currentTheme === 'dark'
+                    ? 'bg-slate-900 text-slate-300'
+                    : 'bg-white text-slate-700'
+                }`}
+                style={{
+                  border: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
+                  maxHeight: '300px',
+                  overflowY: 'auto',
+                }}
+              >
+                {statusData.reactor_status_raw}
+              </pre>
             </Card>
           )}
 

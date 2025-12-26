@@ -255,10 +255,6 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         'activate_profile',
         'drbd_sync',
       ];
-    } else if (step === 4 && createdProfileName) {
-      // Step 4: Activation
-      targetName = createdProfileName;
-      relevantOperations = ['activate_profile', 'drbd_sync'];
     }
 
     // Filter progress events based on step requirements
@@ -302,7 +298,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         ) {
           return true;
         } else if (
-          (step === 2 || step === 4) &&
+          (step === 2 || step === 3) &&
           createdProfileName &&
           p.resource === createdProfileName
         ) {
@@ -349,7 +345,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
         // Check for completion and errors
         if (progress.completed && progress.success === false) {
-          if (step === 4) {
+          if (step === 3) {
             setActivationStatus('error');
             setActivationError(progress.message);
           }
@@ -590,10 +586,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         setLoading(false);
         setCreatingProfileName(null);
       }
-    } else if (step === 3) {
-      // This is the Preview step, next is Deployment Status
-      setStep(4);
     }
+    // Step 3 is the final Status step, no next action needed
   };
 
   const handlePrev = () => {
@@ -685,15 +679,15 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           />
         );
       case 3:
-        return <PreviewConfigStep configContent={generatedConfig} />;
-
-      case 4:
         return (
-          <DeploymentStatusStep
-            profileId={createdProfileId}
-            profileName={createdProfileName}
-            onDone={handleDone}
-          />
+          <div className="space-y-6">
+            <PreviewConfigStep configContent={generatedConfig} />
+            <DeploymentStatusStep
+              profileId={createdProfileId}
+              profileName={createdProfileName}
+              onDone={handleDone}
+            />
+          </div>
         );
 
       default:
@@ -745,8 +739,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
               { title: 'Nodes' },
               { title: 'Storage' },
               { title: 'Services' },
-              { title: 'Preview' },
-              { title: 'Deploy' },
+              { title: 'Status' },
             ]}
           />
 
@@ -757,7 +750,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
           {/* Navigation */}
           <div className="flex mt-8 max-w-4xl mx-auto justify-between">
-            {step < 4 && (
+            {step < 3 && (
               <Button
                 icon={<ArrowLeftOutlined />}
                 onClick={step === 0 ? () => navigate('/') : handlePrev}
@@ -767,7 +760,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
               </Button>
             )}
 
-            {step < 4 ? (
+            {step < 3 ? (
               <Button
                 type="primary"
                 icon={<ArrowRightOutlined />}
@@ -775,7 +768,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
                 loading={loading}
                 className="!h-10 !px-6"
               >
-                {step === 3 ? 'Check Status' : 'Next'}
+                {step === 2 ? 'Deploy' : 'Next'}
               </Button>
             ) : null}
           </div>

@@ -6,6 +6,7 @@ import {
   LoadingOutlined,
   PauseCircleOutlined,
   PlusOutlined,
+  StopOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import {
@@ -316,6 +317,52 @@ export function HaProfiles() {
     }
   };
 
+  const handleDisableNode = async (profileId: string, node: string) => {
+    try {
+      await haProfilesApi.disableNode(profileId, node);
+      message.success(`Profile disabled on ${node}`);
+      fetch();
+
+      // Refresh status if this profile is expanded
+      if (expandedProfileId === profileId) {
+        setStatusLoading((prev) => ({ ...prev, [profileId]: true }));
+        try {
+          const status = await haProfilesApi.getStatus(profileId);
+          setProfileStatuses((prev) => ({ ...prev, [profileId]: status }));
+        } catch (err) {
+          message.error((err as { message: string }).message);
+        } finally {
+          setStatusLoading((prev) => ({ ...prev, [profileId]: false }));
+        }
+      }
+    } catch (err) {
+      message.error((err as { message: string }).message);
+    }
+  };
+
+  const handleEnableNode = async (profileId: string, node: string) => {
+    try {
+      await haProfilesApi.enableNode(profileId, node);
+      message.success(`Profile enabled on ${node}`);
+      fetch();
+
+      // Refresh status if this profile is expanded
+      if (expandedProfileId === profileId) {
+        setStatusLoading((prev) => ({ ...prev, [profileId]: true }));
+        try {
+          const status = await haProfilesApi.getStatus(profileId);
+          setProfileStatuses((prev) => ({ ...prev, [profileId]: status }));
+        } catch (err) {
+          message.error((err as { message: string }).message);
+        } finally {
+          setStatusLoading((prev) => ({ ...prev, [profileId]: false }));
+        }
+      }
+    } catch (err) {
+      message.error((err as { message: string }).message);
+    }
+  };
+
   // Calculate stats
   const activeCount = profiles.filter((p) => p.status === 'active').length;
   const standbyCount = profiles.filter((p) => p.status === 'standby').length;
@@ -535,9 +582,32 @@ export function HaProfiles() {
                 style={{ color: ACCENT_COLORS.sky }}
               />
             </div>
-            <Text className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
-              Loading status...
-            </Text>
+            <div className="flex gap-1">
+              {['T', 'h', 'i', 'n', 'k', 'i', 'n', 'g', '.', '.', '.'].map((letter, idx) => (
+                <span
+                  key={idx}
+                  className={`text-sm font-medium inline-block ${
+                    currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                  }`}
+                  style={{
+                    animation: 'wave-bounce 1.4s ease-in-out infinite',
+                    animationDelay: `${idx * 0.08}s`,
+                  }}
+                >
+                  {letter}
+                </span>
+              ))}
+            </div>
+            <style>{`
+              @keyframes wave-bounce {
+                0%, 100% {
+                  transform: translateY(0);
+                }
+                50% {
+                  transform: translateY(-8px);
+                }
+              }
+            `}</style>
           </div>
         </div>
       );
@@ -617,7 +687,7 @@ export function HaProfiles() {
                   <div className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
                     Services
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1 justify-end">
                     {status?.service_statuses.map((s: any, idx: number) => (
                       <Tag key={idx} color={s.active ? 'green' : 'red'} className="mb-0">
                         {s.name}
@@ -782,30 +852,69 @@ export function HaProfiles() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {status.configured_nodes.map((node: any, idx: number) => {
                 const isActive = node.peer_role === 'Primary' || node.hostname === status.active_node;
+                const isNodeDisabled = node.disabled === true;
+
                 return (
                   <div
                     key={idx}
-                    className={`p-4 rounded-xl border-2 transition-all ${
-                      isActive
-                        ? 'border-green-500 shadow-lg shadow-green-500/20'
-                        : currentTheme === 'dark'
-                          ? 'bg-slate-700 border-transparent'
-                          : 'bg-white border-transparent'
+                    className={`p-4 rounded-xl border-2 transition-all relative ${
+                      isNodeDisabled
+                        ? 'opacity-60 bg-gray-100 dark:bg-slate-800 border-gray-300 dark:border-slate-600'
+                        : isActive
+                          ? 'border-green-500 shadow-lg shadow-green-500/20'
+                          : currentTheme === 'dark'
+                            ? 'bg-slate-700 border-transparent'
+                            : 'bg-white border-transparent'
                     }`}
-                    style={isActive ? {
+                    style={!isNodeDisabled && isActive ? {
                       background: currentTheme === 'dark'
                         ? `linear-gradient(135deg, ${ACCENT_COLORS.mint}15, ${ACCENT_COLORS.cyan}15)`
                         : `linear-gradient(135deg, ${ACCENT_COLORS.mint}10, ${ACCENT_COLORS.cyan}10)`,
                     } : {}}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="font-semibold" style={{ color: ACCENT_COLORS.purple }}>
+                    {/* Disable/Enable button in top-right corner */}
+                    <div className="absolute top-3 right-3">
+                      {isNodeDisabled ? (
+                        <Button
+                          size="small"
+                          type="primary"
+                          icon={<CheckCircleOutlined />}
+                          onClick={() => handleEnableNode(record.id, node.hostname)}
+                          className="!bg-green-500 !border-green-500 hover:!bg-green-600"
+                          title={`Enable ${node.hostname}`}
+                        />
+                      ) : (
+                        <Popconfirm
+                          title="Disable Profile"
+                          description={`Disable this profile on ${node.hostname}?`}
+                          onConfirm={() => handleDisableNode(record.id, node.hostname)}
+                          okText="Disable"
+                          cancelText="Cancel"
+                          okButtonProps={{ danger: true }}
+                        >
+                          <Button
+                            size="small"
+                            danger
+                            icon={<StopOutlined />}
+                            title={`Disable ${node.hostname}`}
+                          />
+                        </Popconfirm>
+                      )}
+                    </div>
+
+                    <div className="mb-6">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="font-semibold text-lg" style={{ color: isNodeDisabled ? '#9ca3af' : ACCENT_COLORS.purple }}>
                           {node.hostname}
                         </div>
-                        {isActive && (
-                          <Tag color="green" size="small" className="m-0">
+                        {isActive && !isNodeDisabled && (
+                          <Tag color="green" size="small">
                             Active
+                          </Tag>
+                        )}
+                        {isNodeDisabled && (
+                          <Tag color="default" size="small">
+                            Disabled
                           </Tag>
                         )}
                       </div>
@@ -815,7 +924,8 @@ export function HaProfiles() {
                         </Tag>
                       )}
                     </div>
-                    <div className={`text-sm ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+
+                    <div className={`text-sm ${isNodeDisabled ? 'text-gray-400' : currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
                       {node.ip}
                     </div>
                   </div>
@@ -1068,6 +1178,43 @@ export function HaProfiles() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* DRBD Reactor Status Raw */}
+        {status?.reactor_status_raw && (
+          <div
+            className={`p-5 rounded-xl border ${
+              currentTheme === 'dark' ? 'bg-slate-700/50 border-slate-600' : 'bg-slate-50 border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center"
+                style={{
+                  background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}30, ${ACCENT_COLORS.gold}30)`,
+                }}
+              >
+                <FileTextOutlined className="text-xl" style={{ color: ACCENT_COLORS.orange }} />
+              </div>
+              <div className={`text-lg font-semibold ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                DRBD Reactor Status
+              </div>
+            </div>
+            <pre
+              className={`p-4 rounded-lg overflow-x-auto text-xs font-mono ${
+                currentTheme === 'dark'
+                  ? 'bg-slate-900 text-slate-300'
+                  : 'bg-white text-slate-700'
+              }`}
+              style={{
+                border: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
+                maxHeight: '400px',
+                overflowY: 'auto',
+              }}
+            >
+              {status.reactor_status_raw}
+            </pre>
           </div>
         )}
       </div>

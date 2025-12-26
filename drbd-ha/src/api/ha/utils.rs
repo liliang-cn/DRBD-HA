@@ -186,6 +186,7 @@ pub async fn find_next_free_drbd_port(state: &AppState) -> AppResult<u16> {
 }
 
 /// Get all HA profile names from drbd-reactor config directory
+/// Includes both enabled (.toml) and disabled (.toml.disabled) profiles
 pub async fn get_all_ha_profile_names(state: &AppState) -> AppResult<Vec<String>> {
     let mut profiles = Vec::new();
     let reactor_dir = state.reactor_config_dir();
@@ -193,10 +194,20 @@ pub async fn get_all_ha_profile_names(state: &AppState) -> AppResult<Vec<String>
     if let Ok(mut entries) = fs::read_dir(reactor_dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "toml") {
-                if let Some(name) = path.file_stem() {
-                    if let Some(name_str) = name.to_str() {
-                        profiles.push(name_str.to_string());
+            let file_name = path.file_name().and_then(|n| n.to_str());
+
+            if let Some(name) = file_name {
+                // Check for .toml files (enabled)
+                if name.ends_with(".toml") && !name.ends_with(".toml.disabled") {
+                    let profile_name = name.strip_suffix(".toml").unwrap_or(name);
+                    profiles.push(profile_name.to_string());
+                }
+                // Check for .toml.disabled files (disabled)
+                else if name.ends_with(".toml.disabled") {
+                    let profile_name = name.strip_suffix(".toml.disabled").unwrap_or(name);
+                    // Only add if not already in the list (avoid duplicates)
+                    if !profiles.iter().any(|p| p == profile_name) {
+                        profiles.push(profile_name.to_string());
                     }
                 }
             }

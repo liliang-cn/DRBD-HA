@@ -69,6 +69,23 @@ export const haProfilesApi = {
   removeVip: (id: string) =>
     api.delete<{ message: string }>(`/ha/profiles/${id}/vip`),
 
+  // Disable/Enable profile on specific node
+  disableNode: (id: string, node: string) =>
+    api.post<{
+      success: boolean;
+      node: string;
+      profile: string;
+      message: string;
+    }>(`/ha/profiles/${id}/${node}/disable`),
+
+  enableNode: (id: string, node: string) =>
+    api.post<{
+      success: boolean;
+      node: string;
+      profile: string;
+      message: string;
+    }>(`/ha/profiles/${id}/${node}/enable`),
+
   // Discovery and Import
   getUnmanaged: () => api.get<HaProfile[]>('/ha/unmanaged'),
 

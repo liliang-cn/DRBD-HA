@@ -272,6 +272,7 @@ export interface HaProfileStatus {
     hostname: string;
     ip: string;
     peer_role?: string;
+    disabled?: boolean;
   }>;
 }
 

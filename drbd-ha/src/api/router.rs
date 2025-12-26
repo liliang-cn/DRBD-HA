@@ -75,6 +75,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ha/profiles/{id}/activate", post(ha::activate_profile))
         .route("/ha/profiles/{id}/deactivate", post(ha::deactivate_profile))
         .route("/ha/profiles/{id}/evict", post(ha::evict_profile))
+        .route("/ha/profiles/{id}/{node}/disable", post(ha::disable_profile_on_node))
+        .route("/ha/profiles/{id}/{node}/enable", post(ha::enable_profile_on_node))
         .route("/ha/profiles/{id}/vip", post(ha::add_vip))
         .route("/ha/profiles/{id}/vip", delete(ha::remove_vip))
         // Discovery and Import

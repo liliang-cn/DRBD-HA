@@ -64,29 +64,187 @@ fn resolve_hostname_to_ip(hostname: &str) -> Option<String> {
 pub async fn list_profiles(State(state): State<Arc<AppState>>) -> AppResult<Json<HaProfileListResponse>> {
     let profile_names = get_all_ha_profile_names(&state).await?;
     let mut profiles = Vec::new();
+    let reactor_dir = ConfigPaths::REACTOR_CONF_DIR;
 
     for name in &profile_names {
+        // Try to read from .toml (enabled) or .toml.disabled (disabled)
         let config_path = ConfigPaths::promoter_path(name);
-        if let Ok(content) = tokio::fs::read_to_string(&config_path).await {
-            if let Some(mut profile) = create_profile_from_toml(name, &content) {
-                // Update status from drbd-reactorctl
-                if let Ok((statuses, _)) = DrbdReactorClient::status(Some(name), None).await {
-                    if let Some(status) = statuses.first() {
-                        if status.is_active {
-                            profile.status = crate::models::HaProfileStatus::Active;
-                            profile.active_node = status.active_node.clone();
-                        } else {
-                            profile.status = crate::models::HaProfileStatus::Standby;
-                            profile.active_node = None;
+        let disabled_path = std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", name));
+
+        let (content, is_locally_disabled) = if let Ok(content) = tokio::fs::read_to_string(&config_path).await {
+            (Some(content), false)
+        } else if let Ok(content) = tokio::fs::read_to_string(&disabled_path).await {
+            (Some(content), true)
+        } else {
+            (None, false)
+        };
+
+        if let Some(content_str) = content {
+            if let Some(mut profile) = create_profile_from_toml(name, &content_str) {
+                // Check if profile is enabled on ANY node
+                // If local node has .toml, it's definitely enabled
+                // If local has .toml.disabled, check other nodes via SSH
+                let (is_enabled_on_any_node, active_node_from_remote) = if !is_locally_disabled {
+                    (true, None)
+                } else {
+                    // Local is disabled, check other nodes via SSH
+                    check_if_enabled_on_other_nodes(&state, name, &content_str).await
+                };
+
+                if is_enabled_on_any_node {
+                    // Profile is enabled on at least one node
+                    if let Some(active_node) = active_node_from_remote {
+                        // We found the active node from remote check
+                        profile.status = crate::models::HaProfileStatus::Active;
+                        profile.active_node = Some(active_node);
+                    } else if !is_locally_disabled {
+                        // Local enabled, use local reactor status
+                        match DrbdReactorClient::status(Some(name), None).await {
+                            Ok((statuses, _)) => {
+                                if let Some(status) = statuses.first() {
+                                    if status.is_active {
+                                        profile.status = crate::models::HaProfileStatus::Active;
+                                        profile.active_node = status.active_node.clone();
+                                    } else {
+                                        profile.status = crate::models::HaProfileStatus::Standby;
+                                        profile.active_node = None;
+                                    }
+                                } else {
+                                    profile.status = crate::models::HaProfileStatus::Standby;
+                                }
+                            }
+                            Err(_) => {
+                                profile.status = crate::models::HaProfileStatus::Standby;
+                            }
                         }
+                    } else {
+                        // Remote enabled but we don't know which is active
+                        profile.status = crate::models::HaProfileStatus::Standby;
+                        profile.active_node = None;
                     }
+                } else {
+                    // Profile is disabled on all nodes
+                    profile.status = crate::models::HaProfileStatus::Disabled;
+                    profile.active_node = None;
                 }
+
                 profiles.push(profile);
             }
         }
     }
 
     Ok(Json(HaProfileListResponse { profiles }))
+}
+
+/// Helper function to check if a profile is enabled on any other node
+/// Returns (is_enabled_on_any_node, active_node_from_remote)
+async fn check_if_enabled_on_other_nodes(state: &Arc<AppState>, profile_name: &str, _local_content: &str) -> (bool, Option<String>) {
+    use crate::core::SshCredential;
+
+    // Get all nodes
+    let nodes = match state.node_store.get_all() {
+        Ok(n) => n,
+        Err(_) => return (false, None),
+    };
+
+    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+
+    for node in nodes {
+        // Skip local node
+        if node.hostname == local_hostname || node.id == local_hostname {
+            continue;
+        }
+
+        let reactor_dir = config_gen::ConfigPaths::REACTOR_CONF_DIR;
+
+        // Check if .toml file exists on remote node (not .toml.disabled)
+        let check_cmd = format!("test -f {}/{}.toml && echo exists", reactor_dir, profile_name);
+        let credential = SshCredential::Password("ignored".to_string());
+
+        let has_toml = match state.ssh_manager.execute(
+            &node.ip,
+            node.ssh_port,
+            &node.ssh_user,
+            &credential,
+            &check_cmd,
+        ).await {
+            Ok(output) => output.stdout.contains("exists"),
+            Err(_) => false,
+        };
+
+        if has_toml {
+            // Check if profile is active on this node
+            let status_cmd = format!("sudo drbd-reactorctl status {} 2>/dev/null | grep -q 'Currently active on this node' && echo active || echo not_active", profile_name);
+
+            match state.ssh_manager.execute(
+                &node.ip,
+                node.ssh_port,
+                &node.ssh_user,
+                &credential,
+                &status_cmd,
+            ).await {
+                Ok(output) => {
+                    if output.stdout.contains("active") {
+                        return (true, Some(node.hostname.clone()));
+                    } else {
+                        return (true, None);
+                    }
+                }
+                Err(_) => return (true, None),
+            }
+        }
+    }
+
+    (false, None)
+}
+
+/// Helper function to get drbd-reactor status from a remote node
+async fn get_status_from_remote_node(
+    state: &Arc<AppState>,
+    profile_name: &str,
+) -> Result<(Vec<drbd_reactor_utils::models::ReactorProfileStatus>, String), ()> {
+    use crate::core::SshCredential;
+
+    // Get all nodes
+    let nodes = match state.node_store.get_all() {
+        Ok(n) => n,
+        Err(_) => return Err(()),
+    };
+
+    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+
+    for node in nodes {
+        // Skip local node
+        if node.hostname == local_hostname || node.id == local_hostname {
+            continue;
+        }
+
+        // Try to get drbd-reactorctl status from this node
+        let status_cmd = format!("drbd-reactorctl status {} 2>/dev/null", profile_name);
+        let credential = SshCredential::Password("ignored".to_string());
+
+        match state.ssh_manager.execute(
+            &node.ip,
+            node.ssh_port,
+            &node.ssh_user,
+            &credential,
+            &status_cmd,
+        ).await {
+            Ok(output) => {
+                if !output.stdout.is_empty() {
+                    // Parse the status
+                    let statuses = drbd_reactor_utils::parser::parse_reactor_status(
+                        &output.stdout,
+                        Some(profile_name)
+                    );
+                    return Ok((statuses, output.stdout));
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+
+    Err(())
 }
 
 /// GET /api/v1/ha/profiles/:id
@@ -105,14 +263,168 @@ async fn fetch_profile_details(
     use crate::models::HaProfileStatus;
     use crate::core::SshCredential;
 
-    // Load profile from toml file
+    // Load profile from toml file (try both .toml and .toml.disabled)
     let config_path = ConfigPaths::promoter_path(&id_or_name);
-    let content = tokio::fs::read_to_string(&config_path)
-        .await
-        .map_err(|_| crate::error::AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
+    let reactor_dir = ConfigPaths::REACTOR_CONF_DIR;
+    let disabled_path = std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", &id_or_name));
 
-    let profile = create_profile_from_toml(&id_or_name, &content)
+    let (content, is_disabled) = if let Ok(content) = tokio::fs::read_to_string(&config_path).await {
+        (content, false)
+    } else if let Ok(content) = tokio::fs::read_to_string(&disabled_path).await {
+        (content, true)
+    } else {
+        return Err(crate::error::AppError::NotFound(format!("HA profile {} not found", id_or_name)));
+    };
+
+    let mut profile = create_profile_from_toml(&id_or_name, &content)
         .ok_or_else(|| crate::error::AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
+
+    // Check if profile is truly disabled by trying drbd-reactorctl status
+    // First check locally, then remote nodes if local is disabled
+    let is_truly_disabled = match DrbdReactorClient::status(Some(&id_or_name), None).await {
+        Ok((statuses, raw_output)) => {
+            // Reactor returned status - check if it contains actual status info or just errors
+            // If output contains "Error:" or "Could not read config snippets", it's truly disabled
+            let has_error = raw_output.contains("Error:") ||
+                           raw_output.contains("Could not read config snippets") ||
+                           raw_output.contains("No such file or directory");
+
+            if has_error || statuses.is_empty() {
+                // No valid status locally - check if local is disabled
+                if is_disabled {
+                    // Local is disabled, check remote nodes via SSH
+                    // Check if any node has .toml file (not .toml.disabled)
+                    match state.node_store.get_all() {
+                        Ok(nodes) => {
+                            let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+                            let reactor_dir = config_gen::ConfigPaths::REACTOR_CONF_DIR;
+
+                            let mut enabled_on_remote = false;
+                            for node in nodes {
+                                // Skip local node
+                                if node.hostname == local_hostname {
+                                    continue;
+                                }
+
+                                // Check if this node has .toml file (not .toml.disabled)
+                                let check_cmd = format!("sudo test -f {}/{}.toml && echo enabled", reactor_dir, id_or_name);
+                                let credential = crate::core::SshCredential::Password("ignored".to_string());
+
+                                match state.ssh_manager.execute(
+                                    &node.ip,
+                                    node.ssh_port,
+                                    &node.ssh_user,
+                                    &credential,
+                                    &check_cmd,
+                                ).await {
+                                    Ok(output) => {
+                                        if output.stdout.trim() == "enabled" {
+                                            tracing::debug!("Profile {} is enabled on remote node {}", id_or_name, node.hostname);
+                                            enabled_on_remote = true;
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!("Failed to check remote node {}: {}", node.hostname, e);
+                                    }
+                                }
+                            }
+
+                            !enabled_on_remote // If no remote node has it enabled, it's truly disabled
+                        }
+                        Err(_) => is_disabled // If we can't check remote nodes, use local status
+                    }
+                } else {
+                    // Local is not disabled
+                    false
+                }
+            } else {
+                // Has valid status - enabled on at least one node
+                false
+            }
+        }
+        Err(_) => {
+            // Reactor status failed - check if local is disabled
+            is_disabled
+        }
+    };
+
+    if is_truly_disabled {
+        profile.status = HaProfileStatus::Disabled;
+        profile.active_node = None;
+
+        // Still fetch configured_nodes even for disabled profiles
+        // Try to get nodes from res file
+        let res_file_path = state.drbd_resource_path(&profile.resource_name);
+        let res_file_nodes = match tokio::fs::read_to_string(&res_file_path).await {
+            Ok(content) => {
+                let parsed = drbd_utils::parse_res_file_for_nodes(&content);
+                tracing::debug!("Parsed res file {}: {} nodes found", res_file_path, parsed.len());
+                Some(parsed)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to read res file {}: {}, trying LINSTOR path", res_file_path, e);
+                // Try LINSTOR path
+                let linstor_path = format!("/var/lib/linstor.d/{}.res", profile.resource_name);
+                match tokio::fs::read_to_string(&linstor_path).await {
+                    Ok(content) => {
+                        let parsed = drbd_utils::parse_res_file_for_nodes(&content);
+                        tracing::debug!("Parsed LINSTOR res file {}: {} nodes found", linstor_path, parsed.len());
+                        Some(parsed)
+                    }
+                    Err(linstor_err) => {
+                        tracing::warn!("Failed to read LINSTOR res file {}: {}", linstor_path, linstor_err);
+                        None
+                    }
+                }
+            }
+        };
+
+        let node_infos = if let Some(nodes) = res_file_nodes {
+            nodes.into_iter().map(|(hostname, ip)| {
+                super::types::NodeConfigInfo {
+                    hostname,
+                    ip,
+                    peer_role: None,
+                    disabled: None,
+                }
+            }).collect()
+        } else {
+            // Fallback: get from node_store
+            match state.node_store.get_all() {
+                Ok(ns) => ns.into_iter().map(|n| {
+                    super::types::NodeConfigInfo {
+                        hostname: n.hostname,
+                        ip: n.ip,
+                        peer_role: None,
+                        disabled: None,
+                    }
+                }).collect(),
+                Err(_) => Vec::new(),
+            }
+        };
+
+        let configured_nodes = check_nodes_disabled_status(&state, &id_or_name, node_infos).await;
+
+        // Return for disabled profiles with configured_nodes
+        return Ok(Json(HaProfileDetailResponse {
+            profile,
+            status: HaProfileStatus::Disabled,
+            active_node: None,
+            mount_point: None,
+            drbd: None,
+            drbd_device: None,
+            service_statuses: Vec::new(),
+            vip_active: Some(false),
+            config: crate::api::ha::types::ConfigVisibility {
+                promoter_config_exists: true,
+                promoter_config_path: format!("/etc/drbd-reactor.d/{}.toml.disabled", id_or_name),
+                reactor_running: true,
+            },
+            reactor_status_raw: Some(String::new()),
+            configured_nodes,
+        }));
+    }
 
     // Step 1: Get DRBD status to determine which node is Primary (active)
     // Use drbdsetup status --json for complete status including connection state
@@ -206,6 +518,9 @@ async fn fetch_profile_details(
     let ssh_port = 22;
     let ssh_user = "root";
     let remote_query = drbd_utils::RemoteDrbdQuery::new(ssh_executor, ssh_port, ssh_user);
+
+    // Get local hostname
+    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
 
     // Step 2: Execute drbdadm status AND drbd-reactorctl status on the ACTIVE node
     // Track whether DRBD status is from local or remote node
@@ -560,6 +875,7 @@ async fn fetch_profile_details(
                     hostname: local_hostname.clone(),
                     ip: local_ip.unwrap_or_else(|| "127.0.0.1".to_string()),
                     peer_role: Some(role_to_display(&drbd_status.role)),
+                    disabled: None,
                 });
 
                 // Add peer nodes from DRBD
@@ -583,6 +899,7 @@ async fn fetch_profile_details(
                         hostname: peer.name.clone(),
                         ip: peer_ip,
                         peer_role: Some(role_to_display(&peer.role)),
+                        disabled: None,
                     });
                 }
             } else {
@@ -610,6 +927,7 @@ async fn fetch_profile_details(
                         hostname: active_hostname.to_string(),
                         ip: active_ip,
                         peer_role: Some(role_to_display(&drbd_status.role)),
+                        disabled: None,
                     });
 
                     // Add all peers from DRBD (this includes the local node and other peers)
@@ -633,6 +951,7 @@ async fn fetch_profile_details(
                             hostname: peer.name.clone(),
                             ip: peer_ip,
                             peer_role: Some(role_to_display(&peer.role)),
+                            disabled: None,
                         });
                     }
                 }
@@ -646,6 +965,7 @@ async fn fetch_profile_details(
                         hostname: hostname.clone(),
                         ip: ip.clone(),
                         peer_role: drbd_role.map(|r| role_to_display(r)),
+                        disabled: None,
                     });
                 }
             } else {
@@ -657,11 +977,13 @@ async fn fetch_profile_details(
                     hostname: local_hostname.clone(),
                     ip: local_ip,
                     peer_role: drbd_role.map(|r| role_to_display(r)),
+                    disabled: None,
                 });
             }
         }
 
-        node_infos
+        // Check disabled status for each node before returning
+        check_nodes_disabled_status(&state, &id_or_name, node_infos).await
     };
 
     Ok(Json(HaProfileDetailResponse {
@@ -677,6 +999,80 @@ async fn fetch_profile_details(
         reactor_status_raw,
         configured_nodes,
     }))
+}
+
+/// Check disabled status for each node by SSH
+/// Returns a new Vec<NodeConfigInfo> with disabled field populated
+async fn check_nodes_disabled_status(
+    state: &Arc<AppState>,
+    profile_name: &str,
+    nodes: Vec<super::types::NodeConfigInfo>,
+) -> Vec<super::types::NodeConfigInfo> {
+    use crate::core::SshCredential;
+
+    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+    let reactor_dir = config_gen::ConfigPaths::REACTOR_CONF_DIR;
+
+    // Get full node info from store for SSH credentials
+    let all_nodes = match state.node_store.get_all() {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::error!("Failed to get nodes from store: {}", e);
+            return nodes; // Return without disabled info
+        }
+    };
+
+    let mut nodes_with_disabled = Vec::new();
+
+    for node in nodes {
+        // Check if this node is local
+        let is_local = node.hostname == local_hostname || node.hostname == local_hostname.replace(&format!(".{}", std::env::var("DOMAIN").unwrap_or_default()), "");
+
+        let disabled = if is_local {
+            // Check local file system
+            let disabled_path = std::path::Path::new(reactor_dir)
+                .join(format!("{}.toml.disabled", profile_name));
+            disabled_path.exists()
+        } else {
+            // Find full node info for SSH credentials
+            let full_node = all_nodes.iter().find(|n| n.hostname == node.hostname || n.ip == node.ip);
+
+            if let Some(target_node) = full_node {
+                let check_cmd = format!("sudo test -f {}/{}.toml.disabled && echo disabled", reactor_dir, profile_name);
+                let credential = SshCredential::Password("ignored".to_string());
+
+                match state.ssh_manager.execute(
+                    &target_node.ip,
+                    target_node.ssh_port,
+                    &target_node.ssh_user,
+                    &credential,
+                    &check_cmd,
+                ).await {
+                    Ok(output) => {
+                        let result = output.stdout.trim() == "disabled";
+                        tracing::debug!("Checked disabled status for {} ({}): {}", node.hostname, node.ip, result);
+                        result
+                    },
+                    Err(e) => {
+                        tracing::warn!("Failed to check disabled status for {}: {}", node.hostname, e);
+                        false
+                    }
+                }
+            } else {
+                tracing::warn!("Could not find full node info for {}", node.hostname);
+                false
+            }
+        };
+
+        nodes_with_disabled.push(super::types::NodeConfigInfo {
+            hostname: node.hostname,
+            ip: node.ip,
+            peer_role: node.peer_role,
+            disabled: Some(disabled),
+        });
+    }
+
+    nodes_with_disabled
 }
 
 /// GET /api/v1/ha/profiles/:id/status

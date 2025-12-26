@@ -12,4 +12,4 @@ pub use config_gen::VipPluginConfig as VipConfig;
 
 pub use client::DrbdReactorClient;
 pub use error::Error;
-pub use models::{BuiltinPluginStatus, EvictOptions, ReactorProfileStatus, ReactorServiceDetail, StatusOptions};
+pub use models::{BuiltinPluginStatus, EvictOptions, ProfileDisabledStatus, ReactorProfileStatus, ReactorServiceDetail, StatusOptions};

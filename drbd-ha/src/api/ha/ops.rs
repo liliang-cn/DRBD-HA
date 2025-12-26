@@ -227,3 +227,127 @@ pub async fn evict_profile(
         stderr,
     }))
 }
+
+/// POST /api/v1/ha/profiles/:id/:node/disable
+pub async fn disable_profile_on_node(
+    State(state): State<Arc<AppState>>,
+    Path((id_or_name, node_hostname)): Path<(String, String)>,
+) -> AppResult<Json<serde_json::Value>> {
+    // Get node info
+    let nodes = state.node_store.get_all()?;
+    let target_node = nodes
+        .into_iter()
+        .find(|n| n.hostname == node_hostname || n.id == node_hostname)
+        .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_hostname)))?;
+
+    // Verify profile exists (check both .toml and .toml.disabled)
+    let reactor_dir = crate::core::ReactorConfigPaths::REACTOR_CONF_DIR;
+    let config_path = std::path::Path::new(reactor_dir).join(format!("{}.toml", id_or_name));
+    let disabled_path = std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", id_or_name));
+
+    if !config_path.exists() && !disabled_path.exists() {
+        return Err(AppError::NotFound(format!("HA profile {} not found", id_or_name)));
+    }
+
+    tracing::info!("Disabling HA profile {} on node {}", id_or_name, target_node.hostname);
+
+    let disable_cmd = format!("sudo drbd-reactorctl disable {}", id_or_name);
+
+    let result = if target_node.is_local {
+        run_shell_command(&disable_cmd, &format!("Disable profile {} locally", id_or_name)).await
+    } else {
+        let credential = crate::core::SshCredential::Password("ignored".to_string());
+        state
+            .ssh_manager
+            .execute(
+                &target_node.ip,
+                target_node.ssh_port,
+                &target_node.ssh_user,
+                &credential,
+                &disable_cmd,
+            )
+            .await
+            .map_err(|e| AppError::Ssh(format!("SSH execution failed: {}", e)))
+    };
+
+    match result {
+        Ok(output) => {
+            if output.success() {
+                Ok(Json(serde_json::json!({
+                    "success": true,
+                    "message": format!("Profile '{}' disabled on node '{}'", id_or_name, target_node.hostname),
+                    "node": target_node.hostname,
+                    "profile": id_or_name
+                })))
+            } else {
+                Err(AppError::Internal(format!(
+                    "Failed to disable profile: {}",
+                    output.stderr
+                )))
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// POST /api/v1/ha/profiles/:id/:node/enable
+pub async fn enable_profile_on_node(
+    State(state): State<Arc<AppState>>,
+    Path((id_or_name, node_hostname)): Path<(String, String)>,
+) -> AppResult<Json<serde_json::Value>> {
+    // Get node info
+    let nodes = state.node_store.get_all()?;
+    let target_node = nodes
+        .into_iter()
+        .find(|n| n.hostname == node_hostname || n.id == node_hostname)
+        .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_hostname)))?;
+
+    // Verify profile exists (check both .toml and .toml.disabled)
+    let reactor_dir = crate::core::ReactorConfigPaths::REACTOR_CONF_DIR;
+    let config_path = std::path::Path::new(reactor_dir).join(format!("{}.toml", id_or_name));
+    let disabled_path = std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", id_or_name));
+
+    if !config_path.exists() && !disabled_path.exists() {
+        return Err(AppError::NotFound(format!("HA profile {} not found", id_or_name)));
+    }
+
+    tracing::info!("Enabling HA profile {} on node {}", id_or_name, target_node.hostname);
+
+    let enable_cmd = format!("sudo drbd-reactorctl enable {}", id_or_name);
+
+    let result = if target_node.is_local {
+        run_shell_command(&enable_cmd, &format!("Enable profile {} locally", id_or_name)).await
+    } else {
+        let credential = crate::core::SshCredential::Password("ignored".to_string());
+        state
+            .ssh_manager
+            .execute(
+                &target_node.ip,
+                target_node.ssh_port,
+                &target_node.ssh_user,
+                &credential,
+                &enable_cmd,
+            )
+            .await
+            .map_err(|e| AppError::Ssh(format!("SSH execution failed: {}", e)))
+    };
+
+    match result {
+        Ok(output) => {
+            if output.success() {
+                Ok(Json(serde_json::json!({
+                    "success": true,
+                    "message": format!("Profile '{}' enabled on node '{}'", id_or_name, target_node.hostname),
+                    "node": target_node.hostname,
+                    "profile": id_or_name
+                })))
+            } else {
+                Err(AppError::Internal(format!(
+                    "Failed to enable profile: {}",
+                    output.stderr
+                )))
+            }
+        }
+        Err(e) => Err(e),
+    }
+}

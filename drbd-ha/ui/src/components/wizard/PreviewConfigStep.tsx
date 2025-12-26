@@ -8,10 +8,9 @@ interface PreviewConfigStepProps {
 
 export function PreviewConfigStep({ configContent }: PreviewConfigStepProps) {
   return (
-    <Card title="Step 3: Preview Configuration" className="max-w-4xl mx-auto">
+    <Card title="Generated Configuration" className="max-w-4xl mx-auto">
       <Paragraph>
         Below is the generated <code>drbd-reactor</code> configuration file.
-        Review it before activating the HA profile.
       </Paragraph>
       <Input.TextArea
         value={configContent || 'No configuration generated yet.'}
@@ -20,7 +19,7 @@ export function PreviewConfigStep({ configContent }: PreviewConfigStepProps) {
         style={{ fontFamily: 'monospace' }}
       />
       <Paragraph type="secondary" className="mt-4">
-        This file will be deployed to <code>/etc/drbd-reactor.d/</code> on all
+        This file is deployed to <code>/etc/drbd-reactor.d/</code> on all
         cluster nodes.
       </Paragraph>
     </Card>

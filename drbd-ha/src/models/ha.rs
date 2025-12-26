@@ -146,6 +146,8 @@ pub enum HaProfileStatus {
     Stopped,
     /// Error state
     Error,
+    /// Profile is disabled (.toml.disabled)
+    Disabled,
 }
 
 /// Request to create an HA profile

@@ -76,6 +76,9 @@ pub struct NodeConfigInfo {
     pub ip: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer_role: Option<String>,
+    /// Whether the profile is disabled on this node (.toml.disabled exists)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 /// Configuration visibility information
