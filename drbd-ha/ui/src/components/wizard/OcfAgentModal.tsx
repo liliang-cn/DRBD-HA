@@ -1,7 +1,6 @@
 import { AppstoreOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import {
   Button,
-  Card,
   Form,
   Input,
   Layout,
@@ -10,7 +9,6 @@ import {
   message,
   Select,
   Space,
-  Spin,
   Steps,
   Table,
   Tooltip,
@@ -53,7 +51,7 @@ export function OcfAgentModal({
     if (visible && step === 0) {
       loadAgents();
     }
-  }, [visible, step]);
+  }, [visible, step, loadAgents]);
 
   const providers = useMemo(() => {
     const unique = new Set(agents.map((a) => a.provider));
@@ -77,7 +75,7 @@ export function OcfAgentModal({
     try {
       const list = await resourceAgentsApi.list();
       setAgents(list);
-    } catch (err) {
+    } catch (_err) {
       message.error('Failed to load resource agents');
     } finally {
       setLoading(false);
@@ -102,9 +100,9 @@ export function OcfAgentModal({
         }
       });
       // Also set instance name default
-      defaultValues['instance_name'] = `${agent.name}_1`;
+      defaultValues.instance_name = `${agent.name}_1`;
       form.setFieldsValue(defaultValues);
-    } catch (err) {
+    } catch (_err) {
       message.error('Failed to load agent metadata');
     } finally {
       setLoading(false);
@@ -132,7 +130,7 @@ export function OcfAgentModal({
         });
         reset();
       }
-    } catch (err) {
+    } catch (_err) {
       // Validation failed
     }
   };

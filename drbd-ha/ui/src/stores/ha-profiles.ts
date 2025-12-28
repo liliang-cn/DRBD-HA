@@ -10,7 +10,7 @@ interface HaProfilesState {
   updateProfileStatus: (id: string, status: string) => void;
 }
 
-export const useHaProfilesStore = create<HaProfilesState>((set, get) => ({
+export const useHaProfilesStore = create<HaProfilesState>((set, _get) => ({
   profiles: [],
   loading: false,
   error: null,

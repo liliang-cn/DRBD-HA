@@ -16,6 +16,7 @@ export const haProfilesApi = {
       config_path: string;
       message: string;
       promoter_config_content?: string;
+      drbd_config_content?: string;
     }>('/ha/profiles', data),
 
   delete: (id: string, deleteResource?: boolean) =>
@@ -31,6 +32,15 @@ export const haProfilesApi = {
 
   deactivate: (id: string) =>
     api.post<HaProfileStatus>(`/ha/profiles/${id}/deactivate`),
+
+  enable: (id: string) =>
+    api.post<{
+      success: boolean;
+      message: string;
+      profile: string;
+      enabled_nodes: string[];
+      failed_nodes: Array<[string, string]>;
+    }>(`/ha/profiles/${id}/enable`),
 
   evict: (
     id: string,
@@ -61,10 +71,8 @@ export const haProfilesApi = {
     api.post<{ success: boolean; message: string }>('/ha/reactor/reload'),
 
   // VIP management
-  addVip: (
-    id: string,
-    vip: { address: string; netmask: number },
-  ) => api.post<{ message: string }>(`/ha/profiles/${id}/vip`, vip),
+  addVip: (id: string, vip: { address: string; netmask: number }) =>
+    api.post<{ message: string }>(`/ha/profiles/${id}/vip`, vip),
 
   removeVip: (id: string) =>
     api.delete<{ message: string }>(`/ha/profiles/${id}/vip`),

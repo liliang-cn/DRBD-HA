@@ -290,6 +290,81 @@ pub async fn disable_profile_on_node(
     }
 }
 
+/// POST /api/v1/ha/profiles/:id/enable
+pub async fn enable_profile(
+    State(state): State<Arc<AppState>>,
+    Path(id_or_name): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    // Verify profile exists (check both .toml and .toml.disabled)
+    let reactor_dir = crate::core::ReactorConfigPaths::REACTOR_CONF_DIR;
+    let config_path = std::path::Path::new(reactor_dir).join(format!("{}.toml", id_or_name));
+    let disabled_path = std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", id_or_name));
+
+    if !config_path.exists() && !disabled_path.exists() {
+        return Err(AppError::NotFound(format!("HA profile {} not found", id_or_name)));
+    }
+
+    // Get all nodes
+    let nodes = state.node_store.get_all()?;
+
+    tracing::info!("Enabling HA profile {} on all nodes", id_or_name);
+
+    let enable_cmd = format!("sudo drbd-reactorctl enable {}", id_or_name);
+    let mut enabled_nodes = Vec::new();
+    let mut failed_nodes = Vec::new();
+
+    for node in &nodes {
+        let result = if node.is_local {
+            run_shell_command(&enable_cmd, &format!("Enable profile {} locally", id_or_name)).await
+        } else {
+            let credential = crate::core::SshCredential::Password("ignored".to_string());
+            state
+                .ssh_manager
+                .execute(
+                    &node.ip,
+                    node.ssh_port,
+                    &node.ssh_user,
+                    &credential,
+                    &enable_cmd,
+                )
+                .await
+                .map_err(|e| AppError::Ssh(format!("SSH execution failed: {}", e)))
+        };
+
+        match result {
+            Ok(output) if output.success() => {
+                tracing::info!("Successfully enabled profile {} on node {}", id_or_name, node.hostname);
+                enabled_nodes.push(node.hostname.clone());
+            }
+            Ok(output) => {
+                tracing::warn!("Failed to enable profile {} on node {}: {}", id_or_name, node.hostname, output.stderr);
+                failed_nodes.push((node.hostname.clone(), output.stderr));
+            }
+            Err(e) => {
+                tracing::error!("Error enabling profile {} on node {}: {}", id_or_name, node.hostname, e);
+                failed_nodes.push((node.hostname.clone(), e.to_string()));
+            }
+        }
+    }
+
+    let success = enabled_nodes.len() > 0;
+    let message = if failed_nodes.is_empty() {
+        format!("Profile '{}' enabled on all {} nodes", id_or_name, enabled_nodes.len())
+    } else if enabled_nodes.is_empty() {
+        format!("Failed to enable profile '{}' on any node", id_or_name)
+    } else {
+        format!("Profile '{}' enabled on {}/{} nodes", id_or_name, enabled_nodes.len(), nodes.len())
+    };
+
+    Ok(Json(serde_json::json!({
+        "success": success,
+        "message": message,
+        "profile": id_or_name,
+        "enabled_nodes": enabled_nodes,
+        "failed_nodes": failed_nodes
+    })))
+}
+
 /// POST /api/v1/ha/profiles/:id/:node/enable
 pub async fn enable_profile_on_node(
     State(state): State<Arc<AppState>>,

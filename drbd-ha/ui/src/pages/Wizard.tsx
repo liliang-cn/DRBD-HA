@@ -2,15 +2,13 @@ import {
   ArrowLeftOutlined,
   ArrowRightOutlined,
   CheckCircleOutlined,
-  DatabaseOutlined,
   LoadingOutlined,
-  RocketOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { Button, Form, message, Steps, Typography } from 'antd';
+import gsap from 'gsap';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import gsap from 'gsap';
 import { haProfilesApi, nodesApi, resourcesApi, servicesApi } from '@/api';
 import {
   DeploymentStatusStep,
@@ -24,7 +22,7 @@ import { useNodesStore } from '@/stores/nodes';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useResourcesStore } from '@/stores/resources';
 import { useThemeStore } from '@/stores/theme';
-import { ACCENT_COLORS, getColor } from '@/theme/colors';
+import { ACCENT_COLORS } from '@/theme/colors';
 import type {
   BlockDevice,
   CreateHaProfileRequest,
@@ -40,7 +38,6 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const navigate = useNavigate();
   const { nodes, fetch: fetchNodes } = useNodesStore();
   const { resources, fetch: fetchResources } = useResourcesStore();
-  const { fetch: fetchProfiles } = useHaProfilesStore();
   const progressEvents = useNotificationsStore((s) => s.progress);
   const { theme: currentTheme } = useThemeStore();
 
@@ -66,6 +63,9 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
   // New state for generated config content
   const [generatedConfig, setGeneratedConfig] = useState<string | null>(null);
+  const [createdDrbdConfig, setCreatedDrbdConfig] = useState<string | null>(
+    null,
+  );
 
   // State for creation progress
   const [creatingProfileName, setCreatingProfileName] = useState<string | null>(
@@ -75,7 +75,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     string | null
   >(null);
 
-  // Step 4: Activation state
+  // Step 5: Activation state
   const [createdProfileId, setCreatedProfileId] = useState<string | null>(null);
   const [createdProfileName, setCreatedProfileName] = useState<string | null>(
     null,
@@ -83,7 +83,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const [activationStatus, setActivationStatus] = useState<
     'pending' | 'creating' | 'activating' | 'checking' | 'success' | 'error'
   >('pending');
-  const [activationError, setActivationError] = useState<string | null>(null);
+  const [_activationError, setActivationError] = useState<string | null>(null);
   const statusPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [progressSteps, setProgressSteps] = useState<
     Array<{ message: string; done: boolean }>
@@ -146,7 +146,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         { y: 0, opacity: 1, duration: 0.4, ease: 'power2.out' },
       );
     }
-  }, [step]);
+  }, []);
 
   // Reset generated port when leaving step 1
   useEffect(() => {
@@ -179,7 +179,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       });
 
       // Auto-generate random port and minor numbers
-      const usedMinors = resources.flatMap((r) =>
+      const _usedMinors = resources.flatMap((r) =>
         r.devices.map((d) => d.minor),
       );
 
@@ -219,7 +219,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   // Reset log tracking when target changes
   useEffect(() => {
     processedMessageIds.current.clear();
-  }, [createdProfileName, creatingProfileName, creatingResourceName]);
+  }, []);
 
   // Listen to SSE progress events
   useEffect(() => {
@@ -228,11 +228,11 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     let relevantOperations = [];
 
     if (step === 0) {
-      // Step 0: Nodes verification - listen for any progress events
+      // Step 1: Nodes verification - listen for any progress events
       targetName = null;
       relevantOperations = []; // Accept any operation type
     } else if (step === 1 && creatingResourceName) {
-      // Step 1: Resource creation phase
+      // Step 2: Resource creation phase
       targetName = creatingResourceName;
       relevantOperations = [
         'create_resource',
@@ -241,11 +241,11 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         'drbd_sync',
       ];
     } else if (step === 2 && creatingProfileName) {
-      // Step 2: HA profile creation
+      // Step 3: HA profile creation
       targetName = creatingProfileName;
       relevantOperations = ['create_ha_profile', 'drbd_sync'];
     } else if (step === 3) {
-      // Step 3: Preview - show any pending progress for current resources
+      // Step 4: Preview - show any pending progress for current resources
       targetName = null; // Will be handled in the filter logic
       relevantOperations = [
         'create_ha_profile',
@@ -262,7 +262,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       // Filter by operations for this step
       if (
         relevantOperations.length > 0 &&
-        !relevantOperations.includes(p.operation as any)
+        !relevantOperations.includes(p.operation)
       ) {
         return false;
       }
@@ -272,12 +272,12 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         return p.resource === targetName;
       }
 
-      // If no specific target (step 0), show all progress events that might be relevant
+      // If no specific target (step 1), show all progress events that might be relevant
       if (step === 0) {
         return true; // Show all progress events during nodes verification
       }
 
-      // For steps 3 (preview), show any pending progress events for known resources
+      // For steps 4 (preview), show any pending progress events for known resources
       if (
         step === 3 &&
         (creatingProfileName || createdProfileName || creatingResourceName)
@@ -428,7 +428,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
         // Basic network options
         if (values.protocol) {
-          netOptions['protocol'] = values.protocol;
+          netOptions.protocol = values.protocol;
         }
         if (values.verify_alg && values.verify_alg !== 'none') {
           netOptions['verify-alg'] = values.verify_alg;
@@ -507,7 +507,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         setLoading(false);
       }
     } else if (step === 2) {
-      // This is now the HA config step, next is Preview
+      // Step 3: HA config step, next is Preview
       try {
         await haForm.validateFields();
         const haValues = haForm.getFieldsValue(true); // true = include disabled fields
@@ -533,9 +533,12 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           resource_name: haValues.resource_name,
           mount_point: haValues.mount_point,
           fs_type: haValues.fs_type || 'xfs',
-          services: haValues.service ? [haValues.service] : (haValues.services || []),
+          services: haValues.service
+            ? [haValues.service]
+            : haValues.services || [],
           ocf_agents: haValues.ocf_agents || [],
           auto_disable_services: true,
+          start_disabled: true, // Create in disabled state for review
           // Advanced Promoter Settings
           preferred_nodes: haValues.preferred_nodes,
           preferred_nodes_policy: haValues.preferred_nodes_policy,
@@ -572,7 +575,10 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         setCreatedProfileId(result.profile.id);
         setCreatedProfileName(result.profile.name);
         setGeneratedConfig(result.promoter_config_content || null);
-        addLog(`HA Profile '${result.profile.name}' created successfully`);
+        setCreatedDrbdConfig(result.drbd_config_content || null);
+        addLog(
+          `HA Profile '${result.profile.name}' created successfully (disabled)`,
+        );
 
         setLoading(false);
         setCreatingProfileName(null); // Clear creating state
@@ -587,7 +593,43 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         setCreatingProfileName(null);
       }
     }
-    // Step 3 is the final Status step, no next action needed
+    // Step 4 is the Preview & Activation step
+    else if (step === 3) {
+      // Enable the profile (calls drbd-reactorctl enable)
+      if (!createdProfileId) {
+        message.error('No profile to enable');
+        addLog('Error: No profile ID available');
+        return;
+      }
+
+      setLoading(true);
+      addLog(`Enabling HA profile '${createdProfileName}' on all nodes...`);
+      setActivationStatus('activating');
+
+      try {
+        const result = await haProfilesApi.enable(createdProfileId);
+        addLog(result.message || `Profile enable initiated`);
+        if (result.enabled_nodes.length > 0) {
+          addLog(`Enabled on nodes: ${result.enabled_nodes.join(', ')}`);
+        }
+        if (result.failed_nodes.length > 0) {
+          addLog(
+            `Failed on nodes: ${result.failed_nodes.map((n) => n[0]).join(', ')}`,
+          );
+        }
+        setActivationStatus('checking');
+        pollServiceStatus(createdProfileId);
+        // After enable starts, move to status step
+        setStep(4);
+      } catch (err) {
+        const errMsg = (err as { message: string }).message;
+        setActivationStatus('error');
+        setActivationError(errMsg);
+        addLog(`Error enabling profile: ${errMsg}`);
+        setLoading(false);
+      }
+    }
+    // Step 5 is the final Status step, no next action needed
   };
 
   const handlePrev = () => {
@@ -598,7 +640,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     navigate('/');
   };
 
-  const handleRetry = async () => {
+  const _handleRetry = async () => {
     if (createdProfileId) {
       setActivationStatus('activating');
       setActivationError(null);
@@ -624,7 +666,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         p.operation === 'activate_profile') &&
       !p.completed,
   );
-  const progressPercent =
+  const _progressPercent =
     currentProgress?.progress ??
     (activationStatus === 'checking'
       ? 90
@@ -679,15 +721,30 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           />
         );
       case 3:
+        // Preview & Activate step
         return (
           <div className="space-y-6">
-            <PreviewConfigStep configContent={generatedConfig} />
-            <DeploymentStatusStep
-              profileId={createdProfileId}
-              profileName={createdProfileName}
-              onDone={handleDone}
+            <PreviewConfigStep
+              configContent={generatedConfig}
+              drbdConfigContent={createdDrbdConfig}
             />
+            {activationStatus !== 'pending' && (
+              <DeploymentStatusStep
+                profileId={createdProfileId}
+                profileName={createdProfileName}
+                onDone={handleDone}
+              />
+            )}
           </div>
+        );
+      case 4:
+        // Status step
+        return (
+          <DeploymentStatusStep
+            profileId={createdProfileId}
+            profileName={createdProfileName}
+            onDone={handleDone}
+          />
         );
 
       default:
@@ -739,6 +796,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
               { title: 'Nodes' },
               { title: 'Storage' },
               { title: 'Services' },
+              { title: 'Preview' },
               { title: 'Status' },
             ]}
           />
@@ -750,25 +808,31 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
           {/* Navigation */}
           <div className="flex mt-8 max-w-4xl mx-auto justify-between">
-            {step < 3 && (
+            {step < 4 && (
               <Button
                 icon={<ArrowLeftOutlined />}
                 onClick={step === 0 ? () => navigate('/') : handlePrev}
                 className="hover:!bg-slate-100"
+                disabled={step === 3 && activationStatus !== 'pending'}
               >
                 {step === 0 ? 'Cancel' : 'Previous'}
               </Button>
             )}
 
-            {step < 3 ? (
+            {step < 4 ? (
               <Button
                 type="primary"
                 icon={<ArrowRightOutlined />}
                 onClick={handleNext}
                 loading={loading}
                 className="!h-10 !px-6"
+                disabled={step === 3 && activationStatus === 'checking'}
               >
-                {step === 2 ? 'Deploy' : 'Next'}
+                {step === 2
+                  ? 'Create Profile'
+                  : step === 3
+                    ? 'Activate'
+                    : 'Next'}
               </Button>
             ) : null}
           </div>
@@ -826,7 +890,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
               </div>
               <div className="flex flex-col gap-2">
                 {progressSteps.slice(-3).map((s, idx) => (
-                  <div key={idx} className="flex items-start gap-2 text-sm">
+                  <div key={`step-${idx}-${s.done}`} className="flex items-start gap-2 text-sm">
                     {s.done ? (
                       <CheckCircleOutlined
                         className="mt-0.5 shrink-0"
@@ -864,7 +928,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             ) : (
               logs.map((log, i) => (
                 <div
-                  key={i}
+                  key={`log-${i}-${log.slice(0, 20)}`}
                   className={`break-words leading-relaxed border-b pb-1.5 last:border-0 ${
                     currentTheme === 'dark'
                       ? 'text-slate-300 border-slate-700'

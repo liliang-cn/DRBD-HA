@@ -6,7 +6,16 @@ import {
   ReloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { Button, Card, Descriptions, message, Progress, Result, Space, Tag, Typography } from 'antd';
+import {
+  Button,
+  Card,
+  message,
+  Progress,
+  Result,
+  Space,
+  Tag,
+  Typography,
+} from 'antd';
 import { useEffect, useState } from 'react';
 import { haProfilesApi } from '@/api';
 import { useThemeStore } from '@/stores/theme';
@@ -68,7 +77,7 @@ export function DeploymentStatusStep({
 
   useEffect(() => {
     fetchStatus();
-  }, [profileId]);
+  }, [fetchStatus]);
 
   if (loading) {
     return (
@@ -121,7 +130,11 @@ export function DeploymentStatusStep({
             subTitle={error}
             extra={
               <Space>
-                <Button type="primary" icon={<ReloadOutlined />} onClick={fetchStatus}>
+                <Button
+                  type="primary"
+                  icon={<ReloadOutlined />}
+                  onClick={fetchStatus}
+                >
                   Retry
                 </Button>
                 <Button onClick={onDone}>Go to Dashboard</Button>
@@ -155,7 +168,10 @@ export function DeploymentStatusStep({
       {statusData && (
         <div className="flex-1 space-y-4 overflow-y-auto">
           {/* Success/Warning Message - Moved to top */}
-          {statusData.status === 'active' && statusData.service_statuses && statusData.service_statuses.length > 0 && statusData.service_statuses.every((s: any) => s.active) ? (
+          {statusData.status === 'active' &&
+          statusData.service_statuses &&
+          statusData.service_statuses.length > 0 &&
+          statusData.service_statuses.every((s: any) => s.active) ? (
             <Card
               className="shadow-sm border-l-4"
               style={{
@@ -181,9 +197,12 @@ export function DeploymentStatusStep({
                   </Title>
                   <Text
                     className="text-base"
-                    style={{ color: currentTheme === 'dark' ? '#94a3b8' : '#64748b' }}
+                    style={{
+                      color: currentTheme === 'dark' ? '#94a3b8' : '#64748b',
+                    }}
                   >
-                    HA profile '{profileName}' is active and all services are running on {statusData.active_node || 'the local node'}.
+                    HA profile '{profileName}' is active and all services are
+                    running on {statusData.active_node || 'the local node'}.
                   </Text>
                   <div className="mt-4">
                     <Button type="primary" size="large" onClick={onDone}>
@@ -219,9 +238,13 @@ export function DeploymentStatusStep({
                   </Title>
                   <Text
                     className="text-base"
-                    style={{ color: currentTheme === 'dark' ? '#94a3b8' : '#64748b' }}
+                    style={{
+                      color: currentTheme === 'dark' ? '#94a3b8' : '#64748b',
+                    }}
                   >
-                    HA profile '{profileName}' has been created, but the status is '{statusData.status}'. Check the details below for more information.
+                    HA profile '{profileName}' has been created, but the status
+                    is '{statusData.status}'. Check the details below for more
+                    information.
                   </Text>
                   <div className="mt-4">
                     <Space>
@@ -264,7 +287,9 @@ export function DeploymentStatusStep({
               >
                 <div
                   className={`text-sm mb-2 ${
-                    currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
                   }`}
                 >
                   Profile Status
@@ -283,7 +308,9 @@ export function DeploymentStatusStep({
               >
                 <div
                   className={`text-sm mb-2 ${
-                    currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
                   }`}
                 >
                   Active Node
@@ -299,12 +326,15 @@ export function DeploymentStatusStep({
               >
                 <div
                   className={`text-sm mb-2 ${
-                    currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
                   }`}
                 >
                   All Services Active
                 </div>
-                {statusData.service_statuses && statusData.service_statuses.length > 0 ? (
+                {statusData.service_statuses &&
+                statusData.service_statuses.length > 0 ? (
                   statusData.service_statuses.every((s: any) => s.active) ? (
                     <Tag color="green" className="text-base px-3 py-1">
                       Yes
@@ -327,7 +357,9 @@ export function DeploymentStatusStep({
               >
                 <div
                   className={`text-sm mb-2 ${
-                    currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
                   }`}
                 >
                   DRBD Reactor
@@ -374,7 +406,9 @@ export function DeploymentStatusStep({
                 >
                   <div
                     className={`text-xs mb-1 ${
-                      currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
                     }`}
                   >
                     Resource
@@ -384,12 +418,16 @@ export function DeploymentStatusStep({
                 {statusData.drbd_device && (
                   <div
                     className={`p-3 rounded-lg ${
-                      currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50'
+                      currentTheme === 'dark'
+                        ? 'bg-slate-700/50'
+                        : 'bg-slate-50'
                     }`}
                   >
                     <div
                       className={`text-xs mb-1 ${
-                        currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                        currentTheme === 'dark'
+                          ? 'text-slate-400'
+                          : 'text-slate-500'
                       }`}
                     >
                       DRBD Device
@@ -404,7 +442,9 @@ export function DeploymentStatusStep({
                 >
                   <div
                     className={`text-xs mb-1 ${
-                      currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
                     }`}
                   >
                     Role
@@ -420,13 +460,17 @@ export function DeploymentStatusStep({
                 >
                   <div
                     className={`text-xs mb-1 ${
-                      currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
                     }`}
                   >
                     Disk State
                   </div>
                   <Tag
-                    color={statusData.drbd.disk === 'UpToDate' ? 'green' : 'orange'}
+                    color={
+                      statusData.drbd.disk === 'UpToDate' ? 'green' : 'orange'
+                    }
                   >
                     {statusData.drbd.disk}
                   </Tag>
@@ -437,7 +481,9 @@ export function DeploymentStatusStep({
                 <div className="mt-4">
                   <div
                     className={`text-sm font-medium mb-3 ${
-                      currentTheme === 'dark' ? 'text-slate-300' : 'text-slate-700'
+                      currentTheme === 'dark'
+                        ? 'text-slate-300'
+                        : 'text-slate-700'
                     }`}
                   >
                     Connection States
@@ -447,7 +493,9 @@ export function DeploymentStatusStep({
                       <div
                         key={idx}
                         className={`flex items-center justify-between p-3 rounded-lg ${
-                          currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50'
+                          currentTheme === 'dark'
+                            ? 'bg-slate-700/50'
+                            : 'bg-slate-50'
                         }`}
                       >
                         <div className="flex items-center gap-3">
@@ -458,7 +506,11 @@ export function DeploymentStatusStep({
                             {peer.name}
                           </div>
                           <Tag
-                            color={peer.connection === 'Connected' ? 'green' : 'orange'}
+                            color={
+                              peer.connection === 'Connected'
+                                ? 'green'
+                                : 'orange'
+                            }
                           >
                             {peer.connection || 'Unknown'}
                           </Tag>
@@ -469,7 +521,9 @@ export function DeploymentStatusStep({
                         {peer.sync_percent !== undefined && (
                           <Progress
                             percent={Math.round(peer.sync_percent)}
-                            status={peer.sync_percent >= 100 ? 'success' : 'active'}
+                            status={
+                              peer.sync_percent >= 100 ? 'success' : 'active'
+                            }
                             style={{ width: '150px' }}
                             size="small"
                           />
@@ -524,129 +578,146 @@ export function DeploymentStatusStep({
           )}
 
           {/* Service Status */}
-          {statusData.service_statuses && statusData.service_statuses.length > 0 && (
-            <Card
-              title={
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center"
-                    style={{
-                      background: `linear-gradient(135deg, ${ACCENT_COLORS.mint}30, ${ACCENT_COLORS.cyan}30)`,
-                    }}
-                  >
-                    <CheckCircleOutlined
-                      className="text-lg"
-                      style={{ color: ACCENT_COLORS.mint }}
-                    />
+          {statusData.service_statuses &&
+            statusData.service_statuses.length > 0 && (
+              <Card
+                title={
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center"
+                      style={{
+                        background: `linear-gradient(135deg, ${ACCENT_COLORS.mint}30, ${ACCENT_COLORS.cyan}30)`,
+                      }}
+                    >
+                      <CheckCircleOutlined
+                        className="text-lg"
+                        style={{ color: ACCENT_COLORS.mint }}
+                      />
+                    </div>
+                    <span>Service Status</span>
                   </div>
-                  <span>Service Status</span>
-                </div>
-              }
-              className="shadow-sm"
-              style={{
-                borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
-              }}
-            >
-              <div className="space-y-3">
-                {statusData.service_statuses.map((svc: any, idx: number) => (
-                  <div
-                    key={idx}
-                    className={`flex items-center justify-between p-4 rounded-xl ${
-                      currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex-1">
-                      <div className="font-medium text-base mb-1">{svc.name}</div>
-                      <div
-                        className={`text-sm ${
-                          currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
-                        }`}
-                      >
-                        {svc.state}
-                        {svc.enabled !== undefined && (
-                          <span className="ml-2">
-                            ({svc.enabled ? 'enabled' : 'disabled'})
-                          </span>
+                }
+                className="shadow-sm"
+                style={{
+                  borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+                }}
+              >
+                <div className="space-y-3">
+                  {statusData.service_statuses.map((svc: any, idx: number) => (
+                    <div
+                      key={idx}
+                      className={`flex items-center justify-between p-4 rounded-xl ${
+                        currentTheme === 'dark'
+                          ? 'bg-slate-700/50'
+                          : 'bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium text-base mb-1">
+                          {svc.name}
+                        </div>
+                        <div
+                          className={`text-sm ${
+                            currentTheme === 'dark'
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {svc.state}
+                          {svc.enabled !== undefined && (
+                            <span className="ml-2">
+                              ({svc.enabled ? 'enabled' : 'disabled'})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {svc.active ? (
+                          <CheckCircleOutlined
+                            className="text-2xl"
+                            style={{ color: ACCENT_COLORS.mint }}
+                          />
+                        ) : (
+                          <ExclamationCircleOutlined
+                            className="text-2xl"
+                            style={{ color: ACCENT_COLORS.pink }}
+                          />
                         )}
+                        <Tag
+                          color={svc.active ? 'green' : 'red'}
+                          className="text-base px-3 py-1"
+                        >
+                          {svc.active ? 'Active' : 'Inactive'}
+                        </Tag>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      {svc.active ? (
-                        <CheckCircleOutlined
-                          className="text-2xl"
-                          style={{ color: ACCENT_COLORS.mint }}
-                        />
-                      ) : (
-                        <ExclamationCircleOutlined
-                          className="text-2xl"
-                          style={{ color: ACCENT_COLORS.pink }}
-                        />
-                      )}
-                      <Tag
-                        color={svc.active ? 'green' : 'red'}
-                        className="text-base px-3 py-1"
-                      >
-                        {svc.active ? 'Active' : 'Inactive'}
-                      </Tag>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
+                  ))}
+                </div>
+              </Card>
+            )}
 
           {/* Configured Nodes */}
-          {statusData.configured_nodes && statusData.configured_nodes.length > 0 && (
-            <Card
-              title={
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center"
-                    style={{
-                      background: `linear-gradient(135deg, ${ACCENT_COLORS.purple}30, ${ACCENT_COLORS.purple}20)`,
-                    }}
-                  >
-                    <FileTextOutlined
-                      className="text-lg"
-                      style={{ color: ACCENT_COLORS.purple }}
-                    />
-                  </div>
-                  <span>Configured Nodes</span>
-                </div>
-              }
-              className="shadow-sm"
-              style={{
-                borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
-              }}
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {statusData.configured_nodes.map((node: any, idx: number) => (
-                  <div
-                    key={idx}
-                    className={`flex items-center justify-between p-4 rounded-xl ${
-                      currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex-1">
-                      <div className="font-medium text-base mb-1">{node.hostname}</div>
-                      <div
-                        className={`text-sm ${
-                          currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
-                        }`}
-                      >
-                        {node.ip}
-                      </div>
+          {statusData.configured_nodes &&
+            statusData.configured_nodes.length > 0 && (
+              <Card
+                title={
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center"
+                      style={{
+                        background: `linear-gradient(135deg, ${ACCENT_COLORS.purple}30, ${ACCENT_COLORS.purple}20)`,
+                      }}
+                    >
+                      <FileTextOutlined
+                        className="text-lg"
+                        style={{ color: ACCENT_COLORS.purple }}
+                      />
                     </div>
-                    {node.peer_role && (
-                      <Tag color={roleColor[node.peer_role] || 'default'} className="text-base px-3 py-1">
-                        {node.peer_role}
-                      </Tag>
-                    )}
+                    <span>Configured Nodes</span>
                   </div>
-                ))}
-              </div>
-            </Card>
-          )}
+                }
+                className="shadow-sm"
+                style={{
+                  borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+                }}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {statusData.configured_nodes.map((node: any, idx: number) => (
+                    <div
+                      key={idx}
+                      className={`flex items-center justify-between p-4 rounded-xl ${
+                        currentTheme === 'dark'
+                          ? 'bg-slate-700/50'
+                          : 'bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium text-base mb-1">
+                          {node.hostname}
+                        </div>
+                        <div
+                          className={`text-sm ${
+                            currentTheme === 'dark'
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {node.ip}
+                        </div>
+                      </div>
+                      {node.peer_role && (
+                        <Tag
+                          color={roleColor[node.peer_role] || 'default'}
+                          className="text-base px-3 py-1"
+                        >
+                          {node.peer_role}
+                        </Tag>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
         </div>
       )}
     </div>

@@ -96,7 +96,7 @@ export function Storage() {
   useEffect(() => {
     fetchPools();
     fetchNodes();
-  }, []); // Only run on mount, and fetchNodes internally handles avoiding duplicates
+  }, [fetchNodes, fetchPools]); // Only run on mount, and fetchNodes internally handles avoiding duplicates
 
   const handleCreate = async (values: any) => {
     if (selectedNodes.length === 0) {

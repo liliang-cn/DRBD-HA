@@ -1,15 +1,15 @@
+import { FileTextOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons';
 import {
-  FileTextOutlined,
-  MoonOutlined,
-  SunOutlined,
-  ThunderboltOutlined,
-} from '@ant-design/icons';
-import { Button, ConfigProvider, Layout, Tooltip } from 'antd';
-import { Link, Outlet } from 'react-router-dom';
-import { useEffect, useRef } from 'react';
+  theme as antdTheme,
+  Button,
+  ConfigProvider,
+  Layout,
+  Tooltip,
+} from 'antd';
 import gsap from 'gsap';
+import { useEffect, useRef } from 'react';
+import { Link, Outlet } from 'react-router-dom';
 import { useThemeStore } from '@/stores/theme';
-import { theme as antdTheme } from 'antd';
 import { PRIMARY_COLOR } from '@/theme/colors';
 
 const { Header, Content } = Layout;
@@ -87,7 +87,9 @@ export function MainLayout() {
             style={{
               backgroundColor: currentTheme === 'dark' ? '#1e293b' : '#fff',
               borderBottom:
-                currentTheme === 'dark' ? '1px solid #334155' : '1px solid #e2e8f0',
+                currentTheme === 'dark'
+                  ? '1px solid #334155'
+                  : '1px solid #e2e8f0',
             }}
             className="!px-0 !h-auto !py-0 sticky top-0 z-50 shadow-sm"
           >
@@ -122,7 +124,13 @@ export function MainLayout() {
                 >
                   <Button
                     type="text"
-                    icon={currentTheme === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+                    icon={
+                      currentTheme === 'dark' ? (
+                        <SunOutlined />
+                      ) : (
+                        <MoonOutlined />
+                      )
+                    }
                     onClick={toggleTheme}
                   />
                 </Tooltip>

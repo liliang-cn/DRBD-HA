@@ -198,55 +198,6 @@ async fn check_if_enabled_on_other_nodes(state: &Arc<AppState>, profile_name: &s
     (false, None)
 }
 
-/// Helper function to get drbd-reactor status from a remote node
-async fn get_status_from_remote_node(
-    state: &Arc<AppState>,
-    profile_name: &str,
-) -> Result<(Vec<drbd_reactor_utils::models::ReactorProfileStatus>, String), ()> {
-    use crate::core::SshCredential;
-
-    // Get all nodes
-    let nodes = match state.node_store.get_all() {
-        Ok(n) => n,
-        Err(_) => return Err(()),
-    };
-
-    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
-
-    for node in nodes {
-        // Skip local node
-        if node.hostname == local_hostname || node.id == local_hostname {
-            continue;
-        }
-
-        // Try to get drbd-reactorctl status from this node
-        let status_cmd = format!("drbd-reactorctl status {} 2>/dev/null", profile_name);
-        let credential = SshCredential::Password("ignored".to_string());
-
-        match state.ssh_manager.execute(
-            &node.ip,
-            node.ssh_port,
-            &node.ssh_user,
-            &credential,
-            &status_cmd,
-        ).await {
-            Ok(output) => {
-                if !output.stdout.is_empty() {
-                    // Parse the status
-                    let statuses = drbd_reactor_utils::parser::parse_reactor_status(
-                        &output.stdout,
-                        Some(profile_name)
-                    );
-                    return Ok((statuses, output.stdout));
-                }
-            }
-            Err(_) => continue,
-        }
-    }
-
-    Err(())
-}
-
 /// GET /api/v1/ha/profiles/:id
 pub async fn get_profile(
     State(state): State<Arc<AppState>>,

@@ -31,6 +31,9 @@ pub struct HaProfileCreateResponse {
     /// Content of the generated promoter configuration file
     #[serde(skip_serializing_if = "Option::is_none")]
     pub promoter_config_content: Option<String>,
+    /// Content of the generated DRBD resource configuration file
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drbd_config_content: Option<String>,
 }
 
 /// Summary of data migration result

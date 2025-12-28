@@ -7,7 +7,6 @@ import {
   Alert,
   Button,
   Card,
-  Checkbox,
   Form,
   Input,
   InputNumber,
@@ -37,7 +36,10 @@ interface NodesVerificationStepProps {
   sharedState: WizardSharedState;
 }
 
-export function NodesVerificationStep({ nodes, sharedState }: NodesVerificationStepProps) {
+export function NodesVerificationStep({
+  nodes,
+  sharedState,
+}: NodesVerificationStepProps) {
   const { add, remove, fetch } = useNodesStore();
   const { theme: currentTheme } = useThemeStore();
   const [modalOpen, setModalOpen] = useState(false);
@@ -48,15 +50,17 @@ export function NodesVerificationStep({ nodes, sharedState }: NodesVerificationS
   // Initialize selected nodes with all nodes by default
   useEffect(() => {
     if (nodes.length > 0 && selectedRowKeys.length === 0) {
-      const allKeys = nodes.map(n => n.id);
+      const allKeys = nodes.map((n) => n.id);
       setSelectedRowKeys(allKeys);
       sharedState.setSelectedNodes(nodes);
     }
-  }, [nodes]);
+  }, [nodes, selectedRowKeys.length, sharedState.setSelectedNodes]);
 
   const handleSelectionChange = (newSelectedRowKeys: React.Key[]) => {
     setSelectedRowKeys(newSelectedRowKeys);
-    const selectedNodes = nodes.filter(n => newSelectedRowKeys.includes(n.id));
+    const selectedNodes = nodes.filter((n) =>
+      newSelectedRowKeys.includes(n.id),
+    );
     sharedState.setSelectedNodes(selectedNodes);
   };
 
@@ -146,7 +150,9 @@ export function NodesVerificationStep({ nodes, sharedState }: NodesVerificationS
     <Card
       title={
         <div className="flex justify-between items-center">
-          <span className="text-lg font-semibold">Step 1: Select or Add Cluster Nodes</span>
+          <span className="text-lg font-semibold">
+            Step 1: Select or Add Cluster Nodes
+          </span>
           <Button
             type="primary"
             icon={<PlusOutlined />}

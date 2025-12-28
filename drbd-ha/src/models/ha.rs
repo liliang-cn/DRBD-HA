@@ -227,6 +227,10 @@ pub struct CreateHaProfileRequest {
     /// Optional: DRBD minor number (required for LVM auto-creation)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drbd_minor: Option<u32>,
+    /// Whether to create the profile in disabled state (.toml.disabled)
+    /// This allows reviewing configuration before activation
+    #[serde(default)]
+    pub start_disabled: bool,
 }
 
 /// Options for migrating existing data to DRBD storage

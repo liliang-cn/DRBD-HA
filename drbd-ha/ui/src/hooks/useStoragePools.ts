@@ -22,7 +22,7 @@ export function useStoragePools() {
 
   useEffect(() => {
     fetchPools();
-  }, []);
+  }, [fetchPools]);
 
   return { pools, loading, refresh: fetchPools };
 }

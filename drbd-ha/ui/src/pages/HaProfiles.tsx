@@ -11,23 +11,17 @@ import {
 } from '@ant-design/icons';
 import {
   Button,
-  Card,
   Checkbox,
-  Descriptions,
-  Form,
-  Input,
-  InputNumber,
   Modal,
   message,
   Popconfirm,
-  Progress,
   Space,
   Table,
   Tag,
   Typography,
 } from 'antd';
-import { useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
+import { useEffect, useRef, useState } from 'react';
 import { haProfilesApi } from '@/api';
 import { ImportProfilesModal } from '@/components/ha/ImportProfilesModal';
 import { useHaProfilesStore } from '@/stores/ha-profiles';
@@ -59,11 +53,19 @@ export function HaProfiles() {
   const { profiles, loading, fetch } = useHaProfilesStore();
   const { fetch: fetchResources } = useResourcesStore();
   const { theme: currentTheme } = useThemeStore();
-  const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null);
-  const [profileStatuses, setProfileStatuses] = useState<Record<string, HaProfileStatus>>({});
-  const [statusLoading, setStatusLoading] = useState<Record<string, boolean>>({});
+  const [expandedProfileId, setExpandedProfileId] = useState<string | null>(
+    null,
+  );
+  const [profileStatuses, setProfileStatuses] = useState<
+    Record<string, HaProfileStatus>
+  >({});
+  const [statusLoading, setStatusLoading] = useState<Record<string, boolean>>(
+    {},
+  );
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [profileToDelete, setProfileToDelete] = useState<HaProfile | null>(null);
+  const [profileToDelete, setProfileToDelete] = useState<HaProfile | null>(
+    null,
+  );
   const [deleteResource, setDeleteResource] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -71,7 +73,9 @@ export function HaProfiles() {
   // Deletion Progress State
   const [progressModalOpen, setProgressModalOpen] = useState(false);
   const [deletionLogs, setDeletionLogs] = useState<string[]>([]);
-  const [deletingProfileName, setDeletingProfileName] = useState<string | null>(null);
+  const [deletingProfileName, setDeletingProfileName] = useState<string | null>(
+    null,
+  );
   const [deletionProgressSteps, setDeletionProgressSteps] = useState<
     Array<{ message: string; done: boolean }>
   >([]);
@@ -89,7 +93,7 @@ export function HaProfiles() {
     fetch();
     fetchResources();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run on mount
+  }, [fetch, fetchResources]); // Only run on mount
 
   // GSAP Animations - only run once after data is loaded
   const hasAnimated = useRef(false);
@@ -163,7 +167,7 @@ export function HaProfiles() {
     if (progressModalOpen) {
       logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [deletionLogs, progressModalOpen]);
+  }, [progressModalOpen]);
 
   // Listen for deletion progress
   useEffect(() => {
@@ -236,7 +240,13 @@ export function HaProfiles() {
         }
       });
     }
-  }, [progressEvents, deletingProfileName, progressModalOpen, fetch, fetchResources]);
+  }, [
+    progressEvents,
+    deletingProfileName,
+    progressModalOpen,
+    fetch,
+    fetchResources,
+  ]);
 
   const openDeleteModal = (profile: HaProfile) => {
     setProfileToDelete(profile);
@@ -407,7 +417,9 @@ export function HaProfiles() {
             >
               {name}
             </div>
-            <div className={`text-xs ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+            <div
+              className={`text-xs ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}
+            >
               {record.resource_name}
             </div>
           </div>
@@ -452,7 +464,11 @@ export function HaProfiles() {
         // Built-in plugins don't have VIP
         if (record.is_builtin_plugin) {
           return (
-            <span className={currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'}>
+            <span
+              className={
+                currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'
+              }
+            >
               N/A
             </span>
           );
@@ -461,14 +477,21 @@ export function HaProfiles() {
           return (
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              <span className="font-medium" style={{ color: ACCENT_COLORS.sky }}>
+              <span
+                className="font-medium"
+                style={{ color: ACCENT_COLORS.sky }}
+              >
                 {record.vip.address}/{record.vip.netmask}
               </span>
             </div>
           );
         }
         return (
-          <span className={currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'}>
+          <span
+            className={
+              currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'
+            }
+          >
             Not Enabled
           </span>
         );
@@ -504,7 +527,13 @@ export function HaProfiles() {
                 <span className="font-medium">{node}</span>
               </div>
             ) : (
-              <span className={currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'}>-</span>
+              <span
+                className={
+                  currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'
+                }
+              >
+                -
+              </span>
             )}
             {isActive && node && !record.is_builtin_plugin && (
               <Popconfirm
@@ -555,9 +584,13 @@ export function HaProfiles() {
     if (record.is_builtin_plugin) {
       return (
         <div className="p-6">
-          <div className={`p-4 rounded-lg text-center ${
-            currentTheme === 'dark' ? 'bg-slate-700/50 text-slate-400' : 'bg-slate-50 text-slate-500'
-          }`}>
+          <div
+            className={`p-4 rounded-lg text-center ${
+              currentTheme === 'dark'
+                ? 'bg-slate-700/50 text-slate-400'
+                : 'bg-slate-50 text-slate-500'
+            }`}
+          >
             Built-in plugins do not support detailed status view.
           </div>
         </div>
@@ -583,20 +616,24 @@ export function HaProfiles() {
               />
             </div>
             <div className="flex gap-1">
-              {['T', 'h', 'i', 'n', 'k', 'i', 'n', 'g', '.', '.', '.'].map((letter, idx) => (
-                <span
-                  key={idx}
-                  className={`text-sm font-medium inline-block ${
-                    currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
-                  }`}
-                  style={{
-                    animation: 'wave-bounce 1.4s ease-in-out infinite',
-                    animationDelay: `${idx * 0.08}s`,
-                  }}
-                >
-                  {letter}
-                </span>
-              ))}
+              {['T', 'h', 'i', 'n', 'k', 'i', 'n', 'g', '.', '.', '.'].map(
+                (letter, idx) => (
+                  <span
+                    key={idx}
+                    className={`text-sm font-medium inline-block ${
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
+                    }`}
+                    style={{
+                      animation: 'wave-bounce 1.4s ease-in-out infinite',
+                      animationDelay: `${idx * 0.08}s`,
+                    }}
+                  >
+                    {letter}
+                  </span>
+                ),
+              )}
             </div>
             <style>{`
               @keyframes wave-bounce {
@@ -616,9 +653,13 @@ export function HaProfiles() {
     if (!status) {
       return (
         <div className="p-6">
-          <div className={`p-4 rounded-lg text-center ${
-            currentTheme === 'dark' ? 'bg-slate-700/50 text-slate-400' : 'bg-slate-50 text-slate-500'
-          }`}>
+          <div
+            className={`p-4 rounded-lg text-center ${
+              currentTheme === 'dark'
+                ? 'bg-slate-700/50 text-slate-400'
+                : 'bg-slate-50 text-slate-500'
+            }`}
+          >
             Status information not available.
           </div>
         </div>
@@ -631,10 +672,14 @@ export function HaProfiles() {
         <div
           className="p-5 rounded-xl border-l-4"
           style={{
-            borderLeftColor: record.status === 'active' ? ACCENT_COLORS.mint : ACCENT_COLORS.gold,
-            background: record.status === 'active'
-              ? `linear-gradient(135deg, ${ACCENT_COLORS.mint}10, ${ACCENT_COLORS.cyan}10)`
-              : `linear-gradient(135deg, ${ACCENT_COLORS.gold}10, ${ACCENT_COLORS.orange}10)`,
+            borderLeftColor:
+              record.status === 'active'
+                ? ACCENT_COLORS.mint
+                : ACCENT_COLORS.gold,
+            background:
+              record.status === 'active'
+                ? `linear-gradient(135deg, ${ACCENT_COLORS.mint}10, ${ACCENT_COLORS.cyan}10)`
+                : `linear-gradient(135deg, ${ACCENT_COLORS.gold}10, ${ACCENT_COLORS.orange}10)`,
             borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
           }}
         >
@@ -643,9 +688,10 @@ export function HaProfiles() {
               <div
                 className="w-12 h-12 rounded-xl flex items-center justify-center"
                 style={{
-                  background: record.status === 'active'
-                    ? `linear-gradient(135deg, ${ACCENT_COLORS.mint}, ${ACCENT_COLORS.cyan})`
-                    : `linear-gradient(135deg, ${ACCENT_COLORS.gold}, ${ACCENT_COLORS.orange})`,
+                  background:
+                    record.status === 'active'
+                      ? `linear-gradient(135deg, ${ACCENT_COLORS.mint}, ${ACCENT_COLORS.cyan})`
+                      : `linear-gradient(135deg, ${ACCENT_COLORS.gold}, ${ACCENT_COLORS.orange})`,
                 }}
               >
                 {record.status === 'active' ? (
@@ -655,18 +701,26 @@ export function HaProfiles() {
                 )}
               </div>
               <div>
-                <div className={`text-lg font-semibold ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                <div
+                  className={`text-lg font-semibold ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}
+                >
                   Status: <span className="uppercase">{record.status}</span>
                 </div>
-                <div className={`text-sm ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
-                  {record.active_node ? `Running on ${record.active_node}` : 'No active node'}
+                <div
+                  className={`text-sm ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}
+                >
+                  {record.active_node
+                    ? `Running on ${record.active_node}`
+                    : 'No active node'}
                 </div>
               </div>
             </div>
             <div className="flex gap-4">
               {status?.drbd_device && (
                 <div className="text-right">
-                  <div className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                  <div
+                    className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}
+                  >
                     DRBD Device
                   </div>
                   <Tag color="blue">{status.drbd_device}</Tag>
@@ -674,7 +728,9 @@ export function HaProfiles() {
               )}
               {status?.vip_active !== null && (
                 <div className="text-right">
-                  <div className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                  <div
+                    className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}
+                  >
                     VIP Status
                   </div>
                   <Tag color={status?.vip_active ? 'green' : 'default'}>
@@ -682,20 +738,27 @@ export function HaProfiles() {
                   </Tag>
                 </div>
               )}
-              {status?.service_statuses && status?.service_statuses.length > 0 && (
-                <div className="text-right">
-                  <div className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Services
+              {status?.service_statuses &&
+                status?.service_statuses.length > 0 && (
+                  <div className="text-right">
+                    <div
+                      className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}
+                    >
+                      Services
+                    </div>
+                    <div className="flex flex-wrap gap-1 justify-end">
+                      {status?.service_statuses.map((s: any, idx: number) => (
+                        <Tag
+                          key={idx}
+                          color={s.active ? 'green' : 'red'}
+                          className="mb-0"
+                        >
+                          {s.name}
+                        </Tag>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-1 justify-end">
-                    {status?.service_statuses.map((s: any, idx: number) => (
-                      <Tag key={idx} color={s.active ? 'green' : 'red'} className="mb-0">
-                        {s.name}
-                      </Tag>
-                    ))}
-                  </div>
-                </div>
-              )}
+                )}
             </div>
           </div>
         </div>
@@ -704,7 +767,9 @@ export function HaProfiles() {
         {status?.drbd && (
           <div
             className={`p-5 rounded-xl border ${
-              currentTheme === 'dark' ? 'bg-slate-700/50 border-slate-600' : 'bg-slate-50 border-slate-200'
+              currentTheme === 'dark'
+                ? 'bg-slate-700/50 border-slate-600'
+                : 'bg-slate-50 border-slate-200'
             }`}
           >
             <div className="flex items-center gap-3 mb-4">
@@ -714,13 +779,20 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.sky}30, ${ACCENT_COLORS.blue}30)`,
                 }}
               >
-                <ThunderboltOutlined className="text-xl" style={{ color: ACCENT_COLORS.sky }} />
+                <ThunderboltOutlined
+                  className="text-xl"
+                  style={{ color: ACCENT_COLORS.sky }}
+                />
               </div>
               <div>
-                <div className={`text-lg font-semibold ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                <div
+                  className={`text-lg font-semibold ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}
+                >
                   DRBD Resource: {status.drbd.resource}
                 </div>
-                <div className={`text-sm ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                <div
+                  className={`text-sm ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}
+                >
                   {status.drbd.open ? 'Device Open' : 'Device Closed'}
                 </div>
               </div>
@@ -732,7 +804,9 @@ export function HaProfiles() {
                   currentTheme === 'dark' ? 'bg-slate-700' : 'bg-white'
                 }`}
               >
-                <div className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                <div
+                  className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}
+                >
                   Role
                 </div>
                 <Tag color={status.drbd.role === 'Primary' ? 'green' : 'blue'}>
@@ -744,10 +818,14 @@ export function HaProfiles() {
                   currentTheme === 'dark' ? 'bg-slate-700' : 'bg-white'
                 }`}
               >
-                <div className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                <div
+                  className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}
+                >
                   Disk State
                 </div>
-                <Tag color={status.drbd.disk === 'UpToDate' ? 'green' : 'orange'}>
+                <Tag
+                  color={status.drbd.disk === 'UpToDate' ? 'green' : 'orange'}
+                >
                   {status.drbd.disk}
                 </Tag>
               </div>
@@ -757,11 +835,21 @@ export function HaProfiles() {
                     currentTheme === 'dark' ? 'bg-slate-700' : 'bg-white'
                   }`}
                 >
-                  <div className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                  <div
+                    className={`text-xs mb-1 ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}
+                  >
                     Peers Connected
                   </div>
-                  <div className="text-lg font-semibold" style={{ color: ACCENT_COLORS.blue }}>
-                    {status.drbd.peers.filter((p: any) => p.connection === 'Connected').length}/{status.drbd.peers.length}
+                  <div
+                    className="text-lg font-semibold"
+                    style={{ color: ACCENT_COLORS.blue }}
+                  >
+                    {
+                      status.drbd.peers.filter(
+                        (p: any) => p.connection === 'Connected',
+                      ).length
+                    }
+                    /{status.drbd.peers.length}
                   </div>
                 </div>
               )}
@@ -770,7 +858,9 @@ export function HaProfiles() {
             {/* DRBD Peers/Connections */}
             {status.drbd.peers && status.drbd.peers.length > 0 && (
               <div>
-                <div className={`text-sm font-semibold mb-3 ${currentTheme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+                <div
+                  className={`text-sm font-semibold mb-3 ${currentTheme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}
+                >
                   Peer Connections
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -782,27 +872,49 @@ export function HaProfiles() {
                       }`}
                     >
                       <div className="flex items-center justify-between mb-3">
-                        <div className="font-semibold" style={{ color: ACCENT_COLORS.blue }}>
+                        <div
+                          className="font-semibold"
+                          style={{ color: ACCENT_COLORS.blue }}
+                        >
                           {peer.name}
                         </div>
-                        <Tag color={peer.role === 'Primary' ? 'green' : 'blue'} size="small">
+                        <Tag
+                          color={peer.role === 'Primary' ? 'green' : 'blue'}
+                          size="small"
+                        >
                           {peer.role}
                         </Tag>
                       </div>
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between items-center">
-                          <span className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                          <span
+                            className={
+                              currentTheme === 'dark'
+                                ? 'text-slate-400'
+                                : 'text-slate-500'
+                            }
+                          >
                             Connection:
                           </span>
                           <Tag
-                            color={peer.connection === 'Connected' ? 'green' : 'orange'}
+                            color={
+                              peer.connection === 'Connected'
+                                ? 'green'
+                                : 'orange'
+                            }
                             size="small"
                           >
                             {peer.connection || 'Unknown'}
                           </Tag>
                         </div>
                         <div className="flex justify-between items-center">
-                          <span className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                          <span
+                            className={
+                              currentTheme === 'dark'
+                                ? 'text-slate-400'
+                                : 'text-slate-500'
+                            }
+                          >
                             Replication:
                           </span>
                           <Tag color="blue" size="small">
@@ -810,11 +922,19 @@ export function HaProfiles() {
                           </Tag>
                         </div>
                         <div className="flex justify-between items-center">
-                          <span className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                          <span
+                            className={
+                              currentTheme === 'dark'
+                                ? 'text-slate-400'
+                                : 'text-slate-500'
+                            }
+                          >
                             Peer Disk:
                           </span>
                           <Tag
-                            color={peer.peer_disk === 'UpToDate' ? 'green' : 'orange'}
+                            color={
+                              peer.peer_disk === 'UpToDate' ? 'green' : 'orange'
+                            }
                             size="small"
                           >
                             {peer.peer_disk}
@@ -833,7 +953,9 @@ export function HaProfiles() {
         {status?.configured_nodes && status.configured_nodes.length > 0 && (
           <div
             className={`p-5 rounded-xl border ${
-              currentTheme === 'dark' ? 'bg-slate-700/50 border-slate-600' : 'bg-slate-50 border-slate-200'
+              currentTheme === 'dark'
+                ? 'bg-slate-700/50 border-slate-600'
+                : 'bg-slate-50 border-slate-200'
             }`}
           >
             <div className="flex items-center gap-3 mb-4">
@@ -843,15 +965,22 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.purple}30, ${ACCENT_COLORS.purple}20)`,
                 }}
               >
-                <FileTextOutlined className="text-xl" style={{ color: ACCENT_COLORS.purple }} />
+                <FileTextOutlined
+                  className="text-xl"
+                  style={{ color: ACCENT_COLORS.purple }}
+                />
               </div>
-              <div className={`text-lg font-semibold ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+              <div
+                className={`text-lg font-semibold ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}
+              >
                 Configured Nodes ({status.configured_nodes.length})
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {status.configured_nodes.map((node: any, idx: number) => {
-                const isActive = node.peer_role === 'Primary' || node.hostname === status.active_node;
+                const isActive =
+                  node.peer_role === 'Primary' ||
+                  node.hostname === status.active_node;
                 const isNodeDisabled = node.disabled === true;
 
                 return (
@@ -866,11 +995,16 @@ export function HaProfiles() {
                             ? 'bg-slate-700 border-transparent'
                             : 'bg-white border-transparent'
                     }`}
-                    style={!isNodeDisabled && isActive ? {
-                      background: currentTheme === 'dark'
-                        ? `linear-gradient(135deg, ${ACCENT_COLORS.mint}15, ${ACCENT_COLORS.cyan}15)`
-                        : `linear-gradient(135deg, ${ACCENT_COLORS.mint}10, ${ACCENT_COLORS.cyan}10)`,
-                    } : {}}
+                    style={
+                      !isNodeDisabled && isActive
+                        ? {
+                            background:
+                              currentTheme === 'dark'
+                                ? `linear-gradient(135deg, ${ACCENT_COLORS.mint}15, ${ACCENT_COLORS.cyan}15)`
+                                : `linear-gradient(135deg, ${ACCENT_COLORS.mint}10, ${ACCENT_COLORS.cyan}10)`,
+                          }
+                        : {}
+                    }
                   >
                     {/* Disable/Enable button in top-right corner */}
                     <div className="absolute top-3 right-3">
@@ -879,7 +1013,9 @@ export function HaProfiles() {
                           size="small"
                           type="primary"
                           icon={<CheckCircleOutlined />}
-                          onClick={() => handleEnableNode(record.id, node.hostname)}
+                          onClick={() =>
+                            handleEnableNode(record.id, node.hostname)
+                          }
                           className="!bg-green-500 !border-green-500 hover:!bg-green-600"
                           title={`Enable ${node.hostname}`}
                         />
@@ -887,7 +1023,9 @@ export function HaProfiles() {
                         <Popconfirm
                           title="Disable Profile"
                           description={`Disable this profile on ${node.hostname}?`}
-                          onConfirm={() => handleDisableNode(record.id, node.hostname)}
+                          onConfirm={() =>
+                            handleDisableNode(record.id, node.hostname)
+                          }
                           okText="Disable"
                           cancelText="Cancel"
                           okButtonProps={{ danger: true }}
@@ -904,7 +1042,14 @@ export function HaProfiles() {
 
                     <div className="mb-6">
                       <div className="flex items-center gap-2 mb-1">
-                        <div className="font-semibold text-lg" style={{ color: isNodeDisabled ? '#9ca3af' : ACCENT_COLORS.purple }}>
+                        <div
+                          className="font-semibold text-lg"
+                          style={{
+                            color: isNodeDisabled
+                              ? '#9ca3af'
+                              : ACCENT_COLORS.purple,
+                          }}
+                        >
                           {node.hostname}
                         </div>
                         {isActive && !isNodeDisabled && (
@@ -919,13 +1064,20 @@ export function HaProfiles() {
                         )}
                       </div>
                       {node.peer_role && (
-                        <Tag color={node.peer_role === 'Primary' ? 'green' : 'blue'} size="small">
+                        <Tag
+                          color={
+                            node.peer_role === 'Primary' ? 'green' : 'blue'
+                          }
+                          size="small"
+                        >
                           {node.peer_role}
                         </Tag>
                       )}
                     </div>
 
-                    <div className={`text-sm ${isNodeDisabled ? 'text-gray-400' : currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                    <div
+                      className={`text-sm ${isNodeDisabled ? 'text-gray-400' : currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}
+                    >
                       {node.ip}
                     </div>
                   </div>
@@ -950,25 +1102,46 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.blue}30, ${ACCENT_COLORS.sky}30)`,
                 }}
               >
-                <ThunderboltOutlined className="text-base" style={{ color: ACCENT_COLORS.blue }} />
+                <ThunderboltOutlined
+                  className="text-base"
+                  style={{ color: ACCENT_COLORS.blue }}
+                />
               </div>
               <span className="font-semibold">Resource</span>
             </div>
             <div className="space-y-2 text-sm">
               <div>
-                <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                <div
+                  className={
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
+                  }
+                >
                   Name
                 </div>
                 <div className="font-medium">{record.resource_name}</div>
               </div>
               <div>
-                <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                <div
+                  className={
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
+                  }
+                >
                   Mount Point
                 </div>
                 <div className="font-medium">{record.mount_point}</div>
               </div>
               <div>
-                <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                <div
+                  className={
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
+                  }
+                >
                   Filesystem
                 </div>
                 <Tag>{record.fs_type}</Tag>
@@ -989,29 +1162,53 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}30, ${ACCENT_COLORS.gold}30)`,
                 }}
               >
-                <FileTextOutlined className="text-base" style={{ color: ACCENT_COLORS.orange }} />
+                <FileTextOutlined
+                  className="text-base"
+                  style={{ color: ACCENT_COLORS.orange }}
+                />
               </div>
               <span className="font-semibold">Configuration</span>
             </div>
             <div className="space-y-2 text-sm">
               <div>
-                <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                <div
+                  className={
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
+                  }
+                >
                   Type
                 </div>
                 <Tag>{(record.ha_type || 'generic').toUpperCase()}</Tag>
               </div>
               <div>
-                <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                <div
+                  className={
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
+                  }
+                >
                   Mount Strategy
                 </div>
                 <div className="font-medium">{record.mount_strategy}</div>
               </div>
               {record.vip && (
                 <div>
-                  <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                  <div
+                    className={
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
+                    }
+                  >
                     Virtual IP
                   </div>
-                  <div className="font-medium" style={{ color: ACCENT_COLORS.sky }}>
+                  <div
+                    className="font-medium"
+                    style={{ color: ACCENT_COLORS.sky }}
+                  >
                     {record.vip.address}/{record.vip.netmask}
                   </div>
                 </div>
@@ -1032,13 +1229,18 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.mint}30, ${ACCENT_COLORS.cyan}30)`,
                 }}
               >
-                <CheckCircleOutlined className="text-base" style={{ color: ACCENT_COLORS.mint }} />
+                <CheckCircleOutlined
+                  className="text-base"
+                  style={{ color: ACCENT_COLORS.mint }}
+                />
               </div>
               <span className="font-semibold">Services</span>
             </div>
             <div className="space-y-2">
               <div>
-                <div className={`text-xs ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                <div
+                  className={`text-xs ${currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}
+                >
                   Managed Services
                 </div>
                 <div className="flex flex-wrap gap-1 mt-1">
@@ -1051,18 +1253,35 @@ export function HaProfiles() {
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
-                  <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                  <div
+                    className={
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
+                    }
+                  >
                     Stop on Demote
                   </div>
-                  <Tag color={record.promoter.stop_on_demote ? 'green' : 'default'} size="small">
+                  <Tag
+                    color={record.promoter.stop_on_demote ? 'green' : 'default'}
+                    size="small"
+                  >
                     {record.promoter.stop_on_demote ? 'Yes' : 'No'}
                   </Tag>
                 </div>
                 <div>
-                  <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                  <div
+                    className={
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
+                    }
+                  >
                     On Failure
                   </div>
-                  <div className="font-medium">{record.promoter.on_demote_failure}</div>
+                  <div className="font-medium">
+                    {record.promoter.on_demote_failure}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1077,38 +1296,63 @@ export function HaProfiles() {
           record.nvmeof) && (
           <div
             className={`p-5 rounded-xl border ${
-              currentTheme === 'dark' ? 'bg-slate-700/50 border-slate-600' : 'bg-slate-50 border-slate-200'
+              currentTheme === 'dark'
+                ? 'bg-slate-700/50 border-slate-600'
+                : 'bg-slate-50 border-slate-200'
             }`}
           >
-            <div className={`text-lg font-semibold mb-4 ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+            <div
+              className={`text-lg font-semibold mb-4 ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}
+            >
               Advanced Settings
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              {record.promoter.preferred_nodes && record.promoter.preferred_nodes.length > 0 && (
-                <div>
-                  <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
-                    Preferred Nodes
+              {record.promoter.preferred_nodes &&
+                record.promoter.preferred_nodes.length > 0 && (
+                  <div>
+                    <div
+                      className={
+                        currentTheme === 'dark'
+                          ? 'text-slate-400'
+                          : 'text-slate-500'
+                      }
+                    >
+                      Preferred Nodes
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {record.promoter.preferred_nodes.map((node, idx) => (
+                        <Tag key={idx} size="small">
+                          {node}
+                        </Tag>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {record.promoter.preferred_nodes.map((node, idx) => (
-                      <Tag key={idx} size="small">
-                        {node}
-                      </Tag>
-                    ))}
-                  </div>
-                </div>
-              )}
+                )}
               {record.promoter.on_quorum_loss && (
                 <div>
-                  <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                  <div
+                    className={
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
+                    }
+                  >
                     On Quorum Loss
                   </div>
-                  <div className="font-medium">{record.promoter.on_quorum_loss}</div>
+                  <div className="font-medium">
+                    {record.promoter.on_quorum_loss}
+                  </div>
                 </div>
               )}
               {record.nfs && (
                 <div>
-                  <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                  <div
+                    className={
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
+                    }
+                  >
                     NFS Export
                   </div>
                   <div className="font-medium">{record.nfs.export_path}</div>
@@ -1116,7 +1360,13 @@ export function HaProfiles() {
               )}
               {record.iscsi && (
                 <div>
-                  <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                  <div
+                    className={
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
+                    }
+                  >
                     iSCSI Target
                   </div>
                   <div className="font-medium">{record.iscsi.iqn}</div>
@@ -1124,7 +1374,13 @@ export function HaProfiles() {
               )}
               {record.nvmeof && (
                 <div>
-                  <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                  <div
+                    className={
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
+                    }
+                  >
                     NVMe-oF
                   </div>
                   <div className="font-medium">{record.nvmeof.nqn}</div>
@@ -1148,21 +1404,40 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.gold}30, ${ACCENT_COLORS.orange}30)`,
                 }}
               >
-                <FileTextOutlined className="text-base" style={{ color: ACCENT_COLORS.gold }} />
+                <FileTextOutlined
+                  className="text-base"
+                  style={{ color: ACCENT_COLORS.gold }}
+                />
               </div>
               <span className="font-semibold">System Configuration</span>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
-                <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                <div
+                  className={
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
+                  }
+                >
                   Promoter Config
                 </div>
-                <Tag color={status.config.promoter_config_exists ? 'green' : 'default'}>
+                <Tag
+                  color={
+                    status.config.promoter_config_exists ? 'green' : 'default'
+                  }
+                >
                   {status.config.promoter_config_exists ? 'Exists' : 'Missing'}
                 </Tag>
               </div>
               <div>
-                <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                <div
+                  className={
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
+                  }
+                >
                   DRBD Reactor
                 </div>
                 <Tag color={status.config.reactor_running ? 'green' : 'red'}>
@@ -1171,10 +1446,18 @@ export function HaProfiles() {
               </div>
               {status.config.promoter_config_path && (
                 <div className="col-span-2">
-                  <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+                  <div
+                    className={
+                      currentTheme === 'dark'
+                        ? 'text-slate-400'
+                        : 'text-slate-500'
+                    }
+                  >
                     Config Path
                   </div>
-                  <div className="font-mono text-xs">{status.config.promoter_config_path}</div>
+                  <div className="font-mono text-xs">
+                    {status.config.promoter_config_path}
+                  </div>
                 </div>
               )}
             </div>
@@ -1185,7 +1468,9 @@ export function HaProfiles() {
         {status?.reactor_status_raw && (
           <div
             className={`p-5 rounded-xl border ${
-              currentTheme === 'dark' ? 'bg-slate-700/50 border-slate-600' : 'bg-slate-50 border-slate-200'
+              currentTheme === 'dark'
+                ? 'bg-slate-700/50 border-slate-600'
+                : 'bg-slate-50 border-slate-200'
             }`}
           >
             <div className="flex items-center gap-3 mb-4">
@@ -1195,9 +1480,14 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}30, ${ACCENT_COLORS.gold}30)`,
                 }}
               >
-                <FileTextOutlined className="text-xl" style={{ color: ACCENT_COLORS.orange }} />
+                <FileTextOutlined
+                  className="text-xl"
+                  style={{ color: ACCENT_COLORS.orange }}
+                />
               </div>
-              <div className={`text-lg font-semibold ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+              <div
+                className={`text-lg font-semibold ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}
+              >
                 DRBD Reactor Status
               </div>
             </div>
@@ -1233,8 +1523,15 @@ export function HaProfiles() {
       {loading ? (
         <div className="flex items-center justify-center h-full">
           <div className="flex flex-col items-center gap-4">
-            <LoadingOutlined className="text-4xl animate-spin" style={{ color: ACCENT_COLORS.orange }} />
-            <div className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+            <LoadingOutlined
+              className="text-4xl animate-spin"
+              style={{ color: ACCENT_COLORS.orange }}
+            />
+            <div
+              className={
+                currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+              }
+            >
               Loading profiles...
             </div>
           </div>
@@ -1242,7 +1539,10 @@ export function HaProfiles() {
       ) : (
         <div className="space-y-6">
           {/* Header */}
-          <div ref={headerRef} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div
+            ref={headerRef}
+            className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
+          >
             <div>
               <Title level={2} className="!mb-1 !text-2xl">
                 <span
@@ -1254,7 +1554,11 @@ export function HaProfiles() {
                   HA Profiles
                 </span>
               </Title>
-              <Text className={currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}>
+              <Text
+                className={
+                  currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                }
+              >
                 Manage your high availability configurations
               </Text>
             </div>
@@ -1271,10 +1575,26 @@ export function HaProfiles() {
           {/* Stats Cards */}
           <div ref={statsRef} className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
-              { label: 'Total Profiles', value: profiles.length, icon: <ThunderboltOutlined className="text-2xl" /> },
-              { label: 'Active', value: activeCount, icon: <CheckCircleOutlined className="text-2xl" /> },
-              { label: 'Standby', value: standbyCount, icon: <PauseCircleOutlined className="text-2xl" /> },
-              { label: 'Errors', value: errorCount, icon: <ExclamationCircleOutlined className="text-2xl" /> },
+              {
+                label: 'Total Profiles',
+                value: profiles.length,
+                icon: <ThunderboltOutlined className="text-2xl" />,
+              },
+              {
+                label: 'Active',
+                value: activeCount,
+                icon: <CheckCircleOutlined className="text-2xl" />,
+              },
+              {
+                label: 'Standby',
+                value: standbyCount,
+                icon: <PauseCircleOutlined className="text-2xl" />,
+              },
+              {
+                label: 'Errors',
+                value: errorCount,
+                icon: <ExclamationCircleOutlined className="text-2xl" />,
+              },
             ].map((stat, index) => (
               <div
                 key={index}
@@ -1287,7 +1607,9 @@ export function HaProfiles() {
               >
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-white/80 text-sm font-medium">{stat.label}</div>
+                    <div className="text-white/80 text-sm font-medium">
+                      {stat.label}
+                    </div>
                     <div className="text-3xl font-bold mt-1">{stat.value}</div>
                   </div>
                   <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
@@ -1371,15 +1693,16 @@ export function HaProfiles() {
                 checked={deleteResource}
                 onChange={(e) => setDeleteResource(e.target.checked)}
               >
-                Also delete DRBD resource <strong>{profileToDelete.resource_name}</strong>
+                Also delete DRBD resource{' '}
+                <strong>{profileToDelete.resource_name}</strong>
               </Checkbox>
               <p
                 className={`text-sm mt-2 ml-6 ${
                   currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
                 }`}
               >
-                This will remove the DRBD configuration files from all nodes. The underlying disk
-                data will NOT be erased.
+                This will remove the DRBD configuration files from all nodes.
+                The underlying disk data will NOT be erased.
               </p>
             </div>
           </div>
@@ -1397,7 +1720,11 @@ export function HaProfiles() {
         open={progressModalOpen}
         onCancel={handleCloseProgressModal}
         footer={[
-          <Button key="close" onClick={handleCloseProgressModal} disabled={deleting}>
+          <Button
+            key="close"
+            onClick={handleCloseProgressModal}
+            disabled={deleting}
+          >
             Close
           </Button>,
         ]}
@@ -1442,7 +1769,9 @@ export function HaProfiles() {
           {/* Logs */}
           <div className="h-[200px] overflow-y-auto bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs border border-slate-700">
             {deletionLogs.length === 0 ? (
-              <div className="text-slate-500 text-center mt-20">Waiting for logs...</div>
+              <div className="text-slate-500 text-center mt-20">
+                Waiting for logs...
+              </div>
             ) : (
               deletionLogs.map((log, i) => (
                 <div key={i} className="mb-1">

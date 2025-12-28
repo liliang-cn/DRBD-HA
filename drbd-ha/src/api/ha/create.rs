@@ -1053,7 +1053,14 @@ pub async fn create_profile(
         sleep_before_promote_factor: profile_for_gen.promoter.sleep_before_promote_factor,
     };
     let config_content = reactor_config_gen.generate_promoter(&promoter_config)?;
-    let config_path = ReactorConfigPaths::promoter_path(&req.name);
+
+    // Determine config path based on start_disabled flag
+    let normal_config_path = ReactorConfigPaths::promoter_path(&req.name);
+    let config_path = if req.start_disabled {
+        format!("{}.disabled", normal_config_path)
+    } else {
+        normal_config_path.clone()
+    };
 
     let config_dir = std::path::Path::new(&config_path).parent().unwrap();
     if !config_dir.exists() {
@@ -1065,7 +1072,11 @@ pub async fn create_profile(
     tokio::fs::write(&config_path, &config_content)
         .await
         .map_err(|e| AppError::Config(format!("Failed to write promoter config: {}", e)))?;
-    messages.push("Generated promoter configuration".to_string());
+    messages.push(if req.start_disabled {
+        "Generated promoter configuration (disabled)".to_string()
+    } else {
+        "Generated promoter configuration".to_string()
+    });
 
     state.send_progress(
         &operation_id,
@@ -1200,95 +1211,105 @@ pub async fn create_profile(
         "create_ha_profile",
         Some(&req.name),
         95,
-        "Reloading drbd-reactor on all nodes to apply configuration...",
+        if req.start_disabled {
+            "Skipping drbd-reactor reload (profile is disabled)..."
+        } else {
+            "Reloading drbd-reactor on all nodes to apply configuration..."
+        },
         false,
         None,
     );
 
-    let all_nodes = state.node_store.get_all()?;
-    let mut successful_reloads = 0;
-    let mut total_nodes = 0;
+    // Only reload drbd-reactor if not starting in disabled mode
+    if !req.start_disabled {
+        let all_nodes = state.node_store.get_all()?;
+        let mut successful_reloads = 0;
+        let mut total_nodes = 0;
 
-    info!("Reloading drbd-reactor service on all nodes to apply new HA configuration");
+        info!("Reloading drbd-reactor service on all nodes to apply new HA configuration");
 
-    for node in &all_nodes {
-        total_nodes += 1;
-        let hostname = &node.hostname;
+        for node in &all_nodes {
+            total_nodes += 1;
+            let hostname = &node.hostname;
 
-        if node.is_local {
-            let sys = SystemdController::new().await;
-            if let Ok(sys) = sys {
-                match sys.reload("drbd-reactor.service").await {
-                    Ok(()) => {
-                        info!("Successfully reloaded drbd-reactor on local node");
-                        successful_reloads += 1;
+            if node.is_local {
+                let sys = SystemdController::new().await;
+                if let Ok(sys) = sys {
+                    match sys.reload("drbd-reactor.service").await {
+                        Ok(()) => {
+                            info!("Successfully reloaded drbd-reactor on local node");
+                            successful_reloads += 1;
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to reload drbd-reactor on local node: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        tracing::warn!("Failed to reload drbd-reactor on local node: {}", e);
-                    }
+                } else {
+                    tracing::warn!(
+                        "Failed to initialize systemd controller for local drbd-reactor reload"
+                    );
                 }
             } else {
-                tracing::warn!(
-                    "Failed to initialize systemd controller for local drbd-reactor reload"
-                );
-            }
-        } else {
-            let cred = crate::core::SshCredential::Password("ignored".to_string());
-            let reload_cmd = format!("sudo {}", SystemdCmd::reload_service_cmd("drbd-reactor.service"));
+                let cred = crate::core::SshCredential::Password("ignored".to_string());
+                let reload_cmd = format!("sudo {}", SystemdCmd::reload_service_cmd("drbd-reactor.service"));
 
-            match state
-                .ssh_manager
-                .execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, &reload_cmd)
-                .await
-            {
-                Ok(output) => {
-                    if output.success() {
-                        info!(
-                            "Successfully reloaded drbd-reactor on remote node: {}",
-                            hostname
-                        );
-                        successful_reloads += 1;
-                    } else {
-                        tracing::warn!(
-                            "Failed to reload drbd-reactor on remote node {}: {}",
+                match state
+                    .ssh_manager
+                    .execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, &reload_cmd)
+                    .await
+                {
+                    Ok(output) => {
+                        if output.success() {
+                            info!(
+                                "Successfully reloaded drbd-reactor on remote node: {}",
+                                hostname
+                            );
+                            successful_reloads += 1;
+                        } else {
+                            tracing::warn!(
+                                "Failed to reload drbd-reactor on remote node {}: {}",
+                                hostname,
+                                output.stderr
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to connect to remote node {} for drbd-reactor reload: {}",
                             hostname,
-                            output.stderr
+                            e
                         );
                     }
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "Failed to connect to remote node {} for drbd-reactor reload: {}",
-                        hostname,
-                        e
-                    );
                 }
             }
         }
-    }
 
-    if successful_reloads == total_nodes {
-        info!(
-            "Successfully reloaded drbd-reactor on all {}/{} nodes",
-            successful_reloads, total_nodes
-        );
-        messages.push(format!(
-            "HA profile created and drbd-reactor reloaded on all {} nodes",
-            successful_reloads
-        ));
+        if successful_reloads == total_nodes {
+            info!(
+                "Successfully reloaded drbd-reactor on all {}/{} nodes",
+                successful_reloads, total_nodes
+            );
+            messages.push(format!(
+                "HA profile created and drbd-reactor reloaded on all {} nodes",
+                successful_reloads
+            ));
 
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        } else {
+            tracing::warn!(
+                "drbd-reactor reload succeeded on only {}/{} nodes",
+                successful_reloads,
+                total_nodes
+            );
+            messages.push(format!(
+                "HA profile created but drbd-reactor reload failed on {}/{} nodes",
+                total_nodes - successful_reloads,
+                total_nodes
+            ));
+        }
     } else {
-        tracing::warn!(
-            "drbd-reactor reload succeeded on only {}/{} nodes",
-            successful_reloads,
-            total_nodes
-        );
-        messages.push(format!(
-            "HA profile created but drbd-reactor reload failed on {}/{} nodes",
-            total_nodes - successful_reloads,
-            total_nodes
-        ));
+        // Profile was created in disabled mode
+        messages.push("HA profile created in disabled mode. Activate it when ready.".to_string());
     }
 
     state.send_progress(
@@ -1303,8 +1324,15 @@ pub async fn create_profile(
     state.send_notification(
         NotificationLevel::Success,
         "HA Profile Created",
-        &format!("HA profile '{}' created successfully", req.name),
+        &format!("HA profile '{}' created successfully{}", req.name, if req.start_disabled { " (disabled)" } else { "" }),
     );
+
+    // Read DRBD config content for preview
+    let drbd_config_content = if let Some(ref path) = generated_units.drbd_config_path {
+        tokio::fs::read_to_string(path).await.ok()
+    } else {
+        None
+    };
 
     Ok((
         StatusCode::CREATED,
@@ -1317,6 +1345,7 @@ pub async fn create_profile(
             migration_result,
             synced_nodes,
             promoter_config_content: Some(config_content),
+            drbd_config_content,
         }),
     ))
 }

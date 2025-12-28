@@ -19,17 +19,11 @@ import {
   Row,
   Select,
   Space,
-  Tag,
   Typography,
 } from 'antd';
 import { useEffect, useState } from 'react';
 import { useNodesStore } from '@/stores/nodes';
-import type {
-  HaType,
-  Node,
-  OcfAgentConfig,
-  ServiceFileInfo,
-} from '@/types';
+import type { HaType, OcfAgentConfig, ServiceFileInfo } from '@/types';
 import { OcfAgentModal } from './OcfAgentModal';
 
 const { Text } = Typography;
@@ -82,15 +76,11 @@ export function HaConfigStep({
   // Set default values when type changes
   useEffect(() => {
     // No default values needed for generic HA
-  }, [haType, form]);
+  }, []);
 
   return (
-    <Card
-      title="Step 3: Configure Service HA"
-      className="max-w-4xl mx-auto"
-    >
+    <Card title="Step 3: Configure Service HA" className="max-w-4xl mx-auto">
       <Form form={form} layout="vertical">
-
         <Form.Item
           name="name"
           label="Profile Name"
@@ -140,9 +130,7 @@ export function HaConfigStep({
             <Form.Item
               name="mount_point"
               label="Mount Point"
-              rules={[
-                { required: true, message: 'Mount point is required' },
-              ]}
+              rules={[{ required: true, message: 'Mount point is required' }]}
               help={
                 mountStrategy === 'ocf'
                   ? 'This path will be used as the "directory" parameter for the automatically generated OCF Filesystem agent.'
@@ -177,30 +165,25 @@ export function HaConfigStep({
                 units. Best for databases and simple setups.
               </Text>
               <Text type="secondary">
-                <strong>OCF Filesystem Agent:</strong> Automatically
-                configures an OCF Filesystem agent using the Mount Point
-                above. Provides advanced monitoring and recovery.
+                <strong>OCF Filesystem Agent:</strong> Automatically configures
+                an OCF Filesystem agent using the Mount Point above. Provides
+                advanced monitoring and recovery.
               </Text>
             </Space>
           }
         >
           <Radio.Group>
-            <Radio.Button value="systemd">
-              Systemd Mount Unit
-            </Radio.Button>
+            <Radio.Button value="systemd">Systemd Mount Unit</Radio.Button>
             <Radio.Button value="ocf">OCF Filesystem Agent</Radio.Button>
           </Radio.Group>
         </Form.Item>
-
 
         {/* --- Service Specific Fields (Generic) --- */}
         {haType === 'generic' && (
           <Form.Item
             name="service"
             label="Managed Service"
-            rules={[
-              { required: true, message: 'Please select a service' },
-            ]}
+            rules={[{ required: true, message: 'Please select a service' }]}
             help="Select the systemd service to be managed by this HA profile. It will be started/stopped with the resource."
           >
             <Select
@@ -212,7 +195,9 @@ export function HaConfigStep({
                 label: s.name,
               }))}
               filterOption={(input, option) =>
-                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                (option?.label ?? '')
+                  .toLowerCase()
+                  .includes(input.toLowerCase())
               }
             />
           </Form.Item>
@@ -254,7 +239,7 @@ export function HaConfigStep({
                   bordered
                   className="mb-4 bg-white"
                   dataSource={fields}
-                  renderItem={(field, index) => {
+                  renderItem={(field, _index) => {
                     const agent = form.getFieldValue([
                       'ocf_agents',
                       field.name,
@@ -520,9 +505,8 @@ export function HaConfigStep({
             getFieldValue('migrate_data') ? (
               <div className="bg-gray-50 p-4 rounded-md mb-4 border border-gray-200">
                 <Text type="secondary" className="block mb-4 text-xs">
-                  This will copy data from the source directory to the new
-                  DRBD volume. Services might need to be stopped during this
-                  process.
+                  This will copy data from the source directory to the new DRBD
+                  volume. Services might need to be stopped during this process.
                 </Text>
                 <Form.Item
                   name="source_path"

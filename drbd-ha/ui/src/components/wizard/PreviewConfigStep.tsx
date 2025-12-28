@@ -1,27 +1,81 @@
-import { Card, Input, Typography } from 'antd';
+import { Card, Input, Tabs, Typography } from 'antd';
 
-const { Title, Paragraph } = Typography;
+const { Title, Paragraph, Text } = Typography;
 
 interface PreviewConfigStepProps {
   configContent: string | null;
+  drbdConfigContent?: string | null;
 }
 
-export function PreviewConfigStep({ configContent }: PreviewConfigStepProps) {
+export function PreviewConfigStep({
+  configContent,
+  drbdConfigContent,
+}: PreviewConfigStepProps) {
+  const tabItems = [
+    {
+      key: 'reactor',
+      label: (
+        <span>
+          <strong>drbd-reactor</strong> Configuration
+        </span>
+      ),
+      children: (
+        <div className="space-y-4">
+          <Paragraph>
+            Below is the generated <code>drbd-reactor</code> promoter
+            configuration file.
+          </Paragraph>
+          <Input.TextArea
+            value={configContent || 'No configuration generated yet.'}
+            autoSize={{ minRows: 15, maxRows: 30 }}
+            readOnly
+            style={{ fontFamily: 'monospace' }}
+          />
+          <Paragraph type="secondary" className="mt-4">
+            This file will be deployed to{' '}
+            <code>/etc/drbd-reactor.d/{configContent ? '*.toml' : ''}</code> on
+            all cluster nodes.
+          </Paragraph>
+        </div>
+      ),
+    },
+  ];
+
+  if (drbdConfigContent) {
+    tabItems.push({
+      key: 'drbd',
+      label: (
+        <span>
+          <strong>DRBD</strong> Configuration
+        </span>
+      ),
+      children: (
+        <div className="space-y-4">
+          <Paragraph>
+            Below is the generated <code>DRBD</code> resource configuration
+            file.
+          </Paragraph>
+          <Input.TextArea
+            value={drbdConfigContent}
+            autoSize={{ minRows: 15, maxRows: 30 }}
+            readOnly
+            style={{ fontFamily: 'monospace' }}
+          />
+          <Paragraph type="secondary" className="mt-4">
+            This file is deployed to <code>/etc/drbd.d/</code> on all cluster
+            nodes.
+          </Paragraph>
+        </div>
+      ),
+    });
+  }
+
   return (
-    <Card title="Generated Configuration" className="max-w-4xl mx-auto">
-      <Paragraph>
-        Below is the generated <code>drbd-reactor</code> configuration file.
+    <Card title="Configuration Preview" className="max-w-4xl mx-auto">
+      <Paragraph className="mb-4">
+        Review the generated configurations before activating the HA profile.
       </Paragraph>
-      <Input.TextArea
-        value={configContent || 'No configuration generated yet.'}
-        autoSize={{ minRows: 15, maxRows: 30 }}
-        readOnly
-        style={{ fontFamily: 'monospace' }}
-      />
-      <Paragraph type="secondary" className="mt-4">
-        This file is deployed to <code>/etc/drbd-reactor.d/</code> on all
-        cluster nodes.
-      </Paragraph>
+      <Tabs defaultActiveKey="reactor" items={tabItems} />
     </Card>
   );
 }
