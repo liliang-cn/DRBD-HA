@@ -191,10 +191,11 @@ export function DeploymentStatusStep({
           statusData.service_statuses.length > 0 &&
           statusData.service_statuses.every((s: any) => s.active) ? (
             <Card
-              className="shadow-sm border-l-4 mb-6"
+              className="shadow-sm border-l-4"
               style={{
                 borderLeftColor: ACCENT_COLORS.mint,
                 borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+                marginBottom: '24px',
               }}
             >
               <div className="flex items-start gap-4">
@@ -232,10 +233,11 @@ export function DeploymentStatusStep({
             </Card>
           ) : statusData.status !== 'active' ? (
             <Card
-              className="shadow-sm border-l-4 mb-6"
+              className="shadow-sm border-l-4"
               style={{
                 borderLeftColor: ACCENT_COLORS.gold,
                 borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+                marginBottom: '24px',
               }}
             >
               <div className="flex items-start gap-4">
@@ -279,9 +281,10 @@ export function DeploymentStatusStep({
 
           {/* Status Overview */}
           <Card
-            className="shadow-sm mb-6"
+            className="shadow-sm"
             style={{
               borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+              marginBottom: '24px',
             }}
           >
             <div className="flex items-center gap-3 mb-4">
@@ -395,7 +398,7 @@ export function DeploymentStatusStep({
           {/* DRBD Status */}
           {statusData.drbd && (
             <Card
-              className="shadow-sm mb-6"
+              className="shadow-sm"
               title={
                 <div className="flex items-center gap-3">
                   <div
@@ -414,6 +417,7 @@ export function DeploymentStatusStep({
               }
               style={{
                 borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+                marginBottom: '24px',
               }}
             >
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -573,9 +577,10 @@ export function DeploymentStatusStep({
                   <span>DRBD Reactor Status</span>
                 </div>
               }
-              className="shadow-sm mb-6"
+              className="shadow-sm"
               style={{
                 borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+                marginBottom: '24px',
               }}
             >
               <pre
@@ -615,9 +620,10 @@ export function DeploymentStatusStep({
                     <span>Service Status</span>
                   </div>
                 }
-                className="shadow-sm mb-6"
+                className="shadow-sm"
                 style={{
                   borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+                  marginBottom: '24px',
                 }}
               >
                 <div className="space-y-3">
@@ -694,9 +700,10 @@ export function DeploymentStatusStep({
                     <span>Configured Nodes</span>
                   </div>
                 }
-                className="shadow-sm mb-6"
+                className="shadow-sm"
                 style={{
                   borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+                  marginBottom: '24px',
                 }}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
