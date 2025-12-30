@@ -4,6 +4,7 @@ import { MainLayout } from '@/components/layout/MainLayout';
 // import { Resources } from '@/pages/Resources';
 import { HaProfiles } from '@/pages/HaProfiles';
 import { ServiceHaWizard } from '@/pages/ServiceHaWizard';
+import { OcfAgentEditorPage } from '@/pages/OcfAgentEditorPage';
 
 export const router = createBrowserRouter([
   {
@@ -17,6 +18,7 @@ export const router = createBrowserRouter([
       // { path: 'resources/create', element: <Resources /> },
       // { path: 'logs', element: <Logs /> },
       { path: 'service-ha/create', element: <ServiceHaWizard /> },
+      { path: 'profiles/:profileId/ocf-edit', element: <OcfAgentEditorPage /> },
     ],
   },
 ]);

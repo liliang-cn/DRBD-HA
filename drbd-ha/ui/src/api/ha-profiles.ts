@@ -5,6 +5,91 @@ import type {
 } from '@/types';
 import { api } from './client';
 
+// Types for parsed TOML with OCF agents (matching backend toml_parse.rs)
+export interface ParsedOcfAgent {
+  original: string;
+  provider: string;
+  agent_type: string;
+  instance_name: string;
+  params: Record<string, string>;
+}
+
+// A generic item in the start/stop array
+export interface StartArrayItem {
+  original: string;
+  is_ocf: boolean;
+  ocf_agent: ParsedOcfAgent | null;
+}
+
+export interface OcfAgentPosition {
+  section: string;
+  array_index: number | null;
+  key: string;
+  index: number;
+}
+
+// ResourceAgent metadata matching backend all_agents.ts format
+export interface ResourceAgent {
+  name: string;
+  version: string;
+  shortdesc: string;
+  longdesc: string;
+  parameters: Parameter[];
+  actions: Action[];
+}
+
+export interface Parameter {
+  name: string;
+  unique: boolean;
+  required: boolean;
+  shortdesc: string;
+  longdesc: string;
+  type: string;
+  default: string;
+}
+
+export interface Action {
+  name: string;
+  timeout: string;
+  interval: string;
+  depth: string;
+}
+
+export interface OcfAgentWithMetadata {
+  position: OcfAgentPosition;
+  item: StartArrayItem;
+  metadata: ResourceAgent | null;
+}
+
+export interface TomlItem {
+  key: string;
+  value: string;
+  is_ocf_agent: boolean;
+  parsed_agent: ParsedOcfAgent | null;
+}
+
+export interface TomlSection {
+  name: string;
+  is_array: boolean;
+  items: TomlItem[];
+}
+
+export interface TomlWithAgents {
+  sections: TomlSection[];
+  ocf_agents: OcfAgentWithMetadata[];
+}
+
+export interface TomlWithAgentsResponse {
+  profile: string;
+  path: string;
+  content: TomlWithAgents;
+}
+
+// All resource agents grouped by provider (dynamically generated from backend)
+export interface ResourceAgentsByProvider {
+  providers: Record<string, ResourceAgent[]>;
+}
+
 export const haProfilesApi = {
   list: () => api.get<{ profiles: HaProfile[] }>('/ha/profiles'),
 
@@ -99,4 +184,34 @@ export const haProfilesApi = {
 
   importProfiles: (names: string[]) =>
     api.post<{ imported: string[]; failed: string[] }>('/ha/import', { names }),
+
+  // TOML editing
+  getToml: (id: string) =>
+    api.get<{
+      profile: string;
+      content: string;
+      path: string;
+    }>(`/ha/profiles/${id}/toml`),
+
+  updateToml: (id: string, content: string) =>
+    api.put<{
+      profile: string;
+      content: string;
+      path: string;
+    }>(`/ha/profiles/${id}/toml`, { content }),
+
+  syncToml: (id: string) =>
+    api.post<{
+      profile: string;
+      synced_nodes: string[];
+      message: string;
+      success: boolean;
+    }>(`/ha/profiles/${id}/toml/sync`),
+
+  parseToml: (id: string) =>
+    api.get<TomlWithAgentsResponse>(`/ha/profiles/${id}/toml/parse`),
+
+  // Resource agents (dynamically generated from OCF meta-data)
+  getAllResourceAgents: () =>
+    api.get<ResourceAgentsByProvider>('/ha/resource-agents/all'),
 };

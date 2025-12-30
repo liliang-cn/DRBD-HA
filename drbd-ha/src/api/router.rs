@@ -80,11 +80,16 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ha/profiles/{id}/{node}/enable", post(ha::enable_profile_on_node))
         .route("/ha/profiles/{id}/vip", post(ha::add_vip))
         .route("/ha/profiles/{id}/vip", delete(ha::remove_vip))
+        .route("/ha/profiles/{id}/toml", get(ha::get_profile_toml))
+        .route("/ha/profiles/{id}/toml", axum::routing::put(ha::update_profile_toml))
+        .route("/ha/profiles/{id}/toml/sync", post(ha::sync_profile_toml))
+        .route("/ha/profiles/{id}/toml/parse", get(ha::parse_profile_toml))
         // Discovery and Import
         .route("/ha/unmanaged", get(ha::list_unmanaged_profiles))
         .route("/ha/import", post(ha::import_profiles))
         // Resource Agent management
         .route("/ha/resource-agents", get(ha::list_resource_agents))
+        .route("/ha/resource-agents/all", get(ha::list_all_resource_agents))
         .route(
             "/ha/resource-agents/{provider}/{agent}",
             get(ha::get_resource_agent_metadata),
