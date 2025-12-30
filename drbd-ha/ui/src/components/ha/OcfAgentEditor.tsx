@@ -31,7 +31,7 @@ import {
   Modal,
   Select,
 } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -532,7 +532,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   const { theme: currentTheme } = useThemeStore();
   const [form] = Form.useForm();
 
-  const [loading, setLoading] = useState(false);
+  const loadingRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -571,24 +571,13 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     })
   );
 
-  // 加载 TOML 并解析 OCF agents
-  useEffect(() => {
-    if (profile) {
-      loadParsedAgents();
-    }
-  }, [profile]);
-
-  // 加载所有可用的 resource agents（异步）
-  useEffect(() => {
-    if (parsedAgents.length > 0) {
-      loadAllResourceAgents();
-    }
-  }, [parsedAgents]);
-
   const loadParsedAgents = async () => {
     if (!profile) return;
 
-    setLoading(true);
+    // 防止重复调用（React.StrictMode会导致effect执行两次）
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+
     try {
       const result = await haProfilesApi.parseToml(profile.name);
 
@@ -618,7 +607,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     } catch (err) {
       message.error((err as { message: string }).message);
     } finally {
-      setLoading(false);
+      loadingRef.current = false;
     }
   };
 
@@ -631,6 +620,20 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       message.warning('Failed to load agent metadata');
     }
   };
+
+  // 加载 TOML 并解析 OCF agents
+  useEffect(() => {
+    if (profile) {
+      loadParsedAgents();
+    }
+  }, [profile]);
+
+  // 加载所有可用的 resource agents（异步，只加载一次）
+  useEffect(() => {
+    if (parsedAgents.length > 0 && !allAgents) {
+      loadAllResourceAgents();
+    }
+  }, [parsedAgents, allAgents]);
 
   const handleSave = async () => {
     if (!profile) return;
@@ -903,8 +906,9 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       // Generate default params from metadata
       const defaultParams: Record<string, string> = {};
       agentMetadata.parameters.forEach(param => {
-        if (param.default && param.default !== '') {
-          defaultParams[param.name] = param.default;
+        // Include required params and params with defaults
+        if (param.required || (param.default && param.default !== '')) {
+          defaultParams[param.name] = param.default || '';
         }
       });
 
@@ -958,17 +962,6 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   const closeAddModal = () => {
     setAddModalVisible(false);
   };
-
-  if (loading) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px' }}>
-        <Spin size="large" />
-        <div style={{ marginTop: '16px' }}>
-          <Text>Loading OCF agents...</Text>
-        </div>
-      </div>
-    );
-  }
 
   if (!profile) {
     return (
@@ -1027,7 +1020,6 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
               <Button
                 icon={<ReloadOutlined />}
                 onClick={loadParsedAgents}
-                disabled={loading}
               >
                 Reload
               </Button>
@@ -1059,12 +1051,17 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
           <Text strong>Total OCF Agents:</Text>
           <Tag color="blue">{parsedAgents.length}</Tag>
 
-          {allAgents && (
+          {allAgents ? (
             <>
               <Text strong style={{ marginLeft: '16px' }}>Available Providers:</Text>
-              {Object.keys(allAgents.providers).map(provider => (
+              {Object.keys(allAgents.providers).sort().map(provider => (
                 <Tag key={provider} color="green">{provider}</Tag>
               ))}
+            </>
+          ) : (
+            <>
+              <Text strong style={{ marginLeft: '16px' }}>Loading OCF agent parameters...</Text>
+              <Spin size="small" />
             </>
           )}
         </Space>
@@ -1220,7 +1217,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
                   onChange={setSelectedProvider}
                   options={
                     allAgents
-                      ? Object.keys(allAgents.providers).map((p) => ({
+                      ? Object.keys(allAgents.providers).sort().map((p) => ({
                           label: p,
                           value: p,
                         }))

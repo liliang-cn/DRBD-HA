@@ -9,7 +9,6 @@ import {
   PlusOutlined,
   StopOutlined,
   ThunderboltOutlined,
-  CodeOutlined,
 } from '@ant-design/icons';
 import {
   Button,
@@ -34,7 +33,6 @@ import { useResourcesStore } from '@/stores/resources';
 import { useThemeStore } from '@/stores/theme';
 import { ACCENT_COLORS } from '@/theme/colors';
 import type { HaProfile, HaProfileStatus } from '@/types';
-import { TomlEditorModal } from '@/components/ha/TomlEditorModal';
 
 const { Title, Text } = Typography;
 
@@ -75,8 +73,6 @@ export function HaProfiles() {
   const [deleteResource, setDeleteResource] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editingProfile, setEditingProfile] = useState<HaProfile | null>(null);
 
   // Deletion Progress State
   const [progressModalOpen, setProgressModalOpen] = useState(false);
@@ -260,11 +256,6 @@ export function HaProfiles() {
     setProfileToDelete(profile);
     setDeleteResource(true);
     setDeleteModalOpen(true);
-  };
-
-  const openEditModal = (profile: HaProfile) => {
-    setEditingProfile(profile);
-    setEditModalOpen(true);
   };
 
   const handleDelete = async () => {
@@ -582,18 +573,9 @@ export function HaProfiles() {
                 <Button
                   size="small"
                   type="text"
-                  icon={<CodeOutlined />}
+                  icon={<EditOutlined />}
                   onClick={() => navigate(`/profiles/${record.name}/ocf-edit`)}
                   className="hover:!bg-purple-50"
-                />
-              </Tooltip>
-              <Tooltip title="Edit TOML">
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<EditOutlined />}
-                  onClick={() => openEditModal(record)}
-                  className="hover:!bg-blue-50"
                 />
               </Tooltip>
               <Tooltip title="Delete">
@@ -1689,20 +1671,6 @@ export function HaProfiles() {
       <ImportProfilesModal
         open={importModalOpen}
         onCancel={() => setImportModalOpen(false)}
-        onSuccess={() => {
-          fetch();
-          fetchResources();
-        }}
-      />
-
-      {/* Edit TOML Modal */}
-      <TomlEditorModal
-        visible={editModalOpen}
-        profile={editingProfile}
-        onCancel={() => {
-          setEditModalOpen(false);
-          setEditingProfile(null);
-        }}
         onSuccess={() => {
           fetch();
           fetchResources();
