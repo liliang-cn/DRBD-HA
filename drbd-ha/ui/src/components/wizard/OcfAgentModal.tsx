@@ -1,6 +1,7 @@
 import { AppstoreOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import {
   Button,
+  Divider,
   Form,
   Input,
   Layout,
@@ -47,11 +48,23 @@ export function OcfAgentModal({
   const [searchText, setSearchText] = useState('');
   const [selectedProvider, setSelectedProvider] = useState<string>('all');
 
+  const loadAgents = async () => {
+    setLoading(true);
+    try {
+      const list = await resourceAgentsApi.list();
+      setAgents(list);
+    } catch (_err) {
+      message.error('Failed to load resource agents');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (visible && step === 0) {
       loadAgents();
     }
-  }, [visible, step, loadAgents]);
+  }, [visible, step]);
 
   const providers = useMemo(() => {
     const unique = new Set(agents.map((a) => a.provider));
@@ -69,18 +82,6 @@ export function OcfAgentModal({
       return matchesProvider && matchesSearch;
     });
   }, [agents, selectedProvider, searchText]);
-
-  const loadAgents = async () => {
-    setLoading(true);
-    try {
-      const list = await resourceAgentsApi.list();
-      setAgents(list);
-    } catch (_err) {
-      message.error('Failed to load resource agents');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleAgentSelect = async (agent: AgentSummary) => {
     setSelectedAgentSummary(agent);
@@ -230,9 +231,7 @@ export function OcfAgentModal({
           <Input />
         </Form.Item>
 
-        <Divider orientation="left" plain>
-          Parameters
-        </Divider>
+        <Divider plain>Parameters</Divider>
 
         {metadata.parameters.parameter.map((param) => (
           <Form.Item
@@ -297,5 +296,3 @@ export function OcfAgentModal({
     </Modal>
   );
 }
-
-import { Divider } from 'antd';

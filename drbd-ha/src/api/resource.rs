@@ -17,6 +17,7 @@ use crate::core::{
     validator,
     DrbdConfigGenerator as ConfigGenerator, DrbdConfigPaths as ConfigPaths, NodeConfig, ResourceConfig,
 };
+use drbd_utils::allocate_minor;
 use lvm_utils::LvmCmd;
 use zfs_utils::ZfsCmd;
 use crate::error::{AppError, AppResult};
@@ -111,7 +112,18 @@ pub async fn create_resource(
     // Validate inputs
     validator::validate_resource_name(&req.name)?;
     validator::validate_port(req.port)?;
-    validator::validate_minor(req.minor)?;
+
+    // Auto-allocate minor number if not provided or is 0
+    let minor = if req.minor == 0 {
+        let allocated = allocate_minor();
+        validator::validate_minor(allocated)?;
+        allocated
+    } else {
+        // User specified a minor, validate it's available
+        validator::validate_minor(req.minor)?;
+        validator::validate_minor_available(req.minor)?;
+        req.minor
+    };
 
     if req.node_disks.is_empty() {
         return Err(AppError::Validation(
@@ -188,8 +200,8 @@ pub async fn create_resource(
     let temp_config = ResourceConfig {
         name: req.name.clone(),
         port: req.port,
-        minor: req.minor,
-        device: format!("/dev/drbd{}", req.minor),
+        minor,
+        device: format!("/dev/drbd{}", minor),
         nodes: temp_nodes,
         auto_promote: req.auto_promote,
         ..Default::default()
@@ -489,8 +501,8 @@ pub async fn create_resource(
     let resource_config = ResourceConfig {
         name: req.name.clone(),
         port: req.port,
-        minor: req.minor,
-        device: format!("/dev/drbd{}", req.minor),
+        minor,
+        device: format!("/dev/drbd{}", minor),
         nodes: node_configs,
         auto_promote: false, // Hardcoded as requested
         net_options,

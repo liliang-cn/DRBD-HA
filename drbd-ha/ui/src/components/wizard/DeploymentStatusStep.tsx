@@ -51,6 +51,7 @@ export function DeploymentStatusStep({
   const [loading, setLoading] = useState(true);
   const [statusData, setStatusData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shouldPoll, setShouldPoll] = useState(true);
   const { theme: currentTheme } = useThemeStore();
 
   const fetchStatus = async () => {
@@ -66,6 +67,11 @@ export function DeploymentStatusStep({
     try {
       const status = await haProfilesApi.getStatus(profileId);
       setStatusData(status);
+
+      // Stop polling if status is "active"
+      if (status.status === 'active') {
+        setShouldPoll(false);
+      }
     } catch (err) {
       const errMsg = (err as { message: string }).message;
       setError(errMsg);
@@ -76,8 +82,20 @@ export function DeploymentStatusStep({
   };
 
   useEffect(() => {
+    if (!shouldPoll) {
+      return; // Don't poll if we've reached active state
+    }
+
+    // Poll every 3 seconds
+    const interval = setInterval(() => {
+      fetchStatus();
+    }, 3000);
+
+    // Initial fetch
     fetchStatus();
-  }, [fetchStatus]);
+
+    return () => clearInterval(interval);
+  }, [profileId, shouldPoll]);
 
   if (loading) {
     return (
@@ -166,14 +184,14 @@ export function DeploymentStatusStep({
       </div>
 
       {statusData && (
-        <div className="flex-1 space-y-4 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto">
           {/* Success/Warning Message - Moved to top */}
           {statusData.status === 'active' &&
           statusData.service_statuses &&
           statusData.service_statuses.length > 0 &&
           statusData.service_statuses.every((s: any) => s.active) ? (
             <Card
-              className="shadow-sm border-l-4"
+              className="shadow-sm border-l-4 mb-6"
               style={{
                 borderLeftColor: ACCENT_COLORS.mint,
                 borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
@@ -214,7 +232,7 @@ export function DeploymentStatusStep({
             </Card>
           ) : statusData.status !== 'active' ? (
             <Card
-              className="shadow-sm border-l-4"
+              className="shadow-sm border-l-4 mb-6"
               style={{
                 borderLeftColor: ACCENT_COLORS.gold,
                 borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
@@ -261,7 +279,7 @@ export function DeploymentStatusStep({
 
           {/* Status Overview */}
           <Card
-            className="shadow-sm"
+            className="shadow-sm mb-6"
             style={{
               borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
             }}
@@ -377,6 +395,7 @@ export function DeploymentStatusStep({
           {/* DRBD Status */}
           {statusData.drbd && (
             <Card
+              className="shadow-sm mb-6"
               title={
                 <div className="flex items-center gap-3">
                   <div
@@ -393,7 +412,6 @@ export function DeploymentStatusStep({
                   <span>DRBD Resource Status</span>
                 </div>
               }
-              className="shadow-sm"
               style={{
                 borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
               }}
@@ -555,7 +573,7 @@ export function DeploymentStatusStep({
                   <span>DRBD Reactor Status</span>
                 </div>
               }
-              className="shadow-sm"
+              className="shadow-sm mb-6"
               style={{
                 borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
               }}
@@ -597,7 +615,7 @@ export function DeploymentStatusStep({
                     <span>Service Status</span>
                   </div>
                 }
-                className="shadow-sm"
+                className="shadow-sm mb-6"
                 style={{
                   borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
                 }}
@@ -676,7 +694,7 @@ export function DeploymentStatusStep({
                     <span>Configured Nodes</span>
                   </div>
                 }
-                className="shadow-sm"
+                className="shadow-sm mb-6"
                 style={{
                   borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
                 }}

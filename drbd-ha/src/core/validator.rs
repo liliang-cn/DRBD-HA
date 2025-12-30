@@ -5,6 +5,7 @@
 
 use crate::error::{AppError, AppResult};
 use crate::models::OcfAgentConfig;
+use drbd_utils::get_used_minors_from_config;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -141,11 +142,28 @@ pub fn validate_port(port: u16) -> AppResult<()> {
     Ok(())
 }
 
-/// Validate DRBD minor number (always 0 for volume 0)
+/// Validate DRBD minor number
+/// Validates that the minor number is in a valid range (0-1048575)
 pub fn validate_minor(minor: u32) -> AppResult<()> {
-    if minor != 0 {
+    // DRBD supports minor numbers from 0 to 1048575
+    const MAX_MINOR: u32 = 1048575;
+
+    if minor > MAX_MINOR {
         return Err(AppError::Validation(format!(
-            "DRBD minor {} is invalid. Volume 0 must use minor 0",
+            "DRBD minor {} is invalid. Maximum minor number is {}",
+            minor, MAX_MINOR
+        )));
+    }
+    Ok(())
+}
+
+/// Check if a minor number is already in use by existing resources
+pub fn validate_minor_available(minor: u32) -> AppResult<()> {
+    let used_minors = get_used_minors_from_config();
+
+    if used_minors.contains(&minor) {
+        return Err(AppError::Validation(format!(
+            "DRBD minor {} is already in use by another resource",
             minor
         )));
     }

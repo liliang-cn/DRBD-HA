@@ -16,7 +16,10 @@ pub use models::{
     ConnectionStatus, DeviceStatus, DrbdPeerStatus, DrbdResourceStatus, DrbdStatus,
     PeerDeviceStatus, ResourceStatus,
 };
-pub use parser::{convert_resource_status, parse_drbdadm_status, parse_res_file_for_nodes};
+pub use parser::{
+    allocate_minor, convert_resource_status, get_used_minors_from_config, parse_drbdadm_status,
+    parse_res_file_for_minors, parse_res_file_for_nodes,
+};
 pub use remote::{resolve_hostname_to_ip, CommandOutput, RemoteDrbdQuery, RemoteExecutor};
 pub use sync::{check_drbd_sync_complete, get_drbd_sync_status, SyncStatus, PeerSyncStatus};
 pub use verification::{

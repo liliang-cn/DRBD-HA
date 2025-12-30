@@ -199,7 +199,7 @@ resource {{ resource.name }} {
         node-id {{ node.node_id }};
         address {{ node.ip }}:{{ resource.port }};
         volume 0 {
-            device {{ resource.device }} minor {{ resource.minor }};
+            device {{ resource.device }};
             disk {{ node.disk }};
             meta-disk internal;
         }

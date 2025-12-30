@@ -1,5 +1,7 @@
 use crate::models::{DrbdPeerStatus, DrbdResourceStatus, ResourceStatus};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::Path;
 
 /// Parse DRBD res file to extract node information (hostname and IP)
 /// Returns a HashMap mapping hostname to IP address
@@ -124,6 +126,82 @@ pub fn parse_res_file_for_nodes(content: &str) -> HashMap<String, String> {
     }
 
     nodes
+}
+
+/// Parse DRBD res file to extract minor numbers from device lines
+/// Returns a HashSet of used minor numbers
+///
+/// Supports formats:
+///   device /dev/drbd0 minor 0;
+///   device /dev/drbd1;
+pub fn parse_res_file_for_minors(content: &str) -> HashSet<u32> {
+    let mut minors = HashSet::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Match "device /dev/drbdX" where X is the minor number
+        if trimmed.starts_with("device ") && trimmed.ends_with(';') {
+            let device_part = trimmed
+                .strip_prefix("device ")
+                .unwrap_or("")
+                .trim_end_matches(';')
+                .trim();
+
+            // Extract minor number from /dev/drbdX
+            if device_part.starts_with("/dev/drbd") {
+                let after_drbd = device_part.strip_prefix("/dev/drbd").unwrap_or("");
+                // Parse the number after "drbd"
+                if let Ok(minor) = after_drbd.parse::<u32>() {
+                    minors.insert(minor);
+                }
+            }
+        }
+    }
+
+    minors
+}
+
+/// Get all used minor numbers from existing .res files in /etc/drbd.d/
+/// Returns a HashSet of used minor numbers
+pub fn get_used_minors_from_config() -> HashSet<u32> {
+    let mut used_minors = HashSet::new();
+    let config_dir = Path::new("/etc/drbd.d");
+
+    if !config_dir.exists() {
+        return used_minors;
+    }
+
+    // Read all .res files in the directory
+    if let Ok(entries) = fs::read_dir(config_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("res") {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    let minors = parse_res_file_for_minors(&content);
+                    used_minors.extend(minors);
+                }
+            }
+        }
+    }
+
+    used_minors
+}
+
+/// Allocate a new minor number for a DRBD resource
+/// System-created resources start from 2000 and increment
+/// Returns the next available minor number
+pub fn allocate_minor() -> u32 {
+    const SYSTEM_MINOR_START: u32 = 2000;
+    let used_minors = get_used_minors_from_config();
+
+    // Start from 2000 and find the first available minor
+    let mut minor = SYSTEM_MINOR_START;
+    while used_minors.contains(&minor) {
+        minor += 1;
+    }
+
+    minor
 }
 
 /// Parse drbdadm status output into structured format

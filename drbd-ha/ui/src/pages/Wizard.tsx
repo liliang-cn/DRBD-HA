@@ -617,10 +617,12 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             `Failed on nodes: ${result.failed_nodes.map((n) => n[0]).join(', ')}`,
           );
         }
+        // After enable succeeds, move directly to Status step
+        setLoading(false);
         setActivationStatus('checking');
-        pollServiceStatus(createdProfileId);
-        // After enable starts, move to status step
         setStep(4);
+        // Start polling service status
+        pollServiceStatus(createdProfileId);
       } catch (err) {
         const errMsg = (err as { message: string }).message;
         setActivationStatus('error');
@@ -728,17 +730,10 @@ export function Wizard({ mode = 'service' }: WizardProps) {
               configContent={generatedConfig}
               drbdConfigContent={createdDrbdConfig}
             />
-            {activationStatus !== 'pending' && (
-              <DeploymentStatusStep
-                profileId={createdProfileId}
-                profileName={createdProfileName}
-                onDone={handleDone}
-              />
-            )}
           </div>
         );
       case 4:
-        // Status step
+        // Status step - final step showing deployment status
         return (
           <DeploymentStatusStep
             profileId={createdProfileId}
@@ -813,26 +808,30 @@ export function Wizard({ mode = 'service' }: WizardProps) {
                 icon={<ArrowLeftOutlined />}
                 onClick={step === 0 ? () => navigate('/') : handlePrev}
                 className="hover:!bg-slate-100"
-                disabled={step === 3 && activationStatus !== 'pending'}
               >
                 {step === 0 ? 'Cancel' : 'Previous'}
               </Button>
             )}
 
-            {step < 4 ? (
+            {step < 3 ? (
               <Button
                 type="primary"
                 icon={<ArrowRightOutlined />}
                 onClick={handleNext}
                 loading={loading}
                 className="!h-10 !px-6"
-                disabled={step === 3 && activationStatus === 'checking'}
               >
-                {step === 2
-                  ? 'Create Profile'
-                  : step === 3
-                    ? 'Activate'
-                    : 'Next'}
+                Next
+              </Button>
+            ) : step === 3 ? (
+              <Button
+                type="primary"
+                icon={<ArrowRightOutlined />}
+                onClick={handleNext}
+                loading={loading}
+                className="!h-10 !px-6"
+              >
+                Activate
               </Button>
             ) : null}
           </div>
