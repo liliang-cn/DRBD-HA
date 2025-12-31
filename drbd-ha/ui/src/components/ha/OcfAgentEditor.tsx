@@ -117,6 +117,8 @@ function SortableAgentItem({
   onAddParam,
   addedParams,
 }: SortableItemProps) {
+  // Get stable key for addedParams lookup (use original position.index)
+  const stableKey = agentWithMeta.position.index;
   const {
     attributes,
     listeners,
@@ -447,7 +449,7 @@ function SortableAgentItem({
                 <Button
                   size="small"
                   icon={<PlusOutlined />}
-                  onClick={() => onAddParam && onAddParam(index)}
+                  onClick={() => onAddParam && onAddParam(stableKey)}
                 >
                   Add Parameter
                 </Button>
@@ -466,7 +468,7 @@ function SortableAgentItem({
                       size="small"
                       danger
                       icon={<MinusCircleOutlined />}
-                      onClick={() => onRemoveParam(index, paramName)}
+                      onClick={() => onRemoveParam(stableKey, paramName)}
                       style={{
                         position: 'absolute',
                         right: '0',
@@ -478,7 +480,7 @@ function SortableAgentItem({
               })}
 
               {/* Show manually added parameters */}
-              {Array.from(addedParams.get(index) || []).map((paramName) => {
+              {Array.from(addedParams.get(stableKey) || []).map((paramName) => {
                 const param = metadata.parameters.find(p => p.name === paramName);
                 if (!param || ocfAgent?.params?.[paramName] !== undefined) return null;
 
@@ -490,7 +492,7 @@ function SortableAgentItem({
                       size="small"
                       danger
                       icon={<MinusCircleOutlined />}
-                      onClick={() => onRemoveParam(index, paramName)}
+                      onClick={() => onRemoveParam(stableKey, paramName)}
                       style={{
                         position: 'absolute',
                         right: '0',
@@ -558,6 +560,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   const [systemdUnit, setSystemdUnit] = useState<string>('');
 
   // Track manually added parameters for each agent
+  // Key is the original position.index from TOML (stable across reorders)
   const [addedParams, setAddedParams] = useState<Map<number, Set<string>>>(new Map());
 
   // Add parameter modal state
@@ -784,19 +787,8 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
         const newAgentsData = arrayMove(currentValues.agents || [], oldIndex, newIndex);
         form.setFieldValue('agents', newAgentsData);
 
-        // Update addedParams tracking to match new indices
-        const newAddedParams = new Map<number, Set<string>>();
-        updatedAgents.forEach((agent, newIdx) => {
-          // Find original index before drag
-          const origIdx = parsedAgents.indexOf(agent);
-          const params = addedParams.get(origIdx);
-          if (params) {
-            newAddedParams.set(newIdx, params);
-          }
-        });
-
+        // No need to update addedParams - it uses stable keys (position.index)
         setParsedAgents(updatedAgents);
-        setAddedParams(newAddedParams);
       }
     }
   };
@@ -830,34 +822,21 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     const newAgentsData = (currentValues.agents || []).filter((_: any, i: number) => i !== index);
     form.setFieldValue('agents', newAgentsData);
 
-    // Update addedParams - shift indices down
-    const newAddedParams = new Map<number, Set<string>>();
-    updatedAgents.forEach((agent, newIdx) => {
-      // Find original index before deletion
-      const origIdx = parsedAgents.indexOf(agent);
-      if (origIdx < index) {
-        // Before deleted item - keep same index
-        const params = addedParams.get(origIdx);
-        if (params) {
-          newAddedParams.set(newIdx, params);
-        }
-      } else if (origIdx > index) {
-        // After deleted item - shift index down
-        const params = addedParams.get(origIdx);
-        if (params) {
-          newAddedParams.set(newIdx, params);
-        }
-      }
-    });
+    // No need to update addedParams - it uses stable keys (position.index)
+    // The deleted agent's params will be unused
 
     setParsedAgents(updatedAgents);
-    setAddedParams(newAddedParams);
     message.success('Agent removed');
   };
 
   // 删除参数
-  const handleRemoveParam = (index: number, paramName: string) => {
-    const agent = parsedAgents[index];
+  // index parameter is now the stable position.index, not array index
+  const handleRemoveParam = (stableKey: number, paramName: string) => {
+    // Find agent by stable position.index
+    const arrayIndex = parsedAgents.findIndex(a => a.position.index === stableKey);
+    if (arrayIndex === -1) return;
+
+    const agent = parsedAgents[arrayIndex];
     if (!agent.item.ocf_agent) return;
 
     // Remove from params
@@ -877,23 +856,39 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     };
 
     const newAgents = [...parsedAgents];
-    newAgents[index] = newAgent;
+    newAgents[arrayIndex] = newAgent;
     setParsedAgents(newAgents);
 
     // Update form
     const currentValues = form.getFieldsValue();
-    if (currentValues.agents?.[index]?.params) {
-      const newFormParams = { ...currentValues.agents[index].params };
+    if (currentValues.agents?.[arrayIndex]?.params) {
+      const newFormParams = { ...currentValues.agents[arrayIndex].params };
       delete newFormParams[paramName];
-      form.setFieldValue(['agents', index, 'params'], newFormParams);
+      form.setFieldValue(['agents', arrayIndex, 'params'], newFormParams);
     }
+
+    // Remove from addedParams tracking
+    setAddedParams(prev => {
+      const newMap = new Map(prev);
+      const params = newMap.get(stableKey);
+      if (params) {
+        params.delete(paramName);
+        if (params.size === 0) {
+          newMap.delete(stableKey);
+        } else {
+          newMap.set(stableKey, params);
+        }
+      }
+      return newMap;
+    });
 
     message.success(`Parameter ${paramName} removed`);
   };
 
   // 打开添加参数Modal
-  const handleAddParam = (index: number) => {
-    setCurrentAgentIndex(index);
+  // index parameter is now the stable position.index
+  const handleAddParam = (stableKey: number) => {
+    setCurrentAgentIndex(stableKey);
     setSelectedParam('');
     setAddParamModalVisible(true);
   };
@@ -905,8 +900,12 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       return;
     }
 
-    const index = currentAgentIndex;
-    const agent = parsedAgents[index];
+    const stableKey = currentAgentIndex;
+    // Find agent by stable position.index
+    const arrayIndex = parsedAgents.findIndex(a => a.position.index === stableKey);
+    if (arrayIndex === -1) return;
+
+    const agent = parsedAgents[arrayIndex];
     if (!agent.item.ocf_agent || !agent.metadata) return;
 
     // Find parameter metadata
@@ -930,23 +929,23 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     };
 
     const newAgents = [...parsedAgents];
-    newAgents[index] = newAgent;
+    newAgents[arrayIndex] = newAgent;
     setParsedAgents(newAgents);
 
     // Update form
     const currentValues = form.getFieldsValue();
-    const params = currentValues.agents?.[index]?.params || {};
-    form.setFieldValue(['agents', index, 'params'], {
+    const params = currentValues.agents?.[arrayIndex]?.params || {};
+    form.setFieldValue(['agents', arrayIndex, 'params'], {
       ...params,
       [selectedParam]: paramMeta.default || '',
     });
 
-    // Add to addedParams tracking
+    // Add to addedParams tracking using stable key
     setAddedParams(prev => {
       const newMap = new Map(prev);
-      const existing = newMap.get(index) || new Set();
+      const existing = newMap.get(stableKey) || new Set();
       existing.add(selectedParam);
-      newMap.set(index, existing);
+      newMap.set(stableKey, existing);
       return newMap;
     });
 
