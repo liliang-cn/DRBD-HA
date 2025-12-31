@@ -478,7 +478,7 @@ function SortableAgentItem({
               })}
 
               {/* Show manually added parameters */}
-              {(addedParams.get(index) || []).map((paramName) => {
+              {Array.from(addedParams.get(index) || []).map((paramName) => {
                 const param = metadata.parameters.find(p => p.name === paramName);
                 if (!param || ocfAgent?.params?.[paramName] !== undefined) return null;
 
