@@ -1212,7 +1212,8 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
                       const metadata = agentWithMeta.metadata || matchedMetadata;
                       const isLoadingMetadata = item.is_ocf && !metadata && !allAgents;
 
-                      const id = `${position.section}-${position.key}-${index}`;
+                      // Use simple agent-{index} ID to match items array
+                      const id = `agent-${index}`;
 
                       return (
                         <SortableAgentItem
