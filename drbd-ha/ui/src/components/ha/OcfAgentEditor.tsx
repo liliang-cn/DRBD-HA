@@ -31,7 +31,7 @@ import {
   Modal,
   Select,
 } from 'antd';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -1076,7 +1076,11 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
 
   // Generate IDs for DnD - use array index for DnD Kit
   // DnD Kit needs items array to match the rendering order
-  const items = parsedAgents.map((_, index) => `agent-${index}`);
+  // Memoize to prevent unnecessary re-renders during drag
+  const items = useMemo(
+    () => parsedAgents.map((_, index) => `agent-${index}`),
+    [parsedAgents.length]  // Only regenerate when length changes
+  );
 
   // Generate OCF string from agent data
   const generateAgentString = (itemWithMeta: OcfAgentWithMetadata, index: number): string => {
