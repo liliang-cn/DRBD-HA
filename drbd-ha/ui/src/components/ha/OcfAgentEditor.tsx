@@ -757,15 +757,15 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     const { active, over } = event;
 
     if (over && active.id !== over.id) {
-      const oldIndex = parsedAgents.findIndex((item) => {
+      // Find items using the same stable ID generation logic
+      const getItemId = (item: OcfAgentWithMetadata) => {
         const { position } = item;
-        return `${position.section}-${position.key}-${parsedAgents.indexOf(item)}` === active.id;
-      });
+        const stableIndex = position.index ?? position.array_index ?? parsedAgents.indexOf(item);
+        return `${position.section}-${position.key}-${stableIndex}`;
+      };
 
-      const newIndex = parsedAgents.findIndex((item) => {
-        const { position } = item;
-        return `${position.section}-${position.key}-${parsedAgents.indexOf(item)}` === over.id;
-      });
+      const oldIndex = parsedAgents.findIndex((item) => getItemId(item) === active.id);
+      const newIndex = parsedAgents.findIndex((item) => getItemId(item) === over.id);
 
       if (oldIndex !== -1 && newIndex !== -1) {
         const newAgents = arrayMove(parsedAgents, oldIndex, newIndex);
@@ -1021,10 +1021,13 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     );
   }
 
-  // Generate IDs for DnD
-  const items = parsedAgents.map((agentWithMeta, index) => {
+  // Generate IDs for DnD - use position.index to ensure stable ordering
+  // The position.index from backend preserves the original TOML order
+  const items = parsedAgents.map((agentWithMeta) => {
     const { position } = agentWithMeta;
-    return `${position.section}-${position.key}-${index}`;
+    // Use original position index if available, otherwise use array index
+    const stableIndex = position.index ?? position.array_index ?? parsedAgents.indexOf(agentWithMeta);
+    return `${position.section}-${position.key}-${stableIndex}`;
   });
 
   // Generate OCF string from agent data
