@@ -117,8 +117,9 @@ function SortableAgentItem({
   onAddParam,
   addedParams,
 }: SortableItemProps) {
-  // Use instanceId as the stable key (never changes, even after drag/reorder)
-  const stableKey = (agentWithMeta as any).instanceId;
+  // Get instanceId for stable key lookup
+  // Fallback to array index if instanceId not set
+  const stableKey = (agentWithMeta as any).instanceId ?? index;
   const {
     attributes,
     listeners,
@@ -621,9 +622,9 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       setParsedAgents(agentsWithIds);
       setNextInstanceId(instanceIdCounter);  // Next new agent will use this
 
-      // Initialize form with agent data
+      // Initialize form with agent data (use agentsWithIds, not startAgents)
       const initialValues = {
-        agents: startAgents.map(agentWithMeta => {
+        agents: agentsWithIds.map(agentWithMeta => {
           if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
             return {
               params: agentWithMeta.item.ocf_agent.params,
@@ -771,18 +772,11 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     const { active, over } = event;
 
     if (over && active.id !== over.id) {
-      // Find items by instanceId
-      const oldIndex = parsedAgents.findIndex((item) => {
-        const instanceId = (item as any).instanceId;
-        return `agent-${instanceId}` === active.id;
-      });
+      // Extract array indices from IDs
+      const oldIndex = parseInt(String(active.id).replace('agent-', ''));
+      const newIndex = parseInt(String(over.id).replace('agent-', ''));
 
-      const newIndex = parsedAgents.findIndex((item) => {
-        const instanceId = (item as any).instanceId;
-        return `agent-${instanceId}` === over.id;
-      });
-
-      if (oldIndex !== -1 && newIndex !== -1) {
+      if (oldIndex >= 0 && newIndex >= 0) {
         const newAgents = arrayMove(parsedAgents, oldIndex, newIndex);
 
         // Update form order - preserve all agent data including params
@@ -826,10 +820,10 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   };
 
   // 删除参数
-  // index parameter is now the stable position.index, not array index
+  // stableKey parameter is the instanceId
   const handleRemoveParam = (stableKey: number, paramName: string) => {
-    // Find agent by stable position.index
-    const arrayIndex = parsedAgents.findIndex(a => a.position.index === stableKey);
+    // Find agent by instanceId
+    const arrayIndex = parsedAgents.findIndex((a: any) => a.instanceId === stableKey);
     if (arrayIndex === -1) return;
 
     const agent = parsedAgents[arrayIndex];
@@ -882,7 +876,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   };
 
   // 打开添加参数Modal
-  // index parameter is now the stable position.index
+  // stableKey parameter is the instanceId
   const handleAddParam = (stableKey: number) => {
     setCurrentAgentIndex(stableKey);
     setSelectedParam('');
@@ -897,8 +891,8 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     }
 
     const stableKey = currentAgentIndex;
-    // Find agent by stable position.index
-    const arrayIndex = parsedAgents.findIndex(a => a.position.index === stableKey);
+    // Find agent by instanceId
+    const arrayIndex = parsedAgents.findIndex((a: any) => a.instanceId === stableKey);
     if (arrayIndex === -1) return;
 
     const agent = parsedAgents[arrayIndex];
@@ -1080,12 +1074,9 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     );
   }
 
-  // Generate IDs for DnD - use instanceId to ensure stable IDs across reorders
-  // instanceId is assigned once when loading and never changes
-  const items = parsedAgents.map((agentWithMeta, index) => {
-    const instanceId = (agentWithMeta as any).instanceId ?? index;
-    return `agent-${instanceId}`;
-  });
+  // Generate IDs for DnD - use array index for DnD Kit
+  // DnD Kit needs items array to match the rendering order
+  const items = parsedAgents.map((_, index) => `agent-${index}`);
 
   // Generate OCF string from agent data
   const generateAgentString = (itemWithMeta: OcfAgentWithMetadata, index: number): string => {
