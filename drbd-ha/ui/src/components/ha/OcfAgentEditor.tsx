@@ -763,6 +763,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       // Find items using the same stable ID generation logic
       const getItemId = (item: OcfAgentWithMetadata) => {
         const { position } = item;
+        // Use original position.index for stable ID
         const stableIndex = position.index ?? position.array_index ?? parsedAgents.indexOf(item);
         return `${position.section}-${position.key}-${stableIndex}`;
       };
@@ -773,22 +774,15 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       if (oldIndex !== -1 && newIndex !== -1) {
         const newAgents = arrayMove(parsedAgents, oldIndex, newIndex);
 
-        // Update position.index for all agents to reflect new order
-        const updatedAgents = newAgents.map((agent, idx) => ({
-          ...agent,
-          position: {
-            ...agent.position,
-            index: idx,
-          },
-        }));
+        // DO NOT update position.index - keep original value for stable tracking
+        // The array order changes, but position.index stays as the original TOML position
 
         // Update form order - preserve all agent data including params
         const currentValues = form.getFieldsValue();
         const newAgentsData = arrayMove(currentValues.agents || [], oldIndex, newIndex);
         form.setFieldValue('agents', newAgentsData);
 
-        // No need to update addedParams - it uses stable keys (position.index)
-        setParsedAgents(updatedAgents);
+        setParsedAgents(newAgents);
       }
     }
   };
@@ -808,14 +802,8 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   const deleteAgent = (index: number) => {
     const newAgents = parsedAgents.filter((_, i) => i !== index);
 
-    // Update position.index for remaining agents
-    const updatedAgents = newAgents.map((agent, idx) => ({
-      ...agent,
-      position: {
-        ...agent.position,
-        index: idx,
-      },
-    }));
+    // DO NOT update position.index - keep original value for stable tracking
+    // No need to rebuild the array, just filter
 
     // Update form
     const currentValues = form.getFieldsValue();
@@ -823,9 +811,9 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     form.setFieldValue('agents', newAgentsData);
 
     // No need to update addedParams - it uses stable keys (position.index)
-    // The deleted agent's params will be unused
+    // The deleted agent's params will be unused, but that's fine
 
-    setParsedAgents(updatedAgents);
+    setParsedAgents(newAgents);
     message.success('Agent removed');
   };
 
