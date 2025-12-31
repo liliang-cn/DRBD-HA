@@ -207,7 +207,7 @@ pub async fn get_profile(
 }
 
 /// Helper function to fetch detailed profile status
-async fn fetch_profile_details(
+pub async fn fetch_profile_details(
     state: Arc<AppState>,
     id_or_name: String,
 ) -> AppResult<Json<HaProfileDetailResponse>> {

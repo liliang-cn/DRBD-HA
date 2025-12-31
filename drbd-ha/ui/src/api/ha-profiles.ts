@@ -200,6 +200,16 @@ export const haProfilesApi = {
       path: string;
     }>(`/ha/profiles/${id}/toml`, { content }),
 
+  updateStartArray: (id: string, start: string[]) =>
+    api.put<{
+      profile: string;
+      content: string;
+      path: string;
+      synced_nodes: string[];
+      success: boolean;
+      message: string;
+    }>(`/ha/profiles/${id}/start-array`, { start }),
+
   syncToml: (id: string) =>
     api.post<{
       profile: string;

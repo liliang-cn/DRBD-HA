@@ -142,7 +142,7 @@ function SortableAgentItem({
 
   // Render form field for plain systemd unit
   const renderPlainUnitField = () => {
-    const fieldName = `agents[${index}].original`;
+    const fieldName = ['agents', index, 'original'];
 
     return (
       <Form.Item
@@ -391,138 +391,137 @@ function SortableAgentItem({
         </div>
 
         {/* Expanded content */}
-        {isExpanded && (
-          <div
-            style={{
-              padding: '16px',
-              borderTop: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Original string (for reference) */}
+        <div
+          style={{
+            padding: '16px',
+            borderTop: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
+            display: isExpanded ? 'block' : 'none',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Original string (for reference) */}
+          <div style={{ marginBottom: '16px' }}>
+            <Text type="secondary">Original:</Text>
+            <div
+              style={{
+                marginTop: '4px',
+                padding: '8px',
+                background: currentTheme === 'dark' ? '#0f172a' : '#f1f5f9',
+                borderRadius: '4px',
+                fontFamily: 'monospace',
+                fontSize: '12px',
+                wordBreak: 'break-all',
+              }}
+            >
+              {item.original}
+            </div>
+          </div>
+
+          {/* Plain systemd unit - simple input */}
+          {!isOcf && (
+            <div>
+              <Text strong>Systemd Unit Configuration</Text>
+              {renderPlainUnitField()}
+            </div>
+          )}
+
+          {/* OCF Agent with metadata */}
+          {isOcf && metadata && (
             <div style={{ marginBottom: '16px' }}>
-              <Text type="secondary">Original:</Text>
+              <Text strong style={{ fontSize: '14px' }}>
+                {metadata.name}
+              </Text>
+              {metadata.shortdesc && (
+                <div style={{ color: '#666', fontSize: '12px', marginTop: '4px' }}>
+                  {metadata.shortdesc}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Form fields with metadata */}
+          {isOcf && metadata && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <Text strong>Parameters</Text>
+                <Button
+                  size="small"
+                  icon={<PlusOutlined />}
+                  onClick={() => onAddParam && onAddParam(index)}
+                >
+                  Add Parameter
+                </Button>
+              </div>
+
+              {/* Only show parameters that exist in TOML or were added by user */}
+              {Object.keys(ocfAgent?.params || {}).map((paramName) => {
+                const param = metadata.parameters.find(p => p.name === paramName);
+                if (!param) return null;
+
+                return (
+                  <div key={paramName} style={{ position: 'relative', paddingRight: '40px' }}>
+                    {renderFormField(param)}
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<MinusCircleOutlined />}
+                      onClick={() => onRemoveParam(index, paramName)}
+                      style={{
+                        position: 'absolute',
+                        right: '0',
+                        top: param.type === 'boolean' ? '0' : '32px',
+                      }}
+                    />
+                  </div>
+                );
+              })}
+
+              {/* Show manually added parameters */}
+              {(addedParams.get(index) || []).map((paramName) => {
+                const param = metadata.parameters.find(p => p.name === paramName);
+                if (!param || ocfAgent?.params?.[paramName] !== undefined) return null;
+
+                return (
+                  <div key={paramName} style={{ position: 'relative', paddingRight: '40px' }}>
+                    {renderFormField(param)}
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<MinusCircleOutlined />}
+                      onClick={() => onRemoveParam(index, paramName)}
+                      style={{
+                        position: 'absolute',
+                        right: '0',
+                        top: param.type === 'boolean' ? '0' : '32px',
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* OCF Agent without metadata */}
+          {isOcf && !metadata && ocfAgent && (
+            <div>
+              <Text strong>Parsed Parameters:</Text>
               <div
                 style={{
-                  marginTop: '4px',
-                  padding: '8px',
+                  marginTop: '8px',
+                  padding: '12px',
                   background: currentTheme === 'dark' ? '#0f172a' : '#f1f5f9',
                   borderRadius: '4px',
-                  fontFamily: 'monospace',
-                  fontSize: '12px',
-                  wordBreak: 'break-all',
                 }}
               >
-                {item.original}
+                <pre style={{ margin: 0, fontSize: '12px' }}>
+                  {JSON.stringify(ocfAgent.params, null, 2)}
+                </pre>
               </div>
             </div>
-
-            {/* Plain systemd unit - simple input */}
-            {!isOcf && (
-              <div>
-                <Text strong>Systemd Unit Configuration</Text>
-                {renderPlainUnitField()}
-              </div>
-            )}
-
-            {/* OCF Agent with metadata */}
-            {isOcf && metadata && (
-              <div style={{ marginBottom: '16px' }}>
-                <Text strong style={{ fontSize: '14px' }}>
-                  {metadata.name}
-                </Text>
-                {metadata.shortdesc && (
-                  <div style={{ color: '#666', fontSize: '12px', marginTop: '4px' }}>
-                    {metadata.shortdesc}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Form fields with metadata */}
-            {isOcf && metadata && (
-              <div style={{ marginBottom: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <Text strong>Parameters</Text>
-                  <Button
-                    size="small"
-                    icon={<PlusOutlined />}
-                    onClick={() => onAddParam && onAddParam(index)}
-                  >
-                    Add Parameter
-                  </Button>
-                </div>
-
-                {/* Only show parameters that exist in TOML or were added by user */}
-                {Object.keys(ocfAgent?.params || {}).map((paramName) => {
-                  const param = metadata.parameters.find(p => p.name === paramName);
-                  if (!param) return null;
-
-                  return (
-                    <div key={paramName} style={{ position: 'relative', paddingRight: '40px' }}>
-                      {renderFormField(param)}
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<MinusCircleOutlined />}
-                        onClick={() => onRemoveParam(index, paramName)}
-                        style={{
-                          position: 'absolute',
-                          right: '0',
-                          top: param.type === 'boolean' ? '0' : '32px',
-                        }}
-                      />
-                    </div>
-                  );
-                })}
-
-                {/* Show manually added parameters */}
-                {(addedParams.get(index) || []).map((paramName) => {
-                  const param = metadata.parameters.find(p => p.name === paramName);
-                  if (!param || ocfAgent?.params?.[paramName] !== undefined) return null;
-
-                  return (
-                    <div key={paramName} style={{ position: 'relative', paddingRight: '40px' }}>
-                      {renderFormField(param)}
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<MinusCircleOutlined />}
-                        onClick={() => onRemoveParam(index, paramName)}
-                        style={{
-                          position: 'absolute',
-                          right: '0',
-                          top: param.type === 'boolean' ? '0' : '32px',
-                        }}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* OCF Agent without metadata */}
-            {isOcf && !metadata && ocfAgent && (
-              <div>
-                <Text strong>Parsed Parameters:</Text>
-                <div
-                  style={{
-                    marginTop: '8px',
-                    padding: '12px',
-                    background: currentTheme === 'dark' ? '#0f172a' : '#f1f5f9',
-                    borderRadius: '4px',
-                  }}
-                >
-                  <pre style={{ margin: 0, fontSize: '12px' }}>
-                    {JSON.stringify(ocfAgent.params, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </Card>
     </div>
   );
@@ -534,10 +533,13 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
 
   const loadingRef = useRef(false);
   const [saving, setSaving] = useState(false);
-  const [syncing, setSyncing] = useState(false);
 
   // 解析的 OCF agents（来自 start 数组）
   const [parsedAgents, setParsedAgents] = useState<OcfAgentWithMetadata[]>([]);
+
+  // Original TOML content and resource name
+  const [originalToml, setOriginalToml] = useState<string>('');
+  const [resourceName, setResourceName] = useState<string>('');
 
   // Form values for live preview
   const [, forceUpdate] = useState({});
@@ -579,12 +581,29 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     loadingRef.current = true;
 
     try {
-      const result = await haProfilesApi.parseToml(profile.name);
+      // Load both parsed agents and original TOML
+      const [parseResult, tomlResult] = await Promise.all([
+        haProfilesApi.parseToml(profile.name),
+        haProfilesApi.getToml(profile.name),
+      ]);
+
+      // Save original TOML content
+      setOriginalToml(tomlResult.content);
+
+      // Extract resource name from parsed agents (first agent's section)
+      if (parseResult.content.ocf_agents.length > 0) {
+        const firstAgent = parseResult.content.ocf_agents[0];
+        // Extract resource name from position like "linstor_db"
+        setResourceName(firstAgent.position.section);
+      }
 
       // 只取 start 数组中的 agents
-      const startAgents = result.content.ocf_agents.filter(
+      const startAgents = parseResult.content.ocf_agents.filter(
         agent => agent.position.key === 'start'
       );
+
+      console.log('Loaded agents from backend:', startAgents);
+      console.log('Original TOML:', tomlResult.content);
 
       setParsedAgents(startAgents);
 
@@ -603,7 +622,20 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
           }
         }),
       };
-      form.setFieldsValue(initialValues);
+
+      console.log('Setting form initial values:', initialValues);
+
+      // Wait for React to render the Form.Item components before setting values
+      setTimeout(() => {
+        form.setFieldsValue(initialValues);
+
+        // Verify the form values were set correctly
+        setTimeout(() => {
+          const currentValues = form.getFieldsValue();
+          console.log('Form values after setting:', currentValues);
+          console.log('Form agents array:', currentValues.agents);
+        }, 50);
+      }, 50);
     } catch (err) {
       message.error((err as { message: string }).message);
     } finally {
@@ -638,57 +670,75 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   const handleSave = async () => {
     if (!profile) return;
 
+    setSaving(true);
     try {
-      const values = await form.validateFields();
-      console.log('Form values:', values);
+      // Get current form values (with fallback)
+      let values = form.getFieldsValue();
 
-      // Generate the updated start array
-      const updatedAgents = values.agents.map((agentData: any, index: number) => {
-        const originalAgent = parsedAgents[index].agent;
-        const params = agentData.params || originalAgent.params;
+      // Try to validate, but use current values if validation fails
+      try {
+        values = await form.validateFields();
+      } catch (validationError) {
+        console.warn('Form validation failed, using current values:', validationError);
+      }
 
-        // Generate OCF string
-        const { provider, agent_type, instance_name } = originalAgent;
-        const paramStr = Object.entries(params)
-          .map(([key, value]) => {
-            if (value.includes(' ') || value.includes(',') || value === '') {
-              return `${key}='${value}'`;
-            }
-            return `${key}=${value}`;
-          })
-          .join(' ');
+      // Debug logging
+      console.log('Form values on save:', values);
+      console.log('parsedAgents:', parsedAgents);
 
-        return `ocf:${provider}:${agent_type} ${instance_name} ${paramStr}`;
+      // Check if agents array exists
+      if (!values.agents || !Array.isArray(values.agents)) {
+        console.error('values.agents is missing or not an array:', values);
+        message.error('Form data is invalid. Please try reloading the page.');
+        return;
+      }
+
+      // Generate the updated start array strings
+      const startArrayItems = values.agents.map((agentData: any, index: number) => {
+        const item = parsedAgents[index].item;
+
+        if (item.is_ocf && item.ocf_agent) {
+          // OCF agent - generate string from form data
+          const params = agentData.params || item.ocf_agent.params;
+          const agent = item.ocf_agent;
+
+          // Generate parameter string
+          const paramStr = Object.entries(params)
+            .filter(([_, value]) => value !== undefined && value !== '')
+            .map(([key, value]) => {
+              if (value.includes(' ') || value.includes(',') || value === '') {
+                return `${key}='${value}'`;
+              }
+              return `${key}=${value}`;
+            })
+            .join(' ');
+
+          return `ocf:${agent.provider}:${agent.agent_type} ${agent.instance_name}${paramStr ? ' ' + paramStr : ''}`;
+        } else {
+          // Non-OCF item - use original value from form
+          return agentData.original || item.original;
+        }
       });
 
-      console.log('Updated agents:', updatedAgents);
-      message.info('Save functionality will be implemented - check console for output');
-      onSave?.();
-    } catch (err) {
-      console.error('Validation failed:', err);
-      message.error('Please fix validation errors');
-    }
-  };
-
-  const handleSync = async () => {
-    if (!profile) return;
-
-    setSyncing(true);
-    try {
-      const result = await haProfilesApi.syncToml(profile.name);
+      // Step 1: Update start array using the new API (automatically syncs and reloads drbd-reactor)
+      message.loading('Saving and syncing configuration...');
+      const result = await haProfilesApi.updateStartArray(profile.name, startArrayItems);
 
       if (result.success) {
-        message.success(
-          `TOML configuration synced to ${result.syncedNodes.length} node(s): ${result.syncedNodes.join(', ')}`
-        );
-        await loadParsedAgents();
+        message.success(result.message || `Configuration saved and synced to ${result.synced_nodes.length} node(s)`);
       } else {
-        message.info(result.message);
+        message.warning(result.message || 'Configuration saved but sync had issues');
       }
+
+      // Reload the parsed agents to reflect changes
+      await loadParsedAgents();
+
+      onSave?.();
     } catch (err) {
-      message.error((err as { message: string }).message);
+      console.error('Save failed:', err);
+      message.error(`Failed to save: ${(err as { message: string }).message}`);
     } finally {
-      setSyncing(false);
+      setSaving(false);
     }
   };
 
@@ -1024,13 +1074,6 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
                 Reload
               </Button>
               <Button
-                icon={<SyncOutlined spin={syncing} />}
-                onClick={handleSync}
-                disabled={syncing}
-              >
-                {syncing ? 'Syncing...' : 'Sync to Nodes'}
-              </Button>
-              <Button
                 type="primary"
                 icon={<SaveOutlined />}
                 onClick={handleSave}
@@ -1094,6 +1137,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
               layout="vertical"
               onFinish={handleSave}
               onValuesChange={() => forceUpdate({})}
+              initialValues={{ agents: [] }}
             >
               {/* OCF Agents List with Drag and Drop */}
               {parsedAgents.length === 0 ? (

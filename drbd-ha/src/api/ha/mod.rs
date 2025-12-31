@@ -12,7 +12,7 @@ pub mod types;
 pub mod utils;
 pub mod vip;
 
-// Re-export commonly used types
+// Re-export commonly used types and functions
 pub use control::*;
 pub use create::*;
 pub use delete::*;

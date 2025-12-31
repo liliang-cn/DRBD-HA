@@ -84,6 +84,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ha/profiles/{id}/toml", axum::routing::put(ha::update_profile_toml))
         .route("/ha/profiles/{id}/toml/sync", post(ha::sync_profile_toml))
         .route("/ha/profiles/{id}/toml/parse", get(ha::parse_profile_toml))
+        .route("/ha/profiles/{id}/start-array", axum::routing::put(ha::update_start_array))
         // Discovery and Import
         .route("/ha/unmanaged", get(ha::list_unmanaged_profiles))
         .route("/ha/import", post(ha::import_profiles))
