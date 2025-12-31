@@ -136,7 +136,9 @@ function SortableAgentItem({
   };
 
   const { item, position } = agentWithMeta;
-  const panelKey = `${position.section}-${position.key}-${index}`;
+  // Use instanceId for stable panel key across reorders
+  const instanceId = (agentWithMeta as any).instanceId ?? index;
+  const panelKey = `agent-${instanceId}`;
   const isExpanded = expandedKeys.has(panelKey);
 
   // Determine if this is an OCF agent or plain systemd unit
