@@ -117,8 +117,8 @@ function SortableAgentItem({
   onAddParam,
   addedParams,
 }: SortableItemProps) {
-  // Get stable key for addedParams lookup (use original position.index)
-  const stableKey = agentWithMeta.position.index;
+  // Use instanceId as the stable key (never changes, even after drag/reorder)
+  const stableKey = (agentWithMeta as any).instanceId;
   const {
     attributes,
     listeners,
@@ -560,11 +560,11 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   const [systemdUnit, setSystemdUnit] = useState<string>('');
 
   // Track manually added parameters for each agent
-  // Key is a unique ID (timestamp-based) that never changes
+  // Key is a unique instance ID that never changes
   const [addedParams, setAddedParams] = useState<Map<number, Set<string>>>(new Map());
 
-  // Counter for generating unique IDs for new agents
-  const [nextUniqueId, setNextUniqueId] = useState(0);
+  // Counter for generating unique instance IDs for agents
+  const [nextInstanceId, setNextInstanceId] = useState(0);
 
   // Add parameter modal state
   const [addParamModalVisible, setAddParamModalVisible] = useState(false);
@@ -611,12 +611,15 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       console.log('Loaded agents from backend:', startAgents);
       console.log('Original TOML:', tomlResult.content);
 
-      setParsedAgents(startAgents);
+      // Assign unique instance IDs to all agents (stored as a hidden property)
+      let instanceIdCounter = 0;
+      const agentsWithIds = startAgents.map(agent => ({
+        ...agent,
+        instanceId: instanceIdCounter++,  // Add instance ID property
+      }));
 
-      // Initialize nextUniqueId for new agents (max existing index + 1)
-      const maxIndex = startAgents.reduce((max, agent) =>
-        Math.max(max, agent.position.index ?? 0), 0);
-      setNextUniqueId(maxIndex + 1);
+      setParsedAgents(agentsWithIds);
+      setNextInstanceId(instanceIdCounter);  // Next new agent will use this
 
       // Initialize form with agent data
       const initialValues = {
@@ -768,22 +771,19 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     const { active, over } = event;
 
     if (over && active.id !== over.id) {
-      // Find items using the same stable ID generation logic
-      const getItemId = (item: OcfAgentWithMetadata) => {
-        const { position } = item;
-        // Use original position.index for stable ID
-        const stableIndex = position.index ?? position.array_index ?? parsedAgents.indexOf(item);
-        return `${position.section}-${position.key}-${stableIndex}`;
-      };
+      // Find items by instanceId
+      const oldIndex = parsedAgents.findIndex((item) => {
+        const instanceId = (item as any).instanceId;
+        return `agent-${instanceId}` === active.id;
+      });
 
-      const oldIndex = parsedAgents.findIndex((item) => getItemId(item) === active.id);
-      const newIndex = parsedAgents.findIndex((item) => getItemId(item) === over.id);
+      const newIndex = parsedAgents.findIndex((item) => {
+        const instanceId = (item as any).instanceId;
+        return `agent-${instanceId}` === over.id;
+      });
 
       if (oldIndex !== -1 && newIndex !== -1) {
         const newAgents = arrayMove(parsedAgents, oldIndex, newIndex);
-
-        // DO NOT update position.index - keep original value for stable tracking
-        // The array order changes, but position.index stays as the original TOML position
 
         // Update form order - preserve all agent data including params
         const currentValues = form.getFieldsValue();
@@ -959,14 +959,14 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
         return;
       }
 
-      const uniqueId = nextUniqueId;
+      const instanceId = nextInstanceId;
 
       const newAgent: OcfAgentWithMetadata = {
         position: {
           section: 'resources',
           array_index: null,
           key: 'start',
-          index: uniqueId,  // Use unique ID
+          index: parsedAgents.length,  // This is for TOML output, not tracking
         },
         item: {
           original: systemdUnit.trim(),
@@ -974,13 +974,14 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
           ocf_agent: null,
         },
         metadata: null,
-      };
+        instanceId,  // Unique instance ID for tracking
+      } as any;
 
       const newAgents = [...parsedAgents, newAgent];
       setParsedAgents(newAgents);
 
-      // Increment unique ID counter
-      setNextUniqueId(nextUniqueId + 1);
+      // Increment instance ID counter
+      setNextInstanceId(nextInstanceId + 1);
 
       // Update form
       const currentValues = form.getFieldsValue();
@@ -1015,15 +1016,15 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
 
       const instanceName = `${selectedAgent}_new`;
 
-      // Use nextUniqueId for new agent to ensure no conflicts with existing position.index values
-      const uniqueId = nextUniqueId;
+      // Use nextInstanceId as the unique instance ID
+      const instanceId = nextInstanceId;
 
       const newAgent: OcfAgentWithMetadata = {
         position: {
           section: 'resources',
           array_index: null,
           key: 'start',
-          index: uniqueId,  // Use unique ID instead of array length
+          index: parsedAgents.length,  // This is for TOML output, not tracking
         },
         item: {
           original: `ocf:${selectedProvider}:${selectedAgent} ${instanceName}`,
@@ -1037,13 +1038,14 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
           },
         },
         metadata: agentMetadata,
-      };
+        instanceId,  // Unique instance ID for tracking
+      } as any;
 
       const newAgents = [...parsedAgents, newAgent];
       setParsedAgents(newAgents);
 
-      // Increment unique ID counter for next agent
-      setNextUniqueId(nextUniqueId + 1);
+      // Increment instance ID counter for next agent
+      setNextInstanceId(nextInstanceId + 1);
 
       // Update form
       const currentValues = form.getFieldsValue();
@@ -1078,13 +1080,11 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     );
   }
 
-  // Generate IDs for DnD - use position.index to ensure stable ordering
-  // The position.index from backend preserves the original TOML order
-  const items = parsedAgents.map((agentWithMeta) => {
-    const { position } = agentWithMeta;
-    // Use original position index if available, otherwise use array index
-    const stableIndex = position.index ?? position.array_index ?? parsedAgents.indexOf(agentWithMeta);
-    return `${position.section}-${position.key}-${stableIndex}`;
+  // Generate IDs for DnD - use instanceId to ensure stable IDs across reorders
+  // instanceId is assigned once when loading and never changes
+  const items = parsedAgents.map((agentWithMeta, index) => {
+    const instanceId = (agentWithMeta as any).instanceId ?? index;
+    return `agent-${instanceId}`;
   });
 
   // Generate OCF string from agent data
