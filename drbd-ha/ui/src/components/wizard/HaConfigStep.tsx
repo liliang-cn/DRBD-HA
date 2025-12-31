@@ -1,6 +1,4 @@
 import {
-  DeleteOutlined,
-  PlusOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import type { FormInstance } from 'antd';
@@ -24,7 +22,7 @@ import {
 import { useEffect, useState } from 'react';
 import { useNodesStore } from '@/stores/nodes';
 import type { HaType, OcfAgentConfig, ServiceFileInfo } from '@/types';
-import { OcfAgentModal } from './OcfAgentModal';
+import { OcfAgentWizardEditor } from './OcfAgentWizardEditor';
 
 const { Text } = Typography;
 
@@ -52,7 +50,6 @@ export function HaConfigStep({
   resources,
   services,
 }: HaConfigStepProps) {
-  const [showAgentModal, setShowAgentModal] = useState(false);
   const { nodes } = useNodesStore();
   const [selectedResource, setSelectedResource] = useState<string | null>(null);
   const mountStrategy = Form.useWatch('mount_strategy', form);
@@ -229,73 +226,12 @@ export function HaConfigStep({
           </Row>
         </div>
 
-        {/* --- OCF Agents --- */}
-        <Divider>Additional Resource Agents</Divider>
-        <Form.List name="ocf_agents">
-          {(fields, { add, remove }) => (
-            <>
-              {fields.length > 0 && (
-                <List
-                  bordered
-                  className="mb-4 bg-white"
-                  dataSource={fields}
-                  renderItem={(field, _index) => {
-                    const agent = form.getFieldValue([
-                      'ocf_agents',
-                      field.name,
-                    ]) as OcfAgentConfig;
-                    return (
-                      <List.Item
-                        actions={[
-                          <Button
-                            key="delete"
-                            type="text"
-                            danger
-                            icon={<DeleteOutlined />}
-                            onClick={() => remove(field.name)}
-                          />,
-                        ]}
-                      >
-                        <List.Item.Meta
-                          title={`${agent.name} (${agent.instance_name})`}
-                          description={
-                            <Space size="small" wrap>
-                              {Object.entries(agent.params).map(([k, v]) => (
-                                <Text
-                                  key={k}
-                                  type="secondary"
-                                  style={{ fontSize: '12px' }}
-                                >
-                                  {k}={v}
-                                </Text>
-                              ))}
-                            </Space>
-                          }
-                        />
-                      </List.Item>
-                    );
-                  }}
-                />
-              )}
-              <Button
-                type="dashed"
-                onClick={() => setShowAgentModal(true)}
-                block
-                icon={<PlusOutlined />}
-              >
-                Add OCF Agent
-              </Button>
-              <OcfAgentModal
-                visible={showAgentModal}
-                onCancel={() => setShowAgentModal(false)}
-                onAdd={(agent) => {
-                  add(agent);
-                  setShowAgentModal(false);
-                }}
-              />
-            </>
-          )}
-        </Form.List>
+        {/* --- OCF Agents / Start Array Configuration --- */}
+        <OcfAgentWizardEditor
+          form={form}
+          resources={resources}
+          services={services.map(s => s.name)}
+        />
 
         {/* --- Advanced Options --- */}
         <Collapse
