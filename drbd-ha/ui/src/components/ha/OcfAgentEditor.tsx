@@ -1086,17 +1086,22 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
 
   // Generate OCF string from agent data
   const generateAgentString = (itemWithMeta: OcfAgentWithMetadata, index: number): string => {
-    // Directly use params from the item object, not from form
-    // This avoids index mismatch issues after drag/reorder
+    // Try to get current form values first (for real-time preview)
+    // Fall back to item params if form doesn't have the data yet
+    const formValues = form.getFieldsValue();
+    const formAgent = formValues?.agents?.[index];
+
     if (itemWithMeta.item.is_ocf && itemWithMeta.item.ocf_agent) {
       // OCF agent - use generateOcfString
       const agent = itemWithMeta.item.ocf_agent;
-      const params = agent.params || {};
+      // Use form params if available (real-time updates), otherwise use item params
+      const params = formAgent?.params || agent.params || {};
 
       return `    "${generateOcfString(agent, params)}"`;
     } else {
-      // Plain systemd unit - just use the original value
-      return `    "${itemWithMeta.item.original}"`;
+      // Plain systemd unit - prefer form value, fall back to item
+      const original = formAgent?.original || itemWithMeta.item.original;
+      return `    "${original}"`;
     }
   };
 
