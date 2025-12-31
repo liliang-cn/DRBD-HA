@@ -560,8 +560,11 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   const [systemdUnit, setSystemdUnit] = useState<string>('');
 
   // Track manually added parameters for each agent
-  // Key is the original position.index from TOML (stable across reorders)
+  // Key is a unique ID (timestamp-based) that never changes
   const [addedParams, setAddedParams] = useState<Map<number, Set<string>>>(new Map());
+
+  // Counter for generating unique IDs for new agents
+  const [nextUniqueId, setNextUniqueId] = useState(0);
 
   // Add parameter modal state
   const [addParamModalVisible, setAddParamModalVisible] = useState(false);
@@ -609,6 +612,11 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       console.log('Original TOML:', tomlResult.content);
 
       setParsedAgents(startAgents);
+
+      // Initialize nextUniqueId for new agents (max existing index + 1)
+      const maxIndex = startAgents.reduce((max, agent) =>
+        Math.max(max, agent.position.index ?? 0), 0);
+      setNextUniqueId(maxIndex + 1);
 
       // Initialize form with agent data
       const initialValues = {
@@ -951,12 +959,14 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
         return;
       }
 
+      const uniqueId = nextUniqueId;
+
       const newAgent: OcfAgentWithMetadata = {
         position: {
           section: 'resources',
           array_index: null,
           key: 'start',
-          index: parsedAgents.length,
+          index: uniqueId,  // Use unique ID
         },
         item: {
           original: systemdUnit.trim(),
@@ -968,6 +978,9 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
 
       const newAgents = [...parsedAgents, newAgent];
       setParsedAgents(newAgents);
+
+      // Increment unique ID counter
+      setNextUniqueId(nextUniqueId + 1);
 
       // Update form
       const currentValues = form.getFieldsValue();
@@ -1002,12 +1015,15 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
 
       const instanceName = `${selectedAgent}_new`;
 
+      // Use nextUniqueId for new agent to ensure no conflicts with existing position.index values
+      const uniqueId = nextUniqueId;
+
       const newAgent: OcfAgentWithMetadata = {
         position: {
           section: 'resources',
           array_index: null,
           key: 'start',
-          index: parsedAgents.length,
+          index: uniqueId,  // Use unique ID instead of array length
         },
         item: {
           original: `ocf:${selectedProvider}:${selectedAgent} ${instanceName}`,
@@ -1025,6 +1041,9 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
 
       const newAgents = [...parsedAgents, newAgent];
       setParsedAgents(newAgents);
+
+      // Increment unique ID counter for next agent
+      setNextUniqueId(nextUniqueId + 1);
 
       // Update form
       const currentValues = form.getFieldsValue();
