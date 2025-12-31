@@ -770,12 +770,33 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       if (oldIndex !== -1 && newIndex !== -1) {
         const newAgents = arrayMove(parsedAgents, oldIndex, newIndex);
 
-        // Update form order
+        // Update position.index for all agents to reflect new order
+        const updatedAgents = newAgents.map((agent, idx) => ({
+          ...agent,
+          position: {
+            ...agent.position,
+            index: idx,
+          },
+        }));
+
+        // Update form order - preserve all agent data including params
         const currentValues = form.getFieldsValue();
         const newAgentsData = arrayMove(currentValues.agents || [], oldIndex, newIndex);
         form.setFieldValue('agents', newAgentsData);
 
-        setParsedAgents(newAgents);
+        // Update addedParams tracking to match new indices
+        const newAddedParams = new Map<number, Set<string>>();
+        updatedAgents.forEach((agent, newIdx) => {
+          // Find original index before drag
+          const origIdx = parsedAgents.indexOf(agent);
+          const params = addedParams.get(origIdx);
+          if (params) {
+            newAddedParams.set(newIdx, params);
+          }
+        });
+
+        setParsedAgents(updatedAgents);
+        setAddedParams(newAddedParams);
       }
     }
   };
@@ -795,12 +816,42 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   const deleteAgent = (index: number) => {
     const newAgents = parsedAgents.filter((_, i) => i !== index);
 
+    // Update position.index for remaining agents
+    const updatedAgents = newAgents.map((agent, idx) => ({
+      ...agent,
+      position: {
+        ...agent.position,
+        index: idx,
+      },
+    }));
+
     // Update form
     const currentValues = form.getFieldsValue();
     const newAgentsData = (currentValues.agents || []).filter((_: any, i: number) => i !== index);
     form.setFieldValue('agents', newAgentsData);
 
-    setParsedAgents(newAgents);
+    // Update addedParams - shift indices down
+    const newAddedParams = new Map<number, Set<string>>();
+    updatedAgents.forEach((agent, newIdx) => {
+      // Find original index before deletion
+      const origIdx = parsedAgents.indexOf(agent);
+      if (origIdx < index) {
+        // Before deleted item - keep same index
+        const params = addedParams.get(origIdx);
+        if (params) {
+          newAddedParams.set(newIdx, params);
+        }
+      } else if (origIdx > index) {
+        // After deleted item - shift index down
+        const params = addedParams.get(origIdx);
+        if (params) {
+          newAddedParams.set(newIdx, params);
+        }
+      }
+    });
+
+    setParsedAgents(updatedAgents);
+    setAddedParams(newAddedParams);
     message.success('Agent removed');
   };
 
