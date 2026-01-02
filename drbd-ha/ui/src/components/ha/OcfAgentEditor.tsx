@@ -72,7 +72,7 @@ function generateOcfString(agent: ParsedOcfAgent, params?: Record<string, any>):
   const finalParams = params || agent.params;
 
   // Build key=value pairs
-  const paramStr = Object.entries(finalParams)
+  const paramStr = Object.entries(finalParams || {})
     .map(([key, value]) => {
       if (value === undefined || value === null) return '';
       // Quote values if they contain spaces or special characters
@@ -84,7 +84,7 @@ function generateOcfString(agent: ParsedOcfAgent, params?: Record<string, any>):
     .filter(Boolean)
     .join(' ');
 
-  return `ocf:${provider}:${agent_type} ${instance_name} ${paramStr}`;
+  return `ocf:${provider}:${agent_type} ${instance_name}${paramStr ? ' ' + paramStr : ''}`;
 }
 
 // Sortable Item Component
@@ -611,8 +611,6 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
         agent => agent.position.key === 'start'
       );
 
-      console.log('Loaded agents from backend:', startAgents);
-      console.log('Original TOML:', tomlResult.content);
 
       // Assign unique instance IDs to all agents (stored as a hidden property)
       let instanceIdCounter = 0;
@@ -640,18 +638,9 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
         }),
       };
 
-      console.log('Setting form initial values:', initialValues);
-
       // Wait for React to render the Form.Item components before setting values
       setTimeout(() => {
         form.setFieldsValue(initialValues);
-
-        // Verify the form values were set correctly
-        setTimeout(() => {
-          const currentValues = form.getFieldsValue();
-          console.log('Form values after setting:', currentValues);
-          console.log('Form agents array:', currentValues.agents);
-        }, 50);
       }, 50);
     } catch (err) {
       message.error((err as { message: string }).message);
@@ -779,37 +768,26 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       const newIndex = parseInt(String(over.id).replace('agent-', ''));
 
       if (oldIndex >= 0 && newIndex >= 0) {
-        // Get current form values to preserve user modifications
-        const currentValues = form.getFieldsValue();
-        const formAgents = currentValues.agents || [];
-
-        // Move parsedAgents array
+        // Move parsedAgents array - this has the latest data from handleFormValuesChange
         const newAgents = arrayMove(parsedAgents, oldIndex, newIndex);
+        setParsedAgents(newAgents);
 
-        // Sync form params back to parsedAgents to preserve user modifications
-        const syncedAgents = newAgents.map((agent, idx) => {
-          const formAgent = formAgents[idx];
-          if (formAgent && agent.item.is_ocf && agent.item.ocf_agent) {
-            // User has modified this agent via form - sync params back
+        // Rebuild form data from parsedAgents to ensure consistency
+        // Don't rely on form.getFieldsValue() as it may be incomplete when panels are collapsed
+        const newFormAgents = newAgents.map(agentWithMeta => {
+          if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
             return {
-              ...agent,
-              item: {
-                ...agent.item,
-                ocf_agent: {
-                  ...agent.item.ocf_agent,
-                  params: formAgent.params || agent.item.ocf_agent.params,
-                },
-              },
+              params: agentWithMeta.item.ocf_agent.params,
+              original: agentWithMeta.item.original,
+            };
+          } else {
+            return {
+              original: agentWithMeta.item.original,
             };
           }
-          return agent;
         });
 
-        // Update form order
-        const newAgentsData = arrayMove(formAgents, oldIndex, newIndex);
-        form.setFieldValue('agents', newAgentsData);
-
-        setParsedAgents(syncedAgents);
+        form.setFieldValue('agents', newFormAgents);
       }
     }
   };
@@ -817,12 +795,108 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   // 切换展开状态
   const toggleExpand = (key: string) => {
     const newExpanded = new Set(expandedKeys);
+
     if (newExpanded.has(key)) {
       newExpanded.delete(key);
     } else {
       newExpanded.add(key);
     }
+
     setExpandedKeys(newExpanded);
+  };
+
+  // Sync form changes to parsedAgents immediately
+  const handleFormValuesChange = (changedValues: any, allValues: any) => {
+    if (changedValues.agents) {
+      const changedAgents = changedValues.agents;
+
+      // Find which index changed
+      let idx = -1;
+      let changedValue = null;
+
+      if (Array.isArray(changedAgents)) {
+        // Array format: find first non-undefined element
+        idx = changedAgents.findIndex((item: any) => item && (item.params || item.original !== undefined));
+        changedValue = idx >= 0 ? changedAgents[idx] : null;
+      } else {
+        // Object format: find numeric key
+        const changedKey = Object.keys(changedAgents).find(key => {
+          const value = changedAgents[key];
+          return typeof key === 'string' && /^\d+$/.test(key) && value;
+        });
+        if (changedKey) {
+          idx = parseInt(changedKey);
+          changedValue = changedAgents[idx];
+        }
+      }
+
+      if (idx >= 0 && changedValue) {
+        const agent = parsedAgents[idx];
+
+        if (agent) {
+          const newAgent = { ...agent };
+
+          // For OCF agents with params
+          if (agent.item.is_ocf && agent.item.ocf_agent && changedValue.params) {
+            // Merge params
+            const mergedParams = {
+              ...agent.item.ocf_agent.params,
+              ...changedValue.params,
+            };
+
+            // Update ocf_agent
+            newAgent.item = {
+              ...agent.item,
+              ocf_agent: {
+                ...agent.item.ocf_agent,
+                params: mergedParams,
+              },
+            };
+
+            // CRITICAL: Also update the 'original' field to match the new params
+            // Regenerate the OCF string with updated params
+            const ocfAgent = agent.item.ocf_agent;
+            newAgent.item.original = `ocf:${ocfAgent.provider}:${ocfAgent.agent_type} ${ocfAgent.instance_name}`;
+
+            // Add parameters to the original string
+            const paramStr = Object.entries(mergedParams)
+              .filter(([_, value]) => value !== undefined && value !== '')
+              .map(([key, value]) => {
+                if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
+                  return `${key}='${value}'`;
+                }
+                return `${key}=${value}`;
+              })
+              .join(' ');
+
+            if (paramStr) {
+              newAgent.item.original += ` ${paramStr}`;
+            }
+
+            // Also update the ocf_agent.original field
+            newAgent.item.ocf_agent = {
+              ...newAgent.item.ocf_agent,
+              original: newAgent.item.original,
+            };
+          }
+          // For systemd units
+          else if (!agent.item.is_ocf && changedValue.original !== undefined) {
+            newAgent.item = {
+              ...agent.item,
+              original: changedValue.original,
+            };
+          }
+
+          // Only update the specific agent that changed
+          const newAgents = [...parsedAgents];
+          newAgents[idx] = newAgent;
+          setParsedAgents(newAgents);
+        }
+      }
+    }
+
+    // Trigger preview update
+    forceUpdate({});
   };
 
   // 删除 agent
@@ -1109,22 +1183,23 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
 
   // Generate OCF string from agent data
   const generateAgentString = (itemWithMeta: OcfAgentWithMetadata, index: number): string => {
-    // Try to get current form values first (for real-time preview)
-    // Fall back to item params if form doesn't have the data yet
-    const formValues = form.getFieldsValue();
-    const formAgent = formValues?.agents?.[index];
-
     if (itemWithMeta.item.is_ocf && itemWithMeta.item.ocf_agent) {
       // OCF agent - use generateOcfString
       const agent = itemWithMeta.item.ocf_agent;
-      // Use form params if available (real-time updates), otherwise use item params
-      const params = formAgent?.params || agent.params || {};
 
-      return `    "${generateOcfString(agent, params)}"`;
+      // CRITICAL: Always use params from itemWithMeta (synced via handleFormValuesChange)
+      // Don't try to read from form using index because:
+      // 1. After drag, index may not match the correct form data
+      // 2. Form may be incomplete when panels are collapsed
+      // 3. itemWithMeta.item.ocf_agent.params is always the source of truth
+      const params = agent.params || {};
+
+      const result = generateOcfString(agent, params);
+
+      return `    "${result}"`;
     } else {
-      // Plain systemd unit - prefer form value, fall back to item
-      const original = formAgent?.original || itemWithMeta.item.original;
-      return `    "${original}"`;
+      // Plain systemd unit - use item.original directly
+      return `    "${itemWithMeta.item.original}"`;
     }
   };
 
@@ -1218,7 +1293,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
               form={form}
               layout="vertical"
               onFinish={handleSave}
-              onValuesChange={() => forceUpdate({})}
+              onValuesChange={handleFormValuesChange}
               initialValues={{ agents: [] }}
             >
               {/* OCF Agents List with Drag and Drop */}
