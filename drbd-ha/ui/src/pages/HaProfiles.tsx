@@ -110,6 +110,21 @@ export function HaProfiles() {
     }
   }, [profiles]);
 
+  // Preload resource agents metadata after profiles are loaded
+  useEffect(() => {
+    if (isDataLoaded) {
+      // Fetch resource agents metadata to populate localStorage cache
+      // This ensures OCF Agent Editor loads instantly when navigated to
+      haProfilesApi.getAllResourceAgents().then(result => {
+        const cacheKey = 'ha-profiles:resource-agents';
+        localStorage.setItem(cacheKey, JSON.stringify(result));
+        localStorage.setItem(`${cacheKey}:timestamp`, Date.now().toString());
+      }).catch(err => {
+        console.warn('Failed to preload resource agents:', err);
+      });
+    }
+  }, [isDataLoaded]);
+
   useEffect(() => {
     if (hasAnimated.current || !isDataLoaded) return;
 
