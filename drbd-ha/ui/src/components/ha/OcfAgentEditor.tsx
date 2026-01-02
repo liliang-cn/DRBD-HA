@@ -779,14 +779,37 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       const newIndex = parseInt(String(over.id).replace('agent-', ''));
 
       if (oldIndex >= 0 && newIndex >= 0) {
+        // Get current form values to preserve user modifications
+        const currentValues = form.getFieldsValue();
+        const formAgents = currentValues.agents || [];
+
+        // Move parsedAgents array
         const newAgents = arrayMove(parsedAgents, oldIndex, newIndex);
 
-        // Update form order - preserve all agent data including params
-        const currentValues = form.getFieldsValue();
-        const newAgentsData = arrayMove(currentValues.agents || [], oldIndex, newIndex);
+        // Sync form params back to parsedAgents to preserve user modifications
+        const syncedAgents = newAgents.map((agent, idx) => {
+          const formAgent = formAgents[idx];
+          if (formAgent && agent.item.is_ocf && agent.item.ocf_agent) {
+            // User has modified this agent via form - sync params back
+            return {
+              ...agent,
+              item: {
+                ...agent.item,
+                ocf_agent: {
+                  ...agent.item.ocf_agent,
+                  params: formAgent.params || agent.item.ocf_agent.params,
+                },
+              },
+            };
+          }
+          return agent;
+        });
+
+        // Update form order
+        const newAgentsData = arrayMove(formAgents, oldIndex, newIndex);
         form.setFieldValue('agents', newAgentsData);
 
-        setParsedAgents(newAgents);
+        setParsedAgents(syncedAgents);
       }
     }
   };
