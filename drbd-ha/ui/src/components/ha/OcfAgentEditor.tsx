@@ -655,8 +655,31 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
 
   const loadAllResourceAgents = async () => {
     try {
+      // Try to load from localStorage cache first
+      const cacheKey = 'ha-profiles:resource-agents';
+      const cachedData = localStorage.getItem(cacheKey);
+      const cacheTimestamp = localStorage.getItem(`${cacheKey}:timestamp`);
+
+      // Cache is valid for 1 hour
+      const CACHE_DURATION = 60 * 60 * 1000;
+      const now = Date.now();
+
+      if (cachedData && cacheTimestamp) {
+        const timestamp = parseInt(cacheTimestamp, 10);
+        if (now - timestamp < CACHE_DURATION) {
+          // Use cached data
+          setAllAgents(JSON.parse(cachedData));
+          return;
+        }
+      }
+
+      // No valid cache, fetch from backend
       const result = await haProfilesApi.getAllResourceAgents();
       setAllAgents(result);
+
+      // Save to localStorage cache
+      localStorage.setItem(cacheKey, JSON.stringify(result));
+      localStorage.setItem(`${cacheKey}:timestamp`, now.toString());
     } catch (err) {
       console.error('Failed to load all resource agents:', err);
       message.warning('Failed to load agent metadata');
