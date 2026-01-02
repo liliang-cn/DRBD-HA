@@ -537,6 +537,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   const [form] = Form.useForm();
 
   const loadingRef = useRef(false);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // 解析的 OCF agents（来自 start 数组）
@@ -588,6 +589,8 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     // 防止重复调用（React.StrictMode会导致effect执行两次）
     if (loadingRef.current) return;
     loadingRef.current = true;
+
+    setLoading(true);
 
     try {
       // Load both parsed agents and original TOML
@@ -646,6 +649,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       message.error((err as { message: string }).message);
     } finally {
       loadingRef.current = false;
+      setLoading(false);
     }
   };
 
@@ -1270,7 +1274,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
       {/* Main Content: Split View */}
       <div style={{ display: 'flex', gap: '16px', flex: 1, overflow: 'hidden' }}>
         {/* Left Panel - Editor */}
-        <div style={{ flex: 0.4, overflow: 'auto', minWidth: 0 }}>
+        <div style={{ flex: 0.4, overflow: 'hidden', minWidth: 0 }}>
           <Card
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1288,61 +1292,63 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
             style={{ height: '100%' }}
             bodyStyle={{ padding: '16px', height: 'calc(100% - 57px)', overflow: 'auto' }}
           >
-            {/* Main Form */}
-            <Form
-              form={form}
-              layout="vertical"
-              onFinish={handleSave}
-              onValuesChange={handleFormValuesChange}
-              initialValues={{ agents: [] }}
-            >
-              {/* OCF Agents List with Drag and Drop */}
-              {parsedAgents.length === 0 ? (
-                <Empty description="No OCF agents found in start array" />
-              ) : (
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext items={items} strategy={verticalListSortingStrategy}>
-                    {parsedAgents.map((agentWithMeta, index) => {
-                      const { item, position } = agentWithMeta;
+            <Spin spinning={loading} tip="Loading OCF agents...">
+              {/* Main Form */}
+              <Form
+                form={form}
+                layout="vertical"
+                onFinish={handleSave}
+                onValuesChange={handleFormValuesChange}
+                initialValues={{ agents: [] }}
+              >
+                {/* OCF Agents List with Drag and Drop */}
+                {parsedAgents.length === 0 ? (
+                  <Empty description="No OCF agents found in start array" />
+                ) : (
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <SortableContext items={items} strategy={verticalListSortingStrategy}>
+                      {parsedAgents.map((agentWithMeta, index) => {
+                        const { item, position } = agentWithMeta;
 
-                      // 尝试从 allAgents 中查找元数据 (只对 OCF agents)
-                      const matchedMetadata = item.is_ocf && item.ocf_agent
-                        ? findAgentMetadata(item.ocf_agent)
-                        : null;
+                        // 尝试从 allAgents 中查找元数据 (只对 OCF agents)
+                        const matchedMetadata = item.is_ocf && item.ocf_agent
+                          ? findAgentMetadata(item.ocf_agent)
+                          : null;
 
-                      // 如果后端已经返回了元数据，使用它；否则使用匹配的
-                      const metadata = agentWithMeta.metadata || matchedMetadata;
-                      const isLoadingMetadata = item.is_ocf && !metadata && !allAgents;
+                        // 如果后端已经返回了元数据，使用它；否则使用匹配的
+                        const metadata = agentWithMeta.metadata || matchedMetadata;
+                        const isLoadingMetadata = item.is_ocf && !metadata && !allAgents;
 
-                      // Use simple agent-{index} ID to match items array
-                      const id = `agent-${index}`;
+                        // Use simple agent-{index} ID to match items array
+                        const id = `agent-${index}`;
 
-                      return (
-                        <SortableAgentItem
-                          key={id}
-                          id={id}
-                          index={index}
-                          agentWithMeta={agentWithMeta}
-                          metadata={metadata}
-                          isLoadingMetadata={isLoadingMetadata}
-                          currentTheme={currentTheme}
-                          onDelete={deleteAgent}
-                          onExpand={toggleExpand}
-                          expandedKeys={expandedKeys}
-                          onRemoveParam={handleRemoveParam}
-                          onAddParam={handleAddParam}
-                          addedParams={addedParams}
-                        />
-                      );
-                    })}
-                  </SortableContext>
-                </DndContext>
-              )}
-            </Form>
+                        return (
+                          <SortableAgentItem
+                            key={id}
+                            id={id}
+                            index={index}
+                            agentWithMeta={agentWithMeta}
+                            metadata={metadata}
+                            isLoadingMetadata={isLoadingMetadata}
+                            currentTheme={currentTheme}
+                            onDelete={deleteAgent}
+                            onExpand={toggleExpand}
+                            expandedKeys={expandedKeys}
+                            onRemoveParam={handleRemoveParam}
+                            onAddParam={handleAddParam}
+                            addedParams={addedParams}
+                          />
+                        );
+                      })}
+                    </SortableContext>
+                  </DndContext>
+                )}
+              </Form>
+            </Spin>
           </Card>
         </div>
 
@@ -1353,23 +1359,25 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
             style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
             bodyStyle={{ padding: '16px', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
           >
-            <div
-              style={{
-                background: currentTheme === 'dark' ? '#0f172a' : '#f1f5f9',
-                borderRadius: '8px',
-                padding: '16px',
-                fontFamily: 'monospace',
-                fontSize: '13px',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                border: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
-                overflow: 'auto',
-                flex: 1,
-                maxHeight: '100%',
-              }}
-            >
-              {generateTomlPreview()}
-            </div>
+            <Spin spinning={loading} tip="Generating preview...">
+              <div
+                style={{
+                  background: currentTheme === 'dark' ? '#0f172a' : '#f1f5f9',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  fontFamily: 'monospace',
+                  fontSize: '13px',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  border: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
+                  overflow: 'auto',
+                  flex: 1,
+                  maxHeight: '100%',
+                }}
+              >
+                {generateTomlPreview()}
+              </div>
+            </Spin>
           </Card>
         </div>
       </div>
