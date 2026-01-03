@@ -22,7 +22,7 @@ import {
 import { useEffect, useState } from 'react';
 import { useNodesStore } from '@/stores/nodes';
 import type { HaType, OcfAgentConfig, ServiceFileInfo } from '@/types';
-import { OcfAgentWizardEditor } from './OcfAgentWizardEditor';
+import { OcfAgentEditor } from '@/components/ha/OcfAgentEditor';
 
 const { Text } = Typography;
 
@@ -227,11 +227,15 @@ export function HaConfigStep({
         </div>
 
         {/* --- OCF Agents / Start Array Configuration --- */}
-        <OcfAgentWizardEditor
-          form={form}
-          resources={resources}
-          services={services.map(s => s.name)}
-        />
+        <Divider>Start Array Configuration</Divider>
+        <div style={{ marginTop: '16px' }}>
+          <OcfAgentEditor
+            mode="create"
+            externalForm={form}
+            resources={resources}
+            services={services.map(s => s.name)}
+          />
+        </div>
 
         {/* --- Advanced Options --- */}
         <Collapse

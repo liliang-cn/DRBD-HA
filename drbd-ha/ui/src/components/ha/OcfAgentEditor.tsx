@@ -57,13 +57,21 @@ import type {
   ResourceAgent,
 } from '@/api/ha-profiles';
 import { useThemeStore } from '@/stores/theme';
+import type { FormInstance } from 'antd';
 
 const { Title, Text } = Typography;
 
 interface OcfAgentEditorProps {
-  profile: { name: string; id: string } | null;
+  // For edit mode
+  profile?: { name: string; id: string } | null;
   onSave?: () => void;
   onCancel?: () => void;
+
+  // For create/wizard mode
+  mode?: 'edit' | 'create';
+  externalForm?: FormInstance;  // External form for create mode
+  resources?: { name: string }[];  // Available resources for create mode
+  services?: string[];  // Available services for create mode
 }
 
 // Helper function to generate OCF string from agent data
@@ -532,9 +540,20 @@ function SortableAgentItem({
   );
 }
 
-export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProps) {
+export function OcfAgentEditor({
+  profile,
+  onSave,
+  onCancel,
+  mode = 'edit',
+  externalForm,
+  resources = [],
+  services = [],
+}: OcfAgentEditorProps) {
   const { theme: currentTheme } = useThemeStore();
-  const [form] = Form.useForm();
+  const [internalForm] = Form.useForm();
+
+  // Use external form in create mode, internal form in edit mode
+  const form = externalForm || internalForm;
 
   const loadingRef = useRef(false);
   const [loading, setLoading] = useState(false);
@@ -584,6 +603,117 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   );
 
   const loadParsedAgents = async () => {
+    // In create mode, load from form
+    if (mode === 'create') {
+      const ocfAgents = form.getFieldValue('ocf_agents') || [];
+      if (ocfAgents.length > 0) {
+        // Convert form data to parsed agents format
+        let instanceIdCounter = 0;
+        const agentsWithIds = ocfAgents.map((agentData: any) => {
+          // Check if it's OCF agent or plain systemd unit
+          if (agentData.type === 'ocf') {
+            // OCF agent
+            const { provider, agent_type, instance_name, params } = agentData;
+            const original = `ocf:${provider}:${agent_type} ${instance_name}`;
+
+            // Build param string
+            const paramStr = Object.entries(params || {})
+              .filter(([_, value]) => value !== undefined && value !== '')
+              .map(([key, value]) => {
+                if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
+                  return `${key}='${value}'`;
+                }
+                return `${key}=${value}`;
+              })
+              .join(' ');
+
+            const fullOriginal = paramStr ? `${original} ${paramStr}` : original;
+
+            return {
+              position: {
+                section: 'resources',
+                array_index: null,
+                key: 'start',
+                index: instanceIdCounter,
+              },
+              item: {
+                original: fullOriginal,
+                is_ocf: true,
+                ocf_agent: {
+                  original: fullOriginal,
+                  provider,
+                  agent_type,
+                  instance_name,
+                  params: params || {},
+                },
+              },
+              metadata: null,  // Will load later
+              instanceId: instanceIdCounter++,
+            };
+          } else if (agentData.type === 'mount') {
+            // Mount unit
+            return {
+              position: {
+                section: 'resources',
+                array_index: null,
+                key: 'start',
+                index: instanceIdCounter,
+              },
+              item: {
+                original: agentData.value || '',
+                is_ocf: false,
+                ocf_agent: null,
+              },
+              metadata: null,
+              instanceId: instanceIdCounter++,
+            };
+          } else {
+            // Service
+            return {
+              position: {
+                section: 'resources',
+                array_index: null,
+                key: 'start',
+                index: instanceIdCounter,
+              },
+              item: {
+                original: agentData.value || '',
+                is_ocf: false,
+                ocf_agent: null,
+              },
+              metadata: null,
+              instanceId: instanceIdCounter++,
+            };
+          }
+        });
+
+        setParsedAgents(agentsWithIds);
+        setNextInstanceId(instanceIdCounter);
+
+        // Initialize form with agent data
+        const initialValues = {
+          agents: agentsWithIds.map(agentWithMeta => {
+            if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
+              return {
+                params: agentWithMeta.item.ocf_agent.params,
+                original: agentWithMeta.item.original,
+              };
+            } else {
+              return {
+                original: agentWithMeta.item.original,
+              };
+            }
+          }),
+        };
+
+        setTimeout(() => {
+          form.setFieldsValue(initialValues);
+        }, 50);
+      }
+      return;
+    }
+
+    // Edit mode - load from API
     if (!profile) return;
 
     // 防止重复调用（React.StrictMode会导致effect执行两次）
@@ -686,12 +816,52 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     }
   };
 
-  // 加载 TOML 并解析 OCF agents
+  // Sync parsedAgents back to parent form (for create mode)
+  const syncToParentForm = () => {
+    if (mode === 'create' && externalForm) {
+      // Convert parsedAgents back to ocf_agents format
+      const ocfAgents = parsedAgents.map((agentWithMeta: any) => {
+        if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
+          const ocfAgent = agentWithMeta.item.ocf_agent;
+          return {
+            type: 'ocf',
+            provider: ocfAgent.provider,
+            agent_type: ocfAgent.agent_type,
+            instance_name: ocfAgent.instance_name,
+            params: ocfAgent.params || {},
+          };
+        } else if (agentWithMeta.item.original.endsWith('.mount')) {
+          return {
+            type: 'mount',
+            value: agentWithMeta.item.original,
+          };
+        } else {
+          return {
+            type: 'service',
+            value: agentWithMeta.item.original,
+          };
+        }
+      });
+
+      externalForm.setFieldValue('ocf_agents', ocfAgents);
+    }
+  };
+
+  // 加载 TOML 并解析 OCF agents / 加载 form 数据
   useEffect(() => {
-    if (profile) {
+    if (mode === 'create') {
+      loadParsedAgents();
+    } else if (profile) {
       loadParsedAgents();
     }
-  }, [profile]);
+  }, [profile, mode]);
+
+  // Sync changes to parent form in create mode
+  useEffect(() => {
+    if (mode === 'create') {
+      syncToParentForm();
+    }
+  }, [parsedAgents]);
 
   // 加载所有可用的 resource agents（异步，只加载一次）
   useEffect(() => {
@@ -701,6 +871,14 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   }, [parsedAgents, allAgents]);
 
   const handleSave = async () => {
+    // In create mode, just sync and call callback
+    if (mode === 'create') {
+      syncToParentForm();
+      onSave?.();
+      return;
+    }
+
+    // Edit mode - call API
     if (!profile) return;
 
     setSaving(true);
@@ -924,6 +1102,11 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
 
     // Trigger preview update
     forceUpdate({});
+
+    // Sync to parent form in create mode
+    if (mode === 'create') {
+      syncToParentForm();
+    }
   };
 
   // 删除 agent
@@ -1192,7 +1375,7 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
     setAddModalVisible(false);
   };
 
-  if (!profile) {
+  if (mode === 'edit' && !profile) {
     return (
       <div style={{ textAlign: 'center', padding: '40px' }}>
         <Text type="secondary">No profile selected</Text>
@@ -1240,37 +1423,39 @@ export function OcfAgentEditor({ profile, onSave, onCancel }: OcfAgentEditorProp
   };
 
   return (
-    <div className="ocf-agent-editor" style={{ padding: '24px', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <div style={{ marginBottom: '24px', flexShrink: 0 }}>
-        <Row justify="space-between" align="middle">
-          <Col>
-            <Title level={3} style={{ margin: 0 }}>
-              OCF Agents Editor: {profile.name}
-            </Title>
-          </Col>
-          <Col>
-            <Space>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={loadParsedAgents}
-              >
-                Reload
-              </Button>
-              <Button
-                type="primary"
-                icon={<SaveOutlined />}
-                onClick={handleSave}
-                disabled={saving}
-                loading={saving}
-              >
-                Save Changes
-              </Button>
-              {onCancel && <Button onClick={onCancel}>Cancel</Button>}
-            </Space>
-          </Col>
-        </Row>
-      </div>
+    <div className="ocf-agent-editor" style={{ padding: mode === 'create' ? '0' : '24px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Header - only show in edit mode */}
+      {mode === 'edit' && (
+        <div style={{ marginBottom: '24px', flexShrink: 0 }}>
+          <Row justify="space-between" align="middle">
+            <Col>
+              <Title level={3} style={{ margin: 0 }}>
+                OCF Agents Editor: {profile?.name}
+              </Title>
+            </Col>
+            <Col>
+              <Space>
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={loadParsedAgents}
+                >
+                  Reload
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  onClick={handleSave}
+                  disabled={saving}
+                  loading={saving}
+                >
+                  Save Changes
+                </Button>
+                {onCancel && <Button onClick={onCancel}>Cancel</Button>}
+              </Space>
+            </Col>
+          </Row>
+        </div>
+      )}
 
       {/* Stats */}
       <div style={{ marginBottom: '16px', flexShrink: 0 }}>
