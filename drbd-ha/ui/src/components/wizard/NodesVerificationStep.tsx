@@ -162,7 +162,7 @@ export function NodesVerificationStep({
           </Button>
         </div>
       }
-      className="max-w-5xl mx-auto"
+      className="w-full"
     >
       <div className="p-4">
         <Table

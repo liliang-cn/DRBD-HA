@@ -1328,10 +1328,14 @@ pub async fn create_profile(
     );
 
     // Read DRBD config content for preview
+    // If we created a new DRBD config, read it from the generated path
+    // Otherwise, try to read the existing DRBD resource config
     let drbd_config_content = if let Some(ref path) = generated_units.drbd_config_path {
         tokio::fs::read_to_string(path).await.ok()
     } else {
-        None
+        // Try to read existing DRBD resource config
+        let existing_config_path = DrbdConfigPaths::drbd_resource_path(&req.resource_name);
+        tokio::fs::read_to_string(&existing_config_path).await.ok()
     };
 
     Ok((

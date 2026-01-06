@@ -58,7 +58,8 @@ export function AgentPreview({ parsedAgents, loading, currentTheme }: AgentPrevi
     <div style={{ flex: 0.6, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
       <Card
         title={<Text strong>Live Preview (TOML)</Text>}
-        style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+        bordered={false}
+        style={{ height: '100%', display: 'flex', flexDirection: 'column', boxShadow: 'none' }}
         bodyStyle={{ padding: '16px', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
       >
         <Spin spinning={loading} tip="Generating preview...">

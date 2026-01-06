@@ -13,6 +13,32 @@ export function PreviewConfigStep({
 }: PreviewConfigStepProps) {
   const tabItems = [
     {
+      key: 'drbd',
+      label: (
+        <span>
+          <strong>DRBD</strong> Configuration
+        </span>
+      ),
+      children: (
+        <div className="space-y-4">
+          <Paragraph>
+            Below is the generated <code>DRBD</code> resource configuration
+            file.
+          </Paragraph>
+          <Input.TextArea
+            value={drbdConfigContent || 'No configuration generated yet.'}
+            autoSize={{ minRows: 15, maxRows: 30 }}
+            readOnly
+            style={{ fontFamily: 'monospace' }}
+          />
+          <Paragraph type="secondary" className="mt-4">
+            This file is deployed to <code>/etc/drbd.d/</code> on all cluster
+            nodes.
+          </Paragraph>
+        </div>
+      ),
+    },
+    {
       key: 'reactor',
       label: (
         <span>
@@ -41,41 +67,12 @@ export function PreviewConfigStep({
     },
   ];
 
-  if (drbdConfigContent) {
-    tabItems.push({
-      key: 'drbd',
-      label: (
-        <span>
-          <strong>DRBD</strong> Configuration
-        </span>
-      ),
-      children: (
-        <div className="space-y-4">
-          <Paragraph>
-            Below is the generated <code>DRBD</code> resource configuration
-            file.
-          </Paragraph>
-          <Input.TextArea
-            value={drbdConfigContent}
-            autoSize={{ minRows: 15, maxRows: 30 }}
-            readOnly
-            style={{ fontFamily: 'monospace' }}
-          />
-          <Paragraph type="secondary" className="mt-4">
-            This file is deployed to <code>/etc/drbd.d/</code> on all cluster
-            nodes.
-          </Paragraph>
-        </div>
-      ),
-    });
-  }
-
   return (
-    <Card title="Configuration Preview" className="max-w-4xl mx-auto">
+    <Card title="Configuration Preview" className="w-full">
       <Paragraph className="mb-4">
         Review the generated configurations before activating the HA profile.
       </Paragraph>
-      <Tabs defaultActiveKey="reactor" items={tabItems} />
+      <Tabs defaultActiveKey="drbd" items={tabItems} />
     </Card>
   );
 }

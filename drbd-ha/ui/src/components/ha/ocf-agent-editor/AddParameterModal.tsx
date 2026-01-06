@@ -78,9 +78,10 @@ export function AddParameterModal({
               <div
                 style={{
                   padding: '12px',
-                  background: '#1e293b',
+                  background: 'var(--ant-colorBgContainer)',
                   borderRadius: '4px',
                   fontSize: '13px',
+                  border: '1px solid var(--ant-colorBorder)',
                 }}
               >
                 {

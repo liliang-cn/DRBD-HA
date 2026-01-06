@@ -35,7 +35,7 @@ export function StorageConfigStep({
           Step 2: Storage Configuration
         </span>
       }
-      className="max-w-5xl mx-auto"
+      className="w-full"
     >
       <div className="p-4">
         <Form form={form} layout="vertical">
@@ -101,7 +101,8 @@ export function StorageConfigStep({
             <Radio.Group>
               <Radio value="none">None (Use raw disks)</Radio>
               <Radio value="lvm">LVM Storage Pool</Radio>
-              <Radio value="zfs">ZFS Storage Pool</Radio>
+              {/* ZFS option temporarily disabled */}
+              {/* <Radio value="zfs">ZFS Storage Pool</Radio> */}
             </Radio.Group>
           </Form.Item>
 

@@ -268,6 +268,7 @@ export interface HaProfileStatus {
     reactor_running: boolean;
   };
   reactor_status_raw?: string;
+  drbd_config_raw?: string;
   configured_nodes: Array<{
     hostname: string;
     ip: string;

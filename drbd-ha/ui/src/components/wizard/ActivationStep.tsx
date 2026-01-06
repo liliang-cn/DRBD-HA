@@ -25,7 +25,7 @@ export function ActivationStep({
   onDone,
 }: ActivationStepProps) {
   return (
-    <Card title="Step 4: Activating HA" className="max-w-4xl mx-auto">
+    <Card title="Step 4: Activating HA" className="w-full">
       {(activationStatus === 'creating' ||
         activationStatus === 'activating' ||
         activationStatus === 'checking') && (

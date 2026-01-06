@@ -4,11 +4,13 @@ import {
   CheckCircleOutlined,
   LoadingOutlined,
   ThunderboltOutlined,
+  FullscreenOutlined,
+  FullscreenExitOutlined,
 } from '@ant-design/icons';
 import { Button, Form, message, Steps, Typography } from 'antd';
 import gsap from 'gsap';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { haProfilesApi, nodesApi, resourcesApi, servicesApi } from '@/api';
 import {
   DeploymentStatusStep,
@@ -36,13 +38,19 @@ export interface WizardProps {
 
 export function Wizard({ mode = 'service' }: WizardProps) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { nodes, fetch: fetchNodes } = useNodesStore();
   const { resources, fetch: fetchResources } = useResourcesStore();
   const progressEvents = useNotificationsStore((s) => s.progress);
   const { theme: currentTheme } = useThemeStore();
 
-  const [step, setStep] = useState(0);
+  // Read step from URL (user-visible: 1=Nodes, 2=Storage, 3=HA Config, 4=Preview, 5=Activation)
+  // Internal step is 0-indexed: 0=Nodes, 1=Storage, 2=HA Config, 3=Preview, 4=Activation
+  const userVisibleStep = parseInt(searchParams.get('step') || '1', 10);
+  const internalStep = Math.min(Math.max(userVisibleStep - 1, 0), 4);
+  const [step, setStep] = useState(internalStep);
   const [loading, setLoading] = useState(false);
+  const [isLogPanelVisible, setIsLogPanelVisible] = useState(true);
 
   // GSAP Refs
   const containerRef = useRef<HTMLDivElement>(null);
@@ -98,6 +106,22 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const addLog = useCallback((msg: string) => {
     setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
   }, []);
+
+  // Update step and URL (user-visible step = internal step + 1)
+  const updateStep = useCallback((newInternalStep: number) => {
+    setStep(newInternalStep);
+    const userStep = newInternalStep + 1;
+    setSearchParams(userStep > 1 ? { step: userStep.toString() } : {});
+  }, [setSearchParams]);
+
+  // Sync URL step to state when URL changes (e.g., browser back/forward)
+  useEffect(() => {
+    const urlStep = parseInt(searchParams.get('step') || '1', 10);
+    const newInternalStep = Math.min(Math.max(urlStep - 1, 0), 4);
+    if (newInternalStep !== step) {
+      setStep(newInternalStep);
+    }
+  }, [searchParams, step]);
 
   // Scroll logs to bottom only when logs change AND already have content
   useEffect(() => {
@@ -417,7 +441,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         return;
       }
       addLog('Nodes verification passed');
-      setStep(1);
+      updateStep(1);
     } else if (step === 1) {
       try {
         await resourceForm.validateFields();
@@ -494,7 +518,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
         // Clear resource creation tracking before moving to next step
         setCreatingResourceName(null);
-        setStep(2);
+        updateStep(2);
       } catch (err) {
         if ((err as { message?: string }).message) {
           const errMsg = (err as { message: string }).message;
@@ -533,9 +557,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           resource_name: haValues.resource_name,
           mount_point: haValues.mount_point,
           fs_type: haValues.fs_type || 'xfs',
-          services: haValues.service
-            ? [haValues.service]
-            : haValues.services || [],
+          services: [], // Services are now managed via OCF agents
           ocf_agents: haValues.ocf_agents || [],
           auto_disable_services: true,
           start_disabled: true, // Create in disabled state for review
@@ -555,12 +577,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           zfs_pool_id: haValues.zfs_pool_id,
           zfs_volume_size_gb: haValues.zfs_volume_size_gb,
 
-          vip: haValues.vip_address
-            ? {
-                address: haValues.vip_address,
-                netmask: haValues.vip_netmask || 24,
-              }
-            : undefined,
+          vip: undefined, // VIP can be configured via OCF agents if needed
           migration: haValues.migrate_data
             ? {
                 migrate_data: true,
@@ -582,7 +599,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
         setLoading(false);
         setCreatingProfileName(null); // Clear creating state
-        setStep(3);
+        updateStep(3);
       } catch (err) {
         if ((err as { message?: string }).message) {
           const errMsg = (err as { message: string }).message;
@@ -620,7 +637,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         // After enable succeeds, move directly to Status step
         setLoading(false);
         setActivationStatus('checking');
-        setStep(4);
+        updateStep(4);
         // Start polling service status
         pollServiceStatus(createdProfileId);
       } catch (err) {
@@ -635,7 +652,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   };
 
   const handlePrev = () => {
-    setStep((s) => Math.max(0, s - 1));
+    const newStep = Math.max(0, step - 1);
+    updateStep(newStep);
   };
 
   const handleDone = () => {
@@ -753,34 +771,33 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         {/* Main Wizard Area */}
         <div
           ref={mainPanelRef}
-          className={`flex-1 p-10 rounded-2xl shadow-lg border overflow-y-auto ${
+          className={`relative flex-1 p-10 rounded-2xl shadow-lg border overflow-y-auto ${
             currentTheme === 'dark'
               ? 'bg-slate-800 border-slate-700'
               : 'bg-white border-slate-200'
           }`}
         >
+          {/* Expand/Collapse Log Panel Button - Top Right of Content Area */}
+          <Button
+            icon={isLogPanelVisible ? <FullscreenOutlined /> : <FullscreenExitOutlined />}
+            onClick={() => setIsLogPanelVisible(!isLogPanelVisible)}
+            style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 10 }}
+            type="text"
+            title={isLogPanelVisible ? "Hide logs" : "Show logs"}
+          />
+
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <img src="/favicon.svg" alt="DRBD HA" className="w-8 h-8" />
-              <h1 className="text-2xl font-bold">
-                <span
-                  className="bg-clip-text text-transparent"
-                  style={{
-                    backgroundImage: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
-                  }}
-                >
-                  {mode === 'storage' ? 'Storage Sharing' : 'HA Service'}
-                </span>
-              </h1>
-            </div>
-            <span
-              className={`text-sm ${
-                currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
-              }`}
-            >
-              Configuration Wizard
-            </span>
+            <h1 className="text-2xl font-bold">
+              <span
+                className="bg-clip-text text-transparent"
+                style={{
+                  backgroundImage: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
+                }}
+              >
+                Configuration Wizard
+              </span>
+            </h1>
           </div>
 
           {/* Steps */}
@@ -802,7 +819,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           </div>
 
           {/* Navigation */}
-          <div className="flex mt-8 max-w-4xl mx-auto justify-between">
+          <div className="flex mt-8 justify-between">
             {step < 4 && (
               <Button
                 icon={<ArrowLeftOutlined />}
@@ -838,9 +855,10 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         </div>
 
         {/* Right Side Log Panel */}
+        {isLogPanelVisible && (
         <div
           ref={logPanelRef}
-          className={`w-96 shrink-0 p-4 rounded-2xl shadow-lg border flex flex-col ${
+          className={`w-96 shrink-0 p-4 rounded-2xl shadow-lg border flex flex-col transition-all duration-300 ${
             currentTheme === 'dark'
               ? 'bg-slate-800 border-slate-700'
               : 'bg-white border-slate-200'
@@ -941,6 +959,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             <div ref={logsEndRef} />
           </div>
         </div>
+        )}
       </div>
     </div>
   );

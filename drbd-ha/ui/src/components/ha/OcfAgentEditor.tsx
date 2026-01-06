@@ -2,6 +2,8 @@ import {
   SaveOutlined,
   ReloadOutlined,
   PlusOutlined,
+  EyeOutlined,
+  EyeInvisibleOutlined,
 } from '@ant-design/icons';
 import {
   Button,
@@ -16,7 +18,7 @@ import {
   Col,
   Empty,
 } from 'antd';
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -59,6 +61,11 @@ interface OcfAgentEditorProps {
   externalForm?: FormInstance;  // External form for create mode
   resources?: { name: string }[];  // Available resources for create mode
   services?: string[];  // Available services for create mode
+  onAgentsChange?: (agents: any[]) => void;  // Callback when agents change
+
+  // Preview control
+  showPreview?: boolean;  // Controlled from outside
+  onPreviewChange?: (show: boolean) => void;  // Callback when preview toggle changes
 }
 
 // Helper function to generate OCF string from agent data
@@ -90,12 +97,34 @@ export function OcfAgentEditor({
   externalForm,
   resources = [],
   services = [],
+  onAgentsChange,
+  showPreview: externalShowPreview,
+  onPreviewChange,
 }: OcfAgentEditorProps) {
   const { theme: currentTheme } = useThemeStore();
   const [internalForm] = Form.useForm();
 
   // Use external form in create mode, internal form in edit mode
   const form = externalForm || internalForm;
+
+  // Preview visibility state (default hidden in create mode, shown in edit mode)
+  const [previewVisible, setPreviewVisible] = useState(mode === 'edit');
+
+  // Toggle preview visibility
+  const togglePreview = useCallback(() => {
+    setPreviewVisible((prev) => {
+      const newValue = !prev;
+      onPreviewChange?.(newValue);
+      return newValue;
+    });
+  }, [onPreviewChange]);
+
+  // Sync external showPreview prop
+  useEffect(() => {
+    if (externalShowPreview !== undefined) {
+      setPreviewVisible(externalShowPreview);
+    }
+  }, [externalShowPreview]);
 
   const loadingRef = useRef(false);
   const [loading, setLoading] = useState(false);
@@ -325,7 +354,7 @@ export function OcfAgentEditor({
     }
   };
 
-  const loadAllResourceAgents = async () => {
+  const loadAllResourceAgents = useCallback(async () => {
     try {
       // Try to load from localStorage cache first
       const cacheKey = 'ha-profiles:resource-agents';
@@ -340,8 +369,16 @@ export function OcfAgentEditor({
         const timestamp = parseInt(cacheTimestamp, 10);
         if (now - timestamp < CACHE_DURATION) {
           // Use cached data
-          setAllAgents(JSON.parse(cachedData));
-          return;
+          try {
+            const parsed = JSON.parse(cachedData);
+            setAllAgents(parsed);
+            return;
+          } catch (e) {
+            console.warn('Failed to parse cached data, will fetch from backend', e);
+            // Clear invalid cache
+            localStorage.removeItem(cacheKey);
+            localStorage.removeItem(`${cacheKey}:timestamp`);
+          }
         }
       }
 
@@ -355,11 +392,13 @@ export function OcfAgentEditor({
     } catch (err) {
       console.error('Failed to load all resource agents:', err);
       message.warning('Failed to load agent metadata');
+      // Set to empty object to prevent infinite loading state
+      setAllAgents({ providers: {} } as any);
     }
-  };
+  }, []);
 
   // Sync parsedAgents back to parent form (for create mode)
-  const syncToParentForm = () => {
+  const syncToParentForm = useCallback(() => {
     if (mode === 'create' && externalForm) {
       // Convert parsedAgents back to ocf_agents format
       const ocfAgents = parsedAgents.map((agentWithMeta: any) => {
@@ -386,8 +425,10 @@ export function OcfAgentEditor({
       });
 
       externalForm.setFieldValue('ocf_agents', ocfAgents);
+      // Also call the callback to notify parent component
+      onAgentsChange?.(ocfAgents);
     }
-  };
+  }, [mode, externalForm, onAgentsChange, parsedAgents]);
 
   // 加载 TOML 并解析 OCF agents / 加载 form 数据
   useEffect(() => {
@@ -403,14 +444,17 @@ export function OcfAgentEditor({
     if (mode === 'create') {
       syncToParentForm();
     }
-  }, [parsedAgents]);
+  }, [syncToParentForm]);
 
   // 加载所有可用的 resource agents（异步，只加载一次）
   useEffect(() => {
-    if (parsedAgents.length > 0 && !allAgents) {
-      loadAllResourceAgents();
+    // Load in edit mode when we have agents, or in create mode immediately
+    if (!allAgents) {
+      if (mode === 'create' || parsedAgents.length > 0) {
+        loadAllResourceAgents();
+      }
     }
-  }, [parsedAgents, allAgents]);
+  }, [parsedAgents.length, allAgents, mode, loadAllResourceAgents]);
 
   const handleSave = async () => {
     // In create mode, just sync and call callback
@@ -849,8 +893,8 @@ export function OcfAgentEditor({
       // Generate default params from metadata
       const defaultParams: Record<string, string> = {};
       agentMetadata.parameters.forEach(param => {
-        // Include required params and params with defaults
-        if (param.required || (param.default && param.default !== '')) {
+        // Only include required params
+        if (param.required) {
           defaultParams[param.name] = param.default || '';
         }
       });
@@ -930,7 +974,12 @@ export function OcfAgentEditor({
   );
 
   return (
-    <div className="ocf-agent-editor" style={{ padding: mode === 'create' ? '0' : '24px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div className="ocf-agent-editor" style={{
+      padding: mode === 'create' ? '0' : '24px',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
       {/* Header - only show in edit mode */}
       {mode === 'edit' && (
         <div style={{ marginBottom: '24px', flexShrink: 0 }}>
@@ -989,11 +1038,20 @@ export function OcfAgentEditor({
       {/* Main Content: Split View */}
       <div style={{ display: 'flex', gap: '16px', flex: 1, overflow: 'hidden' }}>
         {/* Left Panel - Editor */}
-        <div style={{ flex: 0.4, overflow: 'hidden', minWidth: 0 }}>
+        <div style={{ flex: previewVisible ? 0.4 : 1, overflow: 'hidden', minWidth: 0, transition: 'flex 0.3s' }}>
           <Card
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text strong>Editor</Text>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={previewVisible ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                    onClick={togglePreview}
+                    title={previewVisible ? 'Hide preview' : 'Show preview'}
+                  />
+                  <Text strong>Editor</Text>
+                </div>
                 <Button
                   type="primary"
                   size="small"
@@ -1004,7 +1062,8 @@ export function OcfAgentEditor({
                 </Button>
               </div>
             }
-            style={{ height: '100%' }}
+            bordered={false}
+            style={{ height: '100%', boxShadow: 'none' }}
             bodyStyle={{ padding: '16px', height: 'calc(100% - 57px)', overflow: 'auto' }}
           >
             <Spin spinning={loading} tip="Loading OCF agents...">
@@ -1015,6 +1074,7 @@ export function OcfAgentEditor({
                 onFinish={handleSave}
                 onValuesChange={handleFormValuesChange}
                 initialValues={{ agents: [] }}
+                component={false}
               >
                 {/* OCF Agents List with Drag and Drop */}
                 {parsedAgents.length === 0 ? (
@@ -1068,11 +1128,15 @@ export function OcfAgentEditor({
         </div>
 
         {/* Right Panel - Live Preview */}
-        <AgentPreview
-          parsedAgents={parsedAgents}
-          loading={loading}
-          currentTheme={currentTheme}
-        />
+        {previewVisible && (
+          <div style={{ flex: 0.6, transition: 'opacity 0.3s' }}>
+            <AgentPreview
+              parsedAgents={parsedAgents}
+              loading={loading}
+              currentTheme={currentTheme}
+            />
+          </div>
+        )}
       </div>
 
       {/* Add Agent Modal */}

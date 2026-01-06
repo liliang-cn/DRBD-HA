@@ -68,6 +68,9 @@ pub struct HaProfileDetailResponse {
     /// Raw output from drbd-reactorctl status
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reactor_status_raw: Option<String>,
+    /// Raw content of the DRBD resource configuration file
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drbd_config_raw: Option<String>,
     /// Nodes that have this HA profile configured
     pub configured_nodes: Vec<NodeConfigInfo>,
 }

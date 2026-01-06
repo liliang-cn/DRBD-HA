@@ -1539,6 +1539,50 @@ export function HaProfiles() {
             </pre>
           </div>
         )}
+
+        {/* DRBD Config Raw */}
+        {status?.drbd_config_raw && (
+          <div
+            className={`p-5 rounded-xl border ${
+              currentTheme === 'dark'
+                ? 'bg-slate-700/50 border-slate-600'
+                : 'bg-slate-50 border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center"
+                style={{
+                  background: `linear-gradient(135deg, ${ACCENT_COLORS.sky}30, ${ACCENT_COLORS.blue}30)`,
+                }}
+              >
+                <ThunderboltOutlined
+                  className="text-xl"
+                  style={{ color: ACCENT_COLORS.sky }}
+                />
+              </div>
+              <div
+                className={`text-lg font-semibold ${currentTheme === 'dark' ? 'text-white' : 'text-slate-800'}`}
+              >
+                DRBD Configuration ({record.resource_name}.res)
+              </div>
+            </div>
+            <pre
+              className={`p-4 rounded-lg overflow-x-auto text-xs font-mono ${
+                currentTheme === 'dark'
+                  ? 'bg-slate-900 text-slate-300'
+                  : 'bg-white text-slate-700'
+              }`}
+              style={{
+                border: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
+                maxHeight: '400px',
+                overflowY: 'auto',
+              }}
+            >
+              {status.drbd_config_raw}
+            </pre>
+          </div>
+        )}
       </div>
     );
   };
@@ -1597,7 +1641,7 @@ export function HaProfiles() {
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              onClick={() => (window.location.href = '/service-ha/create')}
+              onClick={() => navigate('/service-ha/create?step=1')}
               className="!h-10 !px-5"
             >
               Create Service HA

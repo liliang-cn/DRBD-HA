@@ -357,6 +357,16 @@ pub async fn fetch_profile_details(
 
         let configured_nodes = check_nodes_disabled_status(&state, &id_or_name, node_infos).await;
 
+        // Read DRBD config file content for disabled profiles too
+        let drbd_config_raw = match tokio::fs::read_to_string(&res_file_path).await {
+            Ok(content) => Some(content),
+            Err(_) => {
+                // Try LINSTOR path as fallback
+                let linstor_path = format!("/var/lib/linstor.d/{}.res", profile.resource_name);
+                tokio::fs::read_to_string(&linstor_path).await.ok()
+            }
+        };
+
         // Return for disabled profiles with configured_nodes
         return Ok(Json(HaProfileDetailResponse {
             profile,
@@ -373,6 +383,7 @@ pub async fn fetch_profile_details(
                 reactor_running: true,
             },
             reactor_status_raw: Some(String::new()),
+            drbd_config_raw,
             configured_nodes,
         }));
     }
@@ -937,6 +948,16 @@ pub async fn fetch_profile_details(
         check_nodes_disabled_status(&state, &id_or_name, node_infos).await
     };
 
+    // Read DRBD config file content for preview
+    let drbd_config_raw = match tokio::fs::read_to_string(&res_file_path).await {
+        Ok(content) => Some(content),
+        Err(_) => {
+            // Try LINSTOR path as fallback
+            let linstor_path = format!("/var/lib/linstor.d/{}.res", profile.resource_name);
+            tokio::fs::read_to_string(&linstor_path).await.ok()
+        }
+    };
+
     Ok(Json(HaProfileDetailResponse {
         profile: profile_out,
         status,
@@ -948,6 +969,7 @@ pub async fn fetch_profile_details(
         vip_active,
         config,
         reactor_status_raw,
+        drbd_config_raw,
         configured_nodes,
     }))
 }
