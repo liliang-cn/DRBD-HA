@@ -153,6 +153,46 @@ export function OcfAgentEditor({
   const [selectedAgent, setSelectedAgent] = useState<string>('');
   const [systemdUnit, setSystemdUnit] = useState<string>('');
 
+  // Split pane state for resizable panels
+  const [leftPanelWidth, setLeftPanelWidth] = useState(50); // percentage
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(50);
+
+  // Handle drag start
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    startXRef.current = e.clientX;
+    startWidthRef.current = leftPanelWidth;
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  // Handle drag move
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!containerRef.current) return;
+
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const containerWidth = containerRect.width;
+    const deltaX = e.clientX - startXRef.current;
+    const deltaPercent = (deltaX / containerWidth) * 100;
+
+    let newWidth = startWidthRef.current + deltaPercent;
+    newWidth = Math.max(20, Math.min(80, newWidth));
+
+    setLeftPanelWidth(newWidth);
+  };
+
+  // Handle drag end
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+  };
+
   // Track manually added parameters for each agent
   // Key is a unique instance ID that never changes
   const [addedParams, setAddedParams] = useState<Map<number, Set<string>>>(new Map());
@@ -1024,20 +1064,31 @@ export function OcfAgentEditor({
       </div>
 
       {/* Main Content: Split View */}
-      <div style={{ display: 'flex', gap: '16px', flex: 1, overflow: 'hidden' }}>
+      <div
+        ref={containerRef}
+        style={{ display: 'flex', flex: 1, overflow: 'hidden', alignItems: 'stretch' }}
+      >
         {/* Left Panel - Editor */}
-        <div style={{ flex: previewVisible ? 0.4 : 1, overflow: 'hidden', minWidth: 0, transition: 'flex 0.3s' }}>
+        <div
+          style={{
+            flex: previewVisible ? `0 0 ${leftPanelWidth}%` : '1 1 100%',
+            minWidth: previewVisible ? '20%' : 'auto',
+            overflow: 'hidden',
+          }}
+        >
           <Card
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={previewVisible ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-                    onClick={togglePreview}
-                    title={previewVisible ? 'Hide preview' : 'Show preview'}
-                  />
+                  {mode === 'edit' && (
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={previewVisible ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                      onClick={togglePreview}
+                      title={previewVisible ? 'Hide preview' : 'Show preview'}
+                    />
+                  )}
                   <Text strong>Editor</Text>
                 </div>
                 <Button
@@ -1115,9 +1166,44 @@ export function OcfAgentEditor({
           </Card>
         </div>
 
+        {/* Drag Handle - only shown when preview is visible */}
+        {previewVisible && (
+          <div
+            onMouseDown={handleMouseDown}
+            title="Drag to resize"
+            style={{
+              cursor: 'col-resize',
+              width: 20,
+              userSelect: 'none',
+              flex: '0 0 auto',
+              alignSelf: 'stretch',
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'center',
+              paddingTop: 16,
+            }}
+          >
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}>
+              <div style={{ width: 3, height: 3, borderRadius: '50%', background: '#bfbfbf' }} />
+              <div style={{ width: 3, height: 3, borderRadius: '50%', background: '#bfbfbf' }} />
+              <div style={{ width: 3, height: 3, borderRadius: '50%', background: '#bfbfbf' }} />
+            </div>
+          </div>
+        )}
+
         {/* Right Panel - Live Preview */}
         {previewVisible && (
-          <div style={{ flex: 0.6, transition: 'opacity 0.3s' }}>
+          <div
+            style={{
+              flex: `0 0 ${100 - leftPanelWidth}%`,
+              minWidth: '20%',
+              overflow: 'hidden',
+            }}
+          >
             <AgentPreview
               parsedAgents={parsedAgents}
               loading={loading}

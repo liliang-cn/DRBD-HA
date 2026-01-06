@@ -20,7 +20,7 @@ import {
   Space,
   Typography,
 } from 'antd';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { HaType, OcfAgentConfig, ServiceFileInfo } from '@/types';
 import { OcfAgentEditor } from '@/components/ha/OcfAgentEditor';
 
@@ -56,6 +56,51 @@ export function HaConfigStep({
   const [configMode, setConfigMode] = useState<ConfigMode>('simple');
   const [showTomlPreview, setShowTomlPreview] = useState(false);
   const [ocfAgents, setOcfAgents] = useState<any[]>([]);
+
+  // Split pane state
+  const [leftPanelWidth, setLeftPanelWidth] = useState(50); // percentage
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(50);
+
+  // Handle drag start
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    startXRef.current = e.clientX;
+    startWidthRef.current = leftPanelWidth;
+
+    // Add event listeners for drag and release
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  // Handle drag move
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!containerRef.current) return;
+
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const containerWidth = containerRect.width;
+    const deltaX = e.clientX - startXRef.current;
+    const deltaPercent = (deltaX / containerWidth) * 100;
+
+    let newWidth = startWidthRef.current + deltaPercent;
+
+    // Constrain between 20% and 80%
+    newWidth = Math.max(20, Math.min(80, newWidth));
+
+    setLeftPanelWidth(newWidth);
+  };
+
+  // Handle drag end
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+  };
+
+  // No CSS needed - using inline styles instead
 
   // Watch form values for TOML preview - watch individual fields for better reactivity
   const name = Form.useWatch('name', form);
@@ -194,9 +239,25 @@ on-drbd-demote-failure = "${demoteFailure}"${advancedSection}${mountStrategyComm
       }
       className="w-full"
     >
-      <Row gutter={24} align="stretch">
+      <div
+        ref={containerRef}
+        style={{
+          display: 'flex',
+          alignItems: 'stretch',
+          minHeight: 600,
+          gap: 0,
+        }}
+      >
         {/* Left: Form */}
-        <Col span={showTomlPreview ? 12 : 24}>
+        <div
+          style={{
+            flex: showTomlPreview ? `0 0 ${leftPanelWidth}%` : '1 1 100%',
+            minWidth: showTomlPreview ? '20%' : 'auto',
+            overflowY: 'visible',
+            overflowX: 'hidden',
+            paddingRight: showTomlPreview ? 16 : 0,
+          }}
+        >
           <Form form={form} layout="vertical">
             <Form.Item
               name="name"
@@ -559,19 +620,48 @@ on-drbd-demote-failure = "${demoteFailure}"${advancedSection}${mountStrategyComm
           }
         </Form.Item>
           </Form>
-        </Col>
+        </div>
+
+        {/* Drag Handle - only shown when preview is visible */}
+        {showTomlPreview && (
+          <div
+            onMouseDown={handleMouseDown}
+            title="Drag to resize"
+            style={{
+              cursor: 'col-resize',
+              width: 20,
+              userSelect: 'none',
+              flex: '0 0 auto',
+              alignSelf: 'stretch',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <div style={{
+              width: 1,
+              height: '100%',
+              background: '#e8e8e8',
+            }} />
+          </div>
+        )}
 
         {/* Right: TOML Preview */}
         {showTomlPreview && (
-          <Col span={12}>
+          <div
+            style={{
+              flex: `0 0 ${100 - leftPanelWidth}%`,
+              minWidth: '20%',
+              overflow: 'auto',
+            }}
+          >
             <div
               style={{
-                border: '1px solid var(--ant-color-border)',
+                border: '1px solid var(--ant-colorBorder)',
                 borderRadius: 8,
                 padding: 16,
-                overflow: 'auto',
                 height: '100%',
-                background: 'var(--ant-colorBgContainer)',
+                background: 'var(--ant-colorBgLayout)',
               }}
             >
               <Text strong style={{ display: 'block', marginBottom: 12 }}>
@@ -582,17 +672,21 @@ on-drbd-demote-failure = "${demoteFailure}"${advancedSection}${mountStrategyComm
                   margin: 0,
                   fontFamily: 'Consolas, Monaco, "Andale Mono", monospace',
                   fontSize: 12,
-                  lineHeight: 1.4,
+                  lineHeight: 1.5,
                   color: 'var(--ant-colorText)',
                   whiteSpace: 'pre',
+                  background: 'rgba(0, 0, 0, 0.02)',
+                  padding: 12,
+                  borderRadius: 4,
+                  border: '1px solid var(--ant-colorBorderSecondary)',
                 }}
               >
                 {tomlPreview || '# Fill in the form to see TOML preview'}
               </pre>
             </div>
-          </Col>
+          </div>
         )}
-      </Row>
+      </div>
     </Card>
   );
 }
