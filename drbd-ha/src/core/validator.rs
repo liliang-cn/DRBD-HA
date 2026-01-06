@@ -14,7 +14,9 @@ static RESOURCE_NAME_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$").unwrap());
 
 static BLOCK_DEVICE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^/dev/(sd[a-z]+\d*|nvme\d+n\d+(p\d+)?|vd[a-z]+\d*|drbd\d+|loop\d+)$").unwrap()
+    // Support: /dev/sdX, /dev/nvmeXnY, /dev/vdX, /dev/drbdN, /dev/loopN, /dev/mapper/*, /dev/vg/lv
+    // Also support LVM short form: vg/lv
+    Regex::new(r"^(/dev/(sd[a-z]+\d*|nvme\d+n\d+(p\d+)?|vd[a-z]+\d*|drbd\d+|loop\d+|mapper/[a-zA-Z0-9_:-]+)|[a-zA-Z0-9_]+/[a-zA-Z0-9_-]+)$").unwrap()
 });
 
 static IP_ADDRESS_RE: LazyLock<Regex> =

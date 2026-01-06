@@ -129,32 +129,14 @@ export function HaConfigStep({
     } else {
       // Advanced mode: use OCF agents
       agents.forEach((agent: any) => {
-        // Handle different data formats from OCF Agent Editor
         if (!agent) return;
 
-        if (agent.type === 'ocf') {
-          // Format from OCF Agent Editor sync
-          const agentName = `ocf:${agent.provider}:${agent.agent_type}`;
-          const instanceName = agent.instance_name;
+        if (agent.name && agent.instance_name) {
+          // Format from backend: { name: "ocf:provider:type", instance_name: "...", params: {...} }
           const params = Object.entries(agent.params || {})
             .map(([k, v]) => `${k}=${v}`)
             .join(' ');
-          startEntries.push(`    "${agentName} ${instanceName}${params ? ' ' + params : ''}",`);
-        } else if (agent.type === 'mount' || agent.type === 'service' || agent.type === 'systemd') {
-          // Systemd unit or service
-          startEntries.push(`    "${agent.value}",`);
-        } else {
-          // Fallback: try to use as-is
-          const agentName = agent.name || agent.agent_type || '';
-          const instanceName = agent.instance_name || '';
-          const params = Object.entries(agent.params || {})
-            .map(([k, v]) => `${k}=${v}`)
-            .join(' ');
-          if (agentName) {
-            startEntries.push(`    "${agentName} ${instanceName}${params ? ' ' + params : ''}",`);
-          } else if (agent.value) {
-            startEntries.push(`    "${agent.value}",`);
-          }
+          startEntries.push(`    "${agent.name} ${agent.instance_name}${params ? ' ' + params : ''}",`);
         }
       });
     }

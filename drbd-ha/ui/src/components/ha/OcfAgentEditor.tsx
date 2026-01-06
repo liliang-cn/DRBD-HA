@@ -400,29 +400,17 @@ export function OcfAgentEditor({
   // Sync parsedAgents back to parent form (for create mode)
   const syncToParentForm = useCallback(() => {
     if (mode === 'create' && externalForm) {
-      // Convert parsedAgents back to ocf_agents format
-      const ocfAgents = parsedAgents.map((agentWithMeta: any) => {
-        if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
+      // Convert parsedAgents back to ocf_agents format (backend expects)
+      const ocfAgents = parsedAgents
+        .filter((agentWithMeta: any) => agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent)
+        .map((agentWithMeta: any) => {
           const ocfAgent = agentWithMeta.item.ocf_agent;
           return {
-            type: 'ocf',
-            provider: ocfAgent.provider,
-            agent_type: ocfAgent.agent_type,
+            name: `ocf:${ocfAgent.provider}:${ocfAgent.agent_type}`,
             instance_name: ocfAgent.instance_name,
             params: ocfAgent.params || {},
           };
-        } else if (agentWithMeta.item.original.endsWith('.mount')) {
-          return {
-            type: 'mount',
-            value: agentWithMeta.item.original,
-          };
-        } else {
-          return {
-            type: 'service',
-            value: agentWithMeta.item.original,
-          };
-        }
-      });
+        });
 
       externalForm.setFieldValue('ocf_agents', ocfAgents);
       // Also call the callback to notify parent component

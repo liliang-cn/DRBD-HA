@@ -175,10 +175,14 @@ export function SortableAgentItem({
                 : undefined
             }
             valuePropName="checked"
+            getValueFrom={(value: boolean) => value ? 'true' : 'false'}
+            getValueProps={(value: string) => ({
+              checked: value === 'true' || value === '1' || value === 'yes' || value === true
+            })}
             initialValue={
               typeof currentValue === 'boolean'
-                ? currentValue
-                : currentValue === 'true' || currentValue === '1' || currentValue === 'yes'
+                ? (currentValue ? 'true' : 'false')
+                : currentValue
             }
             rules={[
               {

@@ -1,5 +1,6 @@
 import type { FormInstance } from 'antd';
 import {
+  AutoComplete,
   Card,
   Checkbox,
   Col,
@@ -72,38 +73,91 @@ export function StorageConfigStep({
             />
           </Form.Item>
           <Divider>Node Disks</Divider>
-          {nodes.map((node) => (
-            <Form.Item
-              key={node.id}
-              name={['node_disks', node.id]}
-              label={`${node.hostname} (${node.ip})`}
-              rules={[{ required: true, message: 'Select a disk' }]}
-            >
-              <Select
-                placeholder="Select disk"
-                options={(availableDisks[node.id] || []).map((d) => ({
-                  value: d.path,
-                  label: `${d.path} (${d.size_human})`,
-                }))}
-              />
-            </Form.Item>
-          ))}
+          {nodes.map((node) => {
+            const diskOptions = (availableDisks[node.id] || []).map((d) => ({
+              value: d.path,
+              label: `${d.path} (${d.size_human})`,
+            }));
+            return (
+              <Form.Item
+                key={node.id}
+                name={['node_disks', node.id]}
+                label={`${node.hostname} (${node.ip})`}
+                rules={[{ required: true, message: 'Enter a disk path' }]}
+                tooltip="Select from available disks or enter a custom path (e.g., /dev/sdb, vg/lv1)"
+              >
+                <AutoComplete
+                  placeholder="Select disk or enter custom path (e.g., vg/lv1)"
+                  options={diskOptions}
+                  filterOption={(inputValue, option) =>
+                    option?.value?.toLowerCase().includes(inputValue.toLowerCase()) ||
+                    option?.label?.toLowerCase().includes(inputValue.toLowerCase())
+                  }
+                  onChange={() => {
+                    // When disk changes, check if all nodes use LV paths
+                    const allDiskValues = form.getFieldsValue().node_disks || {};
+                    const allValues = Object.values(allDiskValues);
+                    const anyHasLvPath = [...allValues, form.getFieldValue(['node_disks', node.id])].some(
+                      (v: string) => v && !v.startsWith('/dev/')
+                    );
+                    // Store this state to conditionally show storage options
+                    form.setFieldValue('_has_lv_paths', anyHasLvPath);
+                  }}
+                />
+              </Form.Item>
+            );
+          })}
 
-          <Divider orientation="left">
-            Storage Pool Initialization (Optional)
-          </Divider>
+          <Form.Item name="_has_lv_paths" noStyle>
+            <Input type="hidden" />
+          </Form.Item>
+
           <Form.Item
-            name="storage_type"
-            label="Storage Type"
-            initialValue="none"
-            tooltip="Choose storage pool type for selected disks (will wipe data!)"
+            noStyle
+            shouldUpdate={(prev, current) => {
+              // Check if any node uses an LV path (not starting with /dev/)
+              const nodeDisks = current.node_disks || {};
+              const hasLvPath = Object.values(nodeDisks).some(
+                (v: unknown) => typeof v === 'string' && v && !v.startsWith('/dev/')
+              );
+              return prev._has_lv_paths !== hasLvPath;
+            }}
           >
-            <Radio.Group>
-              <Radio value="none">None (Use raw disks)</Radio>
-              <Radio value="lvm">LVM Storage Pool</Radio>
-              {/* ZFS option temporarily disabled */}
-              {/* <Radio value="zfs">ZFS Storage Pool</Radio> */}
-            </Radio.Group>
+            {({ getFieldValue }) => {
+              const nodeDisks = getFieldValue('node_disks') || {};
+              const hasLvPath = Object.values(nodeDisks).some(
+                (v: unknown) => typeof v === 'string' && v && !v.startsWith('/dev/')
+              );
+
+              if (hasLvPath) {
+                return (
+                  <div className="text-sm text-gray-500 mb-4">
+                    ℹ️ <strong>Using existing LVM volumes</strong> - Storage pool initialization is skipped when using existing LV paths.
+                  </div>
+                );
+              }
+
+              return (
+                <>
+                  <Divider orientation="left">
+                    Storage Pool Initialization (Optional)
+                  </Divider>
+                  <Form.Item
+                    name="storage_type"
+                    label="Storage Type"
+                    initialValue="none"
+                    tooltip="Choose storage pool type for selected disks (will wipe data!)"
+                  >
+                    <Radio.Group>
+                      <Radio value="none">None (Use raw disks)</Radio>
+                      <Radio value="lvm">LVM Storage Pool</Radio>
+                      {/* ZFS option temporarily disabled */}
+                      {/* <Radio value="zfs">ZFS Storage Pool</Radio> */}
+                    </Radio.Group>
+                  </Form.Item>
+                </>
+              );
+            }}
           </Form.Item>
 
           <Form.Item
