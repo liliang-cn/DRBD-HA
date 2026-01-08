@@ -306,7 +306,7 @@ export function OcfAgentEditor({
           agents: agentsWithIds.map(agentWithMeta => {
             if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
               return {
-                params: agentWithMeta.item.ocf_agent.params,
+                params: agentWithMeta.item.ocf_agent.params || {},
                 original: agentWithMeta.item.original,
               };
             } else {
@@ -371,7 +371,7 @@ export function OcfAgentEditor({
         agents: agentsWithIds.map(agentWithMeta => {
           if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
             return {
-              params: agentWithMeta.item.ocf_agent.params,
+              params: agentWithMeta.item.ocf_agent.params || {},
               original: agentWithMeta.item.original,
             };
           } else {
@@ -507,27 +507,27 @@ export function OcfAgentEditor({
         console.warn('Form validation failed, using current values:', validationError);
       }
 
-      // Check if agents array exists
-      if (!values.agents || !Array.isArray(values.agents)) {
-        console.error('values.agents is missing or not an array:', values);
-        message.error('Form data is invalid. Please try reloading the page.');
-        return;
-      }
+      // Check if agents array exists (optional now, since we use parsedAgents as source of truth)
+      const formAgents = values.agents || [];
 
-      // Generate the updated start array strings
-      const startArrayItems = values.agents.map((agentData: any, index: number) => {
-        const item = parsedAgents[index].item;
+      // Generate the updated start array strings using parsedAgents as source of truth
+      // This ensures all agents are included even if form doesn't have complete data
+      const startArrayItems = parsedAgents.map((agentWithMeta: any, index: number) => {
+        const item = agentWithMeta.item;
+        // Get form data for this agent if available
+        const agentData = formAgents[index] || {};
 
         if (item.is_ocf && item.ocf_agent) {
-          // OCF agent - generate string from form data
-          const params = agentData.params || item.ocf_agent.params;
+          // OCF agent - generate string from parsedAgent (source of truth)
+          // Form values are used to update params if user changed them
+          const params = agentData.params || item.ocf_agent.params || {};
           const agent = item.ocf_agent;
 
-          // Generate parameter string
+          // Generate parameter string (empty if no params)
           const paramStr = Object.entries(params)
             .filter(([_, value]) => value !== undefined && value !== '')
             .map(([key, value]) => {
-              if (value.includes(' ') || value.includes(',') || value === '') {
+              if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
                 return `${key}='${value}'`;
               }
               return `${key}=${value}`;
@@ -536,8 +536,8 @@ export function OcfAgentEditor({
 
           return `ocf:${agent.provider}:${agent.agent_type} ${agent.instance_name}${paramStr ? ' ' + paramStr : ''}`;
         } else {
-          // Non-OCF item - use original value from form
-          return agentData.original || item.original;
+          // Non-OCF item - use original from parsedAgent
+          return item.original;
         }
       });
 
@@ -592,7 +592,7 @@ export function OcfAgentEditor({
         const newFormAgents = newAgents.map(agentWithMeta => {
           if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
             return {
-              params: agentWithMeta.item.ocf_agent.params,
+              params: agentWithMeta.item.ocf_agent.params || {},
               original: agentWithMeta.item.original,
             };
           } else {

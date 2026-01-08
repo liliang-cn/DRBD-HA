@@ -62,7 +62,11 @@ export function OcfAgentEditorPage() {
       <div style={{ flex: 1, overflow: 'hidden' }}>
         <OcfAgentEditor
           profile={{ name: profile.name, id: profile.id }}
-          onSave={() => navigate('/')}
+          onSave={async () => {
+            // Refresh profiles data to show latest state
+            await fetch();
+            // Stay on current page, don't navigate away
+          }}
           onCancel={() => navigate('/')}
         />
       </div>
