@@ -269,6 +269,7 @@ export interface HaProfileStatus {
   };
   reactor_status_raw?: string;
   drbd_config_raw?: string;
+  promoter_config_raw?: string;
   configured_nodes: Array<{
     hostname: string;
     ip: string;

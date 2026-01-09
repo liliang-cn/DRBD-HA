@@ -367,6 +367,11 @@ pub async fn fetch_profile_details(
             }
         };
 
+        // Read drbd-reactor promoter config file content for disabled profiles
+        let reactor_dir = config_gen::ConfigPaths::REACTOR_CONF_DIR;
+        let promoter_config_path = format!("{}/{}.toml", reactor_dir, id_or_name);
+        let promoter_config_raw = tokio::fs::read_to_string(&promoter_config_path).await.ok();
+
         // Return for disabled profiles with configured_nodes
         return Ok(Json(HaProfileDetailResponse {
             profile,
@@ -384,6 +389,7 @@ pub async fn fetch_profile_details(
             },
             reactor_status_raw: Some(String::new()),
             drbd_config_raw,
+            promoter_config_raw,
             configured_nodes,
         }));
     }
@@ -519,7 +525,6 @@ pub async fn fetch_profile_details(
 
             // If IP resolution failed and we're using local hostname, skip SSH
             if remote_ip == local_hostname || remote_ip == "127.0.0.1" {
-                tracing::warn!("Could not determine remote IP for {}, using local status", active_hostname);
                 let reactor_status = DrbdReactorClient::status(Some(&profile.name), None).await;
                 let reactor_raw = reactor_status.as_ref().map(|(_, raw)| raw.clone()).ok();
                 let active_from_reactor = reactor_status.as_ref()
@@ -528,69 +533,84 @@ pub async fn fetch_profile_details(
                     .and_then(|s| s.active_node.clone());
                 (local_drbd_status, active_from_reactor.or_else(|| Some(active_hostname.clone())), reactor_raw, true)
             } else {
-                // Active node is remote - use RemoteDrbdQuery to execute commands there
-                tracing::info!("Active node is remote {}, getting status via SSH for {}", active_hostname, profile.resource_name);
+                // Use RemoteDrbdQuery to get DRBD and reactor status from remote node
+                let remote_drbd = remote_query.get_resource_status(&remote_ip, &profile.resource_name).await
+                    .unwrap_or_else(|e| {
+                        tracing::warn!("Failed to get DRBD status from {} via SSH: {}", active_hostname, e);
+                        None
+                    });
 
-                // Get IP from res file
-                let remote_ip = if let Some(ip) = res_file_nodes.get(active_hostname) {
-                    ip.clone()
-                } else {
-                    // Fallback: try DNS resolution
-                    tracing::warn!("IP not found in res file for {}, trying DNS", active_hostname);
-                    resolve_hostname_to_ip(active_hostname)
-                        .unwrap_or_else(|| {
-                            tracing::error!("Cannot resolve IP for {}", active_hostname);
-                            local_hostname.clone()
-                        })
+                let reactor_result = remote_query.get_reactor_status(&remote_ip, &profile.name).await;
+
+                // If remote reactor status fails, try to get it locally
+                let reactor_raw = match reactor_result {
+                    Ok(Some(output)) if !output.is_empty() => {
+                        Some(output)
+                    }
+                    _ => {
+                        // Remote failed or returned empty, try local reactor status
+                        tracing::warn!("Remote reactor status failed or empty, trying local reactor status");
+                        match DrbdReactorClient::status(Some(&profile.name), None).await {
+                            Ok((_, raw_output)) => Some(raw_output),
+                            Err(e) => {
+                                tracing::warn!("Local reactor status also failed: {}", e);
+                                None
+                            }
+                        }
+                    }
                 };
 
-                // If IP resolution failed and we're using local hostname, skip SSH
-                if remote_ip == local_hostname || remote_ip == "127.0.0.1" {
-                    tracing::warn!("Could not determine remote IP for {}, using local status", active_hostname);
-                    let reactor_status = DrbdReactorClient::status(Some(&profile.name), None).await;
-                    let reactor_raw = reactor_status.as_ref().map(|(_, raw)| raw.clone()).ok();
-                    let active_from_reactor = reactor_status.as_ref()
-                        .ok()
-                        .and_then(|(statuses, _)| statuses.first())
-                        .and_then(|s| s.active_node.clone());
-                    (local_drbd_status, active_from_reactor, reactor_raw, true)
-                } else {
-                    // Use RemoteDrbdQuery to get DRBD and reactor status from remote node
-                    let remote_drbd = remote_query.get_resource_status(&remote_ip, &profile.resource_name).await
-                        .unwrap_or_else(|e| {
-                            tracing::warn!("Failed to get DRBD status from {} via SSH: {}", active_hostname, e);
-                            None
-                        });
+                // Try to get active node from reactor output
+                let active_from_reactor = reactor_raw.as_ref().and_then(|raw| {
+                    // Try to parse active node from raw output
+                    // Format: "Promoter: Currently active on node 'orange2'"
+                    raw.lines()
+                        .find(|line| line.contains("Currently active on node"))
+                        .and_then(|line| {
+                            line.split("'")
+                                .nth(1)
+                                .map(|s| s.to_string())
+                        })
+                }).or_else(|| Some(active_hostname.clone()));
 
-                    let reactor_result = remote_query.get_reactor_status(&remote_ip, &profile.name).await;
-                    let (reactor_raw, active_from_reactor) = match reactor_result {
-                        Ok(Some(output)) => {
-                            let _statuses = drbd_reactor_utils::parser::parse_reactor_status(&output, Some(&profile.name));
-                            (Some(output), Some(active_hostname.clone()))
-                        }
-                        Ok(None) => {
-                            tracing::warn!("Empty reactor status output from {}", active_hostname);
-                            (None, Some(active_hostname.clone()))
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to get reactor status from {} via SSH: {}", active_hostname, e);
-                            (None, Some(active_hostname.clone()))
-                        }
-                    };
-
-                    (remote_drbd, active_from_reactor, reactor_raw, false)
-                }
+                (remote_drbd, active_from_reactor, reactor_raw, false)
             }
         }
     } else {
         // No active node from DRBD, use local status
         tracing::info!("No active node determined from DRBD, using local status");
         let reactor_status = DrbdReactorClient::status(Some(&profile.name), None).await;
-        let reactor_raw = reactor_status.as_ref().map(|(_, raw)| raw.clone()).ok();
-        let active_from_reactor = reactor_status.as_ref()
-            .ok()
-            .and_then(|(statuses, _)| statuses.first())
-            .and_then(|s| s.active_node.clone());
+
+        // Extract raw output and active node from reactor status
+        // Always try to get raw output, even if parsing fails
+        let reactor_raw = match &reactor_status {
+            Ok((_, raw)) => Some(raw.clone()),
+            Err(_) => {
+                // Fallback: try to get raw output directly from command
+                let cmd = format!("sudo drbd-reactorctl status {} 2>/dev/null", profile.name);
+                match crate::core::run_shell_command(&cmd, "Get drbd-reactor status").await {
+                    Ok(output) => Some(output.stdout),
+                    Err(_) => None,
+                }
+            }
+        };
+
+        // Try to extract active node from raw output if statuses parsing failed
+        let active_from_reactor = if let Ok((statuses, _)) = &reactor_status {
+            statuses.first().and_then(|s| s.active_node.clone())
+        } else {
+            // Try to parse active node from raw output
+            // Format: "Promoter: Currently active on node 'orange2'"
+            reactor_raw.as_ref().and_then(|raw| {
+                raw.lines()
+                    .find(|line| line.contains("Currently active on node"))
+                    .and_then(|line| {
+                        line.split("'")
+                            .nth(1)
+                            .map(|s| s.to_string())
+                    })
+            })
+        };
 
         (local_drbd_status, active_from_reactor, reactor_raw, true)
     };
@@ -958,6 +978,11 @@ pub async fn fetch_profile_details(
         }
     };
 
+    // Read drbd-reactor promoter config file content
+    let reactor_dir = config_gen::ConfigPaths::REACTOR_CONF_DIR;
+    let promoter_config_path = format!("{}/{}.toml", reactor_dir, profile.name);
+    let promoter_config_raw = tokio::fs::read_to_string(&promoter_config_path).await.ok();
+
     Ok(Json(HaProfileDetailResponse {
         profile: profile_out,
         status,
@@ -970,6 +995,7 @@ pub async fn fetch_profile_details(
         config,
         reactor_status_raw,
         drbd_config_raw,
+        promoter_config_raw,
         configured_nodes,
     }))
 }
