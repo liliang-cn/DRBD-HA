@@ -37,6 +37,158 @@ pub async fn health_check() -> Json<HealthResponse> {
     })
 }
 
+/// Parse node information from DRBD .res configuration files
+/// Extracts hostname and IP from "on <hostname> { address ... }" blocks
+async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<Node>> {
+    use std::collections::HashMap;
+
+    let config_path = &state.config.drbd.config_path;
+    let mut discovered_nodes: HashMap<String, Node> = HashMap::new();
+
+    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+
+    // Read all .res files
+    let mut entries = match tokio::fs::read_dir(config_path).await {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!("Cannot read DRBD config directory {}: {}", config_path, e);
+            return Ok(Vec::new());
+        }
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let file_name = match entry.file_name().to_str() {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+
+        if !file_name.ends_with(".res") {
+            continue;
+        }
+
+        // Read .res file content
+        let content = match tokio::fs::read_to_string(entry.path()).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("Failed to read {}: {}", file_name, e);
+                continue;
+            }
+        };
+
+        // Parse "on <hostname> { address <ip>:<port>; }" blocks
+        // Use a simple state machine to find these blocks
+        let lines: Vec<&str> = content.lines().collect();
+        let mut i = 0;
+        while i < lines.len() {
+            let line = lines[i].trim();
+
+            // Look for "on <hostname> {" pattern
+            if line.starts_with("on ") && line.ends_with('{') {
+                let hostname_part = line[2..line.len() - 1].trim();
+                let hostname = hostname_part.to_string();
+
+                // Look for address line within the next few lines
+                let mut address = None;
+                let mut j = i + 1;
+                while j < lines.len() && j < i + 20 {
+                    let inner_line = lines[j].trim();
+
+                    // Exit the block when we see closing brace
+                    if inner_line == "}" {
+                        break;
+                    }
+
+                    // Parse address line: address    <ip>:<port>;
+                    if inner_line.starts_with("address ") {
+                        let addr_part = inner_line[8..].trim().trim_end_matches(';');
+                        // Parse IP:port, we only need the IP
+                        if let Some(colon_pos) = addr_part.find(':') {
+                            let ip = addr_part[..colon_pos].trim().to_string();
+                            address = Some(ip);
+                        }
+                        break;
+                    }
+
+                    j += 1;
+                }
+
+                if let Some(ip) = address {
+                    // Check if this is the local node
+                    let is_local = hostname == local_hostname;
+
+                    // Use existing SSH settings if node already exists
+                    let (ssh_port, ssh_user, status, last_seen) = if let Ok(Some(existing)) = state.node_store.get(&hostname) {
+                        (existing.ssh_port, existing.ssh_user, existing.status, existing.last_seen)
+                    } else {
+                        let ssh_port = state.config.ssh.default_port;
+                        let ssh_user = state.config.ssh.default_user.clone();
+
+                        // Try to check connectivity
+                        let (status, last_seen) = match state
+                            .ssh_manager
+                            .execute(&ip, ssh_port, &ssh_user, &SshCredential::Password("ignored".to_string()), "echo ok")
+                            .await
+                        {
+                            Ok(output) if output.success() => (
+                                NodeStatus::Online,
+                                Some(chrono::Utc::now())
+                            ),
+                            _ => (NodeStatus::Unknown, None),
+                        };
+
+                        (ssh_port, ssh_user, status, last_seen)
+                    };
+
+                    let node = Node {
+                        id: hostname.clone(),
+                        hostname: hostname.clone(),
+                        ip,
+                        ssh_port,
+                        ssh_user,
+                        is_local,
+                        status,
+                        last_seen,
+                    };
+
+                    discovered_nodes.insert(hostname, node);
+                }
+            }
+
+            i += 1;
+        }
+    }
+
+    Ok(discovered_nodes.into_values().collect())
+}
+
+/// Sync nodes from DRBD configs with the node store
+/// Returns all nodes (both from configs and manually added)
+pub async fn sync_nodes_from_drbd(state: &Arc<AppState>) -> AppResult<Vec<Node>> {
+    // Import nodes from .res files
+    let discovered = import_nodes_from_drbd_configs(state).await?;
+
+    // Get existing manually added nodes
+    let existing = state.node_store.get_all().unwrap_or_default();
+
+    // Merge: nodes from .res files + existing nodes that aren't in .res files
+    use std::collections::HashSet;
+    let discovered_hostnames: HashSet<String> = discovered.iter().map(|n| n.hostname.clone()).collect();
+
+    let mut all_nodes = discovered;
+    for node in existing {
+        if !discovered_hostnames.contains(node.hostname.as_str()) {
+            all_nodes.push(node);
+        }
+    }
+
+    // Update the store with merged nodes
+    for node in &all_nodes {
+        let _ = state.node_store.insert(node);
+    }
+
+    Ok(all_nodes)
+}
+
 /// GET /api/v1/nodes
 #[utoipa::path(
     get,
@@ -47,7 +199,8 @@ pub async fn health_check() -> Json<HealthResponse> {
     )
 )]
 pub async fn list_nodes(State(state): State<Arc<AppState>>) -> AppResult<Json<Vec<Node>>> {
-    let nodes = state.node_store.get_all()?;
+    // Sync nodes from DRBD configs first, then return all nodes
+    let nodes = sync_nodes_from_drbd(&state).await?;
     Ok(Json(nodes))
 }
 
@@ -151,6 +304,66 @@ pub async fn get_node(
         .get(&id)?
         .map(Json)
         .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))
+}
+
+/// PUT /api/v1/nodes/:id
+#[utoipa::path(
+    put,
+    path = "/api/v1/nodes/{id}",
+    tag = "cluster",
+    params(
+        ("id" = String, Path, description = "Node ID")
+    ),
+    request_body = AddNodeRequest,
+    responses(
+        (status = 200, description = "Node updated", body = Node),
+        (status = 404, description = "Node not found"),
+        (status = 400, description = "Invalid request")
+    )
+)]
+pub async fn update_node(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<AddNodeRequest>,
+) -> AppResult<Json<Node>> {
+    // Get existing node
+    let existing = state
+        .node_store
+        .get(&id)?
+        .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
+
+    // Check if new ip/hostname conflicts with another node
+    // Exclude: (1) the node itself by id, (2) nodes with same hostname (may be same node from DRBD import)
+    let existing_nodes = state.node_store.get_all()?;
+    if existing_nodes.iter().any(|n| n.id != id && n.hostname != existing.hostname && (n.ip == req.ip || n.hostname == req.hostname)) {
+        return Err(AppError::AlreadyExists(format!(
+            "Node with ip {} or hostname {} already exists",
+            req.ip, req.hostname
+        )));
+    }
+
+    // Update node with new values
+    let ssh_port = req.ssh_port.unwrap_or(state.config.ssh.default_port);
+    let ssh_user = req
+        .ssh_user
+        .clone()
+        .unwrap_or(state.config.ssh.default_user.clone());
+
+    let updated_node = Node {
+        id,
+        hostname: req.hostname,
+        ip: req.ip,
+        ssh_port,
+        ssh_user,
+        is_local: existing.is_local,
+        status: existing.status,
+        last_seen: existing.last_seen,
+    };
+
+    // Update in store
+    state.node_store.update(&updated_node)?;
+
+    Ok(Json(updated_node))
 }
 
 /// DELETE /api/v1/nodes/:id

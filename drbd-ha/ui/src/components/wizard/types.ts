@@ -19,6 +19,9 @@ export interface WizardSharedState {
   setServices: (services: ServiceFileInfo[]) => void;
   selectedNodes: Node[];
   setSelectedNodes: (nodes: Node[]) => void;
+  // Option to use existing DRBD resource and skip storage config
+  useExistingResource: boolean;
+  setUseExistingResource: (use: boolean) => void;
 }
 
 export interface StepProps {

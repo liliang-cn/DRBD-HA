@@ -8,6 +8,7 @@ interface NodesState {
   error: string | null;
   fetch: () => Promise<void>;
   add: (data: Parameters<typeof nodesApi.add>[0]) => Promise<Node>;
+  update: (id: string, data: Parameters<typeof nodesApi.update>[1]) => Promise<Node>;
   remove: (id: string) => Promise<void>;
   updateStatus: (
     updates: Array<{ id: string; status: string; last_seen?: number }>,
@@ -32,6 +33,14 @@ export const useNodesStore = create<NodesState>((set, get) => ({
   add: async (data) => {
     const node = await nodesApi.add(data);
     set({ nodes: [...get().nodes, node] });
+    return node;
+  },
+
+  update: async (id, data) => {
+    const node = await nodesApi.update(id, data);
+    set({
+      nodes: get().nodes.map((n) => (n.id === id ? node : n)),
+    });
     return node;
   },
 

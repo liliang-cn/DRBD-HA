@@ -65,6 +65,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const [haType, setHaType] = useState<'generic'>('generic');
   // Selected nodes for HA profile
   const [selectedNodes, setSelectedNodes] = useState<Node[]>([]);
+  // Option to use existing DRBD resource (skip storage config step)
+  const [useExistingResource, setUseExistingResource] = useState(false);
 
   const [resourceForm] = Form.useForm();
   const [haForm] = Form.useForm();
@@ -202,14 +204,23 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         } catch {}
       });
 
-      // Auto-generate random port and minor numbers
-      const _usedMinors = resources.flatMap((r) =>
-        r.devices.map((d) => d.minor),
+      // Auto-generate port and minor numbers based on existing resources
+      const usedMinors = (resources || []).flatMap((r) =>
+        r.devices?.map((d) => d.minor) || [],
       );
+
+      // Find the maximum port used by existing resources and increment by 1
+      // Filter out invalid port numbers (undefined, null, NaN)
+      const validResources = (resources || []).filter(
+        (r) => r && typeof r.port === 'number' && !Number.isNaN(r.port),
+      );
+      const usedPorts = validResources.map((r) => r.port);
+      const maxPort =
+        usedPorts.length > 0 ? Math.max(...usedPorts) : 7000;
+      const nextPort = maxPort + 1;
 
       // Use ref to ensure we only generate it once per step entry
       if (generatedPortRef.current === null) {
-        const nextPort = Math.floor(Math.random() * (8000 - 7000 + 1)) + 7000;
         generatedPortRef.current = nextPort;
         resourceForm.setFieldsValue({ port: nextPort });
       }
@@ -440,6 +451,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         addLog('Validation failed: At least 2 nodes are required');
         return;
       }
+
       addLog('Nodes verification passed');
       updateStep(1);
     } else if (step === 1) {
@@ -652,7 +664,14 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   };
 
   const handlePrev = () => {
-    const newStep = Math.max(0, step - 1);
+    let newStep = Math.max(0, step - 1);
+
+    // If going back from HA config (step 2) to storage config (step 1),
+    // but we're using an existing resource (skipped storage), go back to nodes (step 0)
+    if (step === 2 && useExistingResource) {
+      newStep = 0;
+    }
+
     updateStep(newStep);
   };
 
@@ -713,6 +732,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
               setServices,
               selectedNodes,
               setSelectedNodes,
+              useExistingResource,
+              setUseExistingResource,
             }}
           />
         );
@@ -721,10 +742,13 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         return (
           <StorageConfigStep
             form={resourceForm}
-            storageStrategy="raw"
-            onStrategyChange={() => {}}
             nodes={selectedNodes}
             availableDisks={availableDisks}
+            resources={resources}
+            onUseExisting={() => {
+              setUseExistingResource(true);
+              updateStep(2);
+            }}
           />
         );
 
@@ -798,6 +822,17 @@ export function Wizard({ mode = 'service' }: WizardProps) {
                 Configuration Wizard
               </span>
             </h1>
+            {step === 0 && resources.length > 0 && (
+              <Button
+                type="link"
+                onClick={() => {
+                  setUseExistingResource(true);
+                  updateStep(2);
+                }}
+              >
+                Use existing DRBD resource →
+              </Button>
+            )}
           </div>
 
           {/* Steps */}
@@ -806,7 +841,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             className="mb-8"
             items={[
               { title: 'Nodes' },
-              { title: 'Storage' },
+              { title: 'Storage', disabled: useExistingResource, status: useExistingResource ? 'wait' : undefined },
               { title: 'Services' },
               { title: 'Preview' },
               { title: 'Status' },

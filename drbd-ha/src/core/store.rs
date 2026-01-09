@@ -48,6 +48,17 @@ impl NodeStore {
         self.save(&nodes)
     }
 
+    /// Update an existing node (must exist)
+    pub fn update(&self, node: &Node) -> AppResult<()> {
+        let mut nodes = self.get_all()?;
+        let idx = nodes
+            .iter()
+            .position(|n| n.id == node.id)
+            .ok_or_else(|| crate::error::AppError::NotFound(format!("Node {} not found", node.id)))?;
+        nodes[idx] = node.clone();
+        self.save(&nodes)
+    }
+
     pub fn delete(&self, id: &str) -> AppResult<bool> {
         let mut nodes = self.get_all()?;
         let len_before = nodes.len();

@@ -2,6 +2,7 @@ import {
   DeleteOutlined,
   PlusOutlined,
   ReloadOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import {
   Alert,
@@ -40,9 +41,11 @@ export function NodesVerificationStep({
   nodes,
   sharedState,
 }: NodesVerificationStepProps) {
-  const { add, remove, fetch } = useNodesStore();
+  const { add, remove, fetch, update } = useNodesStore();
   const { theme: currentTheme } = useThemeStore();
   const [modalOpen, setModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingNode, setEditingNode] = useState<Node | null>(null);
   const [form] = Form.useForm<AddNodeRequest>();
   const [submitting, setSubmitting] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -103,9 +106,57 @@ export function NodesVerificationStep({
     }
   };
 
+  const handleEdit = (node: Node) => {
+    setEditingNode(node);
+    form.setFieldsValue({
+      hostname: node.hostname,
+      ip: node.ip,
+      ssh_port: node.ssh_port,
+      ssh_user: node.ssh_user || '',
+    });
+    setEditModalOpen(true);
+  };
+
+  const handleUpdate = async (values: AddNodeRequest) => {
+    if (!editingNode) return;
+    setSubmitting(true);
+    try {
+      await update(editingNode.id, values);
+      message.success('Node updated successfully');
+      setEditModalOpen(false);
+      setEditingNode(null);
+      form.resetFields();
+      fetch();
+    } catch (err) {
+      message.error((err as { message: string }).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const columns = [
     { title: 'Hostname', dataIndex: 'hostname', key: 'hostname' },
     { title: 'IP', dataIndex: 'ip', key: 'ip' },
+    {
+      title: 'SSH User',
+      dataIndex: 'ssh_user',
+      key: 'ssh_user',
+      render: (sshUser: string, record: Node) => (
+        <Space>
+          <span>{sshUser || <Tag color="red">Not set</Tag>}</span>
+          {!sshUser && (
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+            >
+              Set
+            </Button>
+          )}
+        </Space>
+      ),
+    },
     {
       title: 'Status',
       dataIndex: 'status',
@@ -130,6 +181,13 @@ export function NodesVerificationStep({
             onClick={() => handleCheck(record.id)}
           >
             Check
+          </Button>
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleEdit(record)}
+          >
+            Edit
           </Button>
           {!record.is_local && (
             <Popconfirm
@@ -165,29 +223,52 @@ export function NodesVerificationStep({
       className="w-full"
     >
       <div className="p-4">
-        <Table
-          dataSource={nodes}
-          columns={columns}
-          rowKey="id"
-          pagination={false}
-          rowSelection={{
-            selectedRowKeys,
-            onChange: handleSelectionChange,
-            getCheckboxProps: (record: Node) => ({
-              // Disable checkbox for nodes that are offline
-              disabled: record.status !== 'online',
-              name: record.hostname,
-            }),
-          }}
-        />
-
-        {selectedRowKeys.length < 2 && (
+        {nodes.length === 0 ? (
           <Alert
-            message="At least 2 nodes must be selected for HA"
-            type="warning"
+            message="No nodes available"
+            description={
+              <div>
+                <p>Please add at least 2 nodes to configure HA.</p>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => setModalOpen(true)}
+                  className="mt-2"
+                >
+                  Add Node
+                </Button>
+              </div>
+            }
+            type="info"
             showIcon
-            className="mt-6"
           />
+        ) : (
+          <>
+            <Table
+              dataSource={nodes}
+              columns={columns}
+              rowKey="id"
+              pagination={false}
+              rowSelection={{
+                selectedRowKeys,
+                onChange: handleSelectionChange,
+                getCheckboxProps: (record: Node) => ({
+                  // Disable checkbox for nodes that are offline
+                  disabled: record.status !== 'online',
+                  name: record.hostname,
+                }),
+              }}
+            />
+
+            {selectedRowKeys.length < 2 && (
+              <Alert
+                message="At least 2 nodes must be selected for HA"
+                type="warning"
+                showIcon
+                className="mt-6"
+              />
+            )}
+          </>
         )}
       </div>
 
@@ -218,6 +299,46 @@ export function NodesVerificationStep({
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={submitting} block>
               Add Node
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Edit Node"
+        open={editModalOpen}
+        onCancel={() => {
+          setEditModalOpen(false);
+          setEditingNode(null);
+          form.resetFields();
+        }}
+        footer={null}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical" onFinish={handleUpdate}>
+          <Form.Item
+            name="hostname"
+            label="Hostname"
+            rules={[{ required: true }]}
+          >
+            <Input disabled />
+          </Form.Item>
+          <Form.Item name="ip" label="IP Address" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="ssh_port" label="SSH Port" initialValue={22}>
+            <InputNumber min={1} max={65535} className="w-full" />
+          </Form.Item>
+          <Form.Item
+            name="ssh_user"
+            label="SSH User"
+            rules={[{ required: true, message: 'SSH User is required for remote operations' }]}
+          >
+            <Input placeholder="root" />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={submitting} block>
+              Update Node
             </Button>
           </Form.Item>
         </Form>

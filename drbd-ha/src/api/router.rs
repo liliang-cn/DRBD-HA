@@ -2,7 +2,7 @@
 
 use axum::{
     middleware,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Router,
 };
 use std::sync::Arc;
@@ -41,6 +41,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/nodes", get(cluster::list_nodes))
         .route("/nodes", post(cluster::add_node))
         .route("/nodes/{id}", get(cluster::get_node))
+        .route("/nodes/{id}", put(cluster::update_node))
         .route("/nodes/{id}", delete(cluster::delete_node))
         .route("/nodes/{id}/disks", get(cluster::list_node_disks))
         .route(

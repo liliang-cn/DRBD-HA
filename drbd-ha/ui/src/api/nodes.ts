@@ -8,6 +8,8 @@ export const nodesApi = {
 
   add: (data: AddNodeRequest) => api.post<Node>('/nodes', data),
 
+  update: (id: string, data: AddNodeRequest) => api.put<Node>(`/nodes/${id}`, data),
+
   delete: (id: string) => api.delete<void>(`/nodes/${id}`),
 
   getDisks: (id: string) => api.get<BlockDevice[]>(`/nodes/${id}/disks`),

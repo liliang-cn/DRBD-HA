@@ -1,6 +1,7 @@
 import type { FormInstance } from 'antd';
 import {
   AutoComplete,
+  Button,
   Card,
   Checkbox,
   Col,
@@ -22,19 +23,34 @@ interface StorageConfigStepProps {
   form: FormInstance;
   nodes: Node[];
   availableDisks: Record<string, BlockDevice[]>;
+  resources?: Array<{ name: string; id?: string }>;
+  onUseExisting?: () => void;
 }
 
 export function StorageConfigStep({
   form,
   nodes,
   availableDisks,
+  resources = [],
+  onUseExisting,
 }: StorageConfigStepProps) {
   return (
     <Card
       title={
-        <span className="text-lg font-semibold">
-          Step 2: Storage Configuration
-        </span>
+        <div className="flex items-center justify-between w-full">
+          <span className="text-lg font-semibold">
+            Step 2: Storage Configuration
+          </span>
+          {resources.length > 0 && onUseExisting && (
+            <Button
+              type="link"
+              onClick={onUseExisting}
+              style={{ fontSize: 14 }}
+            >
+              Use existing DRBD resource →
+            </Button>
+          )}
+        </div>
       }
       className="w-full"
     >
