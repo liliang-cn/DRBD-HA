@@ -4,8 +4,7 @@ import {
   CheckCircleOutlined,
   LoadingOutlined,
   ThunderboltOutlined,
-  FullscreenOutlined,
-  FullscreenExitOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import { Button, Form, message, Steps, Typography } from 'antd';
 import gsap from 'gsap';
@@ -50,7 +49,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const internalStep = Math.min(Math.max(userVisibleStep - 1, 0), 4);
   const [step, setStep] = useState(internalStep);
   const [loading, setLoading] = useState(false);
-  const [isLogPanelVisible, setIsLogPanelVisible] = useState(true);
+  const [isLogPanelVisible, setIsLogPanelVisible] = useState(false);
 
   // GSAP Refs
   const containerRef = useRef<HTMLDivElement>(null);
@@ -803,7 +802,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         >
           {/* Expand/Collapse Log Panel Button - Top Right of Content Area */}
           <Button
-            icon={isLogPanelVisible ? <FullscreenOutlined /> : <FullscreenExitOutlined />}
+            icon={<FileTextOutlined />}
             onClick={() => setIsLogPanelVisible(!isLogPanelVisible)}
             style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 10 }}
             type="text"

@@ -2,6 +2,7 @@ import {
   EyeOutlined,
   EyeInvisibleOutlined,
   SettingOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import type { FormInstance } from 'antd';
 import {
@@ -54,7 +55,7 @@ export function HaConfigStep({
 }: HaConfigStepProps) {
   const mountStrategy = Form.useWatch('mount_strategy', form);
   const [configMode, setConfigMode] = useState<ConfigMode>('simple');
-  const [showTomlPreview, setShowTomlPreview] = useState(false);
+  const [showTomlPreview, setShowTomlPreview] = useState(true);
   const [ocfAgents, setOcfAgents] = useState<any[]>([]);
 
   // Split pane state
