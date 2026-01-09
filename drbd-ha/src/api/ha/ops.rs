@@ -6,11 +6,70 @@ use std::sync::Arc;
 
 use crate::core::run_shell_command;
 use crate::error::{AppError, AppResult};
+use crate::models::{Node, NodeStatus};
 use crate::state::{AppState, NotificationLevel};
 use drbd_reactor_utils::{DrbdReactorClient, EvictOptions};
 
 use super::types::{EvictProfileRequest, EvictProfileResponse};
 use super::utils::create_profile_from_toml;
+
+/// Resolve hostname to IP address using DNS lookup
+fn resolve_hostname_to_ip(hostname: &str) -> Option<String> {
+    drbd_utils::resolve_hostname_to_ip(hostname)
+}
+
+/// Auto-discover and add a node to the store if it doesn't exist
+fn ensure_node_in_store(state: &AppState, hostname: &str) -> AppResult<Node> {
+    // First, try to find existing node
+    let nodes = state.node_store.get_all()?;
+    if let Some(node) = nodes.into_iter().find(|n| n.hostname == hostname) {
+        return Ok(node);
+    }
+
+    // Node not found, auto-discover and add it
+    tracing::info!("Auto-discovering node '{}' and adding to store", hostname);
+
+    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+    let is_local = hostname == local_hostname;
+
+    let ip = if is_local {
+        // Use local IP detection
+        crate::state::AppState::get_local_ip()
+    } else {
+        // Try DNS resolution
+        resolve_hostname_to_ip(hostname).ok_or_else(|| {
+            AppError::NotFound(format!("Cannot resolve IP for hostname '{}'", hostname))
+        })?
+    };
+
+    let ssh_port = state.config.ssh.default_port;
+    let ssh_user = state.config.ssh.default_user.clone();
+
+    let new_node = Node {
+        id: hostname.to_string(),
+        hostname: hostname.to_string(),
+        ip,
+        ssh_port,
+        ssh_user,
+        is_local,
+        status: NodeStatus::Online,
+        last_seen: Some(chrono::Utc::now()),
+    };
+
+    // Add to store
+    state.node_store.insert(&new_node)?;
+
+    tracing::info!(
+        "Auto-added node '{}' (IP: {}, SSH: {}@{}:{}) to store",
+        hostname,
+        new_node.ip,
+        new_node.ssh_user,
+        new_node.ip,
+        new_node.ssh_port
+    );
+
+    Ok(new_node)
+}
 
 /// POST /api/v1/ha/profiles/:id/evict
 pub async fn evict_profile(
@@ -39,12 +98,15 @@ pub async fn evict_profile(
     // Build command using drbd-reactor-utils
     let evict_cmd = DrbdReactorClient::build_evict_command(&profile.name, Some(&evict_options));
 
-    let target_node: crate::models::Node = if let Some(ref node_id) = request.node {
+    let target_node: Node = if let Some(ref node_id) = request.node {
+        // Try to find existing node first
         let nodes = state.node_store.get_all()?;
-        nodes
-            .into_iter()
-            .find(|n| n.id == *node_id || n.hostname == *node_id)
-            .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_id)))?
+        if let Some(node) = nodes.into_iter().find(|n| n.id == *node_id || n.hostname == *node_id) {
+            node
+        } else {
+            // Auto-discover and add node if not in store
+            ensure_node_in_store(&state, node_id)?
+        }
     } else {
         let status_cmd = format!("drbd-reactorctl status {} 2>/dev/null", profile.name);
         let output = run_shell_command(
@@ -85,16 +147,8 @@ pub async fn evict_profile(
         };
 
         if let Some(active_hostname) = active_node_name {
-            let nodes = state.node_store.get_all()?;
-            nodes
-                .into_iter()
-                .find(|n| n.hostname == active_hostname)
-                .ok_or_else(|| {
-                    AppError::NotFound(format!(
-                        "Active node '{}' not found in store. Please add it first.",
-                        active_hostname
-                    ))
-                })?
+            // Auto-discover and add node if not in store
+            ensure_node_in_store(&state, &active_hostname)?
         } else {
             return Err(AppError::Validation(
                 "No active node found for this profile. Cannot evict.".to_string(),
@@ -233,12 +287,8 @@ pub async fn disable_profile_on_node(
     State(state): State<Arc<AppState>>,
     Path((id_or_name, node_hostname)): Path<(String, String)>,
 ) -> AppResult<Json<serde_json::Value>> {
-    // Get node info
-    let nodes = state.node_store.get_all()?;
-    let target_node = nodes
-        .into_iter()
-        .find(|n| n.hostname == node_hostname || n.id == node_hostname)
-        .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_hostname)))?;
+    // Get node info (auto-discover if not in store)
+    let target_node = ensure_node_in_store(&state, &node_hostname)?;
 
     // Verify profile exists (check both .toml and .toml.disabled)
     let reactor_dir = crate::core::ReactorConfigPaths::REACTOR_CONF_DIR;
@@ -370,12 +420,8 @@ pub async fn enable_profile_on_node(
     State(state): State<Arc<AppState>>,
     Path((id_or_name, node_hostname)): Path<(String, String)>,
 ) -> AppResult<Json<serde_json::Value>> {
-    // Get node info
-    let nodes = state.node_store.get_all()?;
-    let target_node = nodes
-        .into_iter()
-        .find(|n| n.hostname == node_hostname || n.id == node_hostname)
-        .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_hostname)))?;
+    // Get node info (auto-discover if not in store)
+    let target_node = ensure_node_in_store(&state, &node_hostname)?;
 
     // Verify profile exists (check both .toml and .toml.disabled)
     let reactor_dir = crate::core::ReactorConfigPaths::REACTOR_CONF_DIR;
