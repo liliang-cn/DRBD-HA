@@ -7,14 +7,21 @@ use axum::{
 };
 use ra_params::{get_agent_metadata, models::ResourceAgent as RaParamsResourceAgent};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path as StdPath;
 use std::sync::Arc;
 use utoipa::ToSchema;
+use indexmap::IndexMap;
 
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
+
+/// Ordered parameter entry (key-value pair with order preserved)
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct ParamEntry {
+    pub key: String,
+    pub value: String,
+}
 
 /// Flattened ResourceAgent metadata matching frontend all_agents.ts format
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
@@ -88,7 +95,8 @@ pub struct ParsedOcfAgent {
     /// Instance name (e.g., "fs_cluster_private")
     pub instance_name: String,
     /// Parameters extracted from the string
-    pub params: HashMap<String, String>,
+    /// Parameters extracted from the string (order preserved as array)
+    pub params: Vec<ParamEntry>,
 }
 
 /// A generic item in the start/stop array
@@ -202,7 +210,7 @@ fn parse_ocf_agent_string(agent_str: &str) -> Option<ParsedOcfAgent> {
                 provider,
                 agent_type: agent_type.clone(),
                 instance_name: format!("{}_default", agent_type),
-                params: HashMap::new(),
+                params: Vec::new(),
             });
         }
     };
@@ -216,7 +224,8 @@ fn parse_ocf_agent_string(agent_str: &str) -> Option<ParsedOcfAgent> {
     let agent_type = first_part[colon_idx + 1..].to_string();
 
     // Split params string, handling quoted values like options='rw,all_squash,anonuid=0'
-    let mut params: HashMap<String, String> = HashMap::new();
+    // Use IndexMap internally to preserve insertion order
+    let mut params_map: IndexMap<String, String> = IndexMap::new();
     let mut param_parts: Vec<String> = Vec::new();
     let mut current_param = String::new();
     let mut in_quotes = false;
@@ -275,9 +284,15 @@ fn parse_ocf_agent_string(agent_str: &str) -> Option<ParsedOcfAgent> {
                 value = value[1..value.len() - 1].to_string();
             }
 
-            params.insert(key, value);
+            params_map.insert(key, value);
         }
     }
+
+    // Convert IndexMap to Vec<ParamEntry> to preserve order in JSON
+    let params: Vec<ParamEntry> = params_map
+        .iter()
+        .map(|(k, v)| ParamEntry { key: k.clone(), value: v.clone() })
+        .collect();
 
     Some(ParsedOcfAgent {
         original: trimmed.to_string(),
@@ -656,6 +671,11 @@ pub async fn parse_profile_toml(
 mod tests {
     use super::*;
 
+    // Helper function to get param value by key from Vec<ParamEntry>
+    fn get_param(params: &[ParamEntry], key: &str) -> Option<&str> {
+        params.iter().find(|p| p.key == key).map(|p| p.value.as_str())
+    }
+
     #[test]
     fn test_parse_simple_ocf_agent_string() {
         let agent_str = "ocf:heartbeat:Filesystem fs_cluster_private device=/dev/drbd0 directory=/data fstype=ext4";
@@ -666,9 +686,9 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "Filesystem");
         assert_eq!(agent.instance_name, "fs_cluster_private");
-        assert_eq!(agent.params.get("device"), Some(&"/dev/drbd0".to_string()));
-        assert_eq!(agent.params.get("directory"), Some(&"/data".to_string()));
-        assert_eq!(agent.params.get("fstype"), Some(&"ext4".to_string()));
+        assert_eq!(get_param(&agent.params, "device"), Some(&"/dev/drbd0".to_string()));
+        assert_eq!(get_param(&agent.params, "directory"), Some(&"/data".to_string()));
+        assert_eq!(get_param(&agent.params, "fstype"), Some(&"ext4".to_string()));
         assert_eq!(agent.params.len(), 3);
     }
 
@@ -682,7 +702,7 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "Filesystem");
         assert_eq!(agent.instance_name, "fs_cluster_private");
-        assert_eq!(agent.params.get("options"), Some(&"rw,all_squash,anonuid=0".to_string()));
+        assert_eq!(get_param(&agent.params, "options"), Some(&"rw,all_squash,anonuid=0".to_string()));
     }
 
     #[test]
@@ -692,7 +712,7 @@ mod tests {
 
         assert!(result.is_some());
         let agent = result.unwrap();
-        assert_eq!(agent.params.get("directory"), Some(&"/path with spaces".to_string()));
+        assert_eq!(get_param(&agent.params, "directory"), Some(&"/path with spaces".to_string()));
     }
 
     #[test]
@@ -705,8 +725,8 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "IPaddr2");
         assert_eq!(agent.instance_name, "service_ip0");
-        assert_eq!(agent.params.get("cidr_netmask"), Some(&"24".to_string()));
-        assert_eq!(agent.params.get("ip"), Some(&"192.168.123.191".to_string()));
+        assert_eq!(get_param(&agent.params, "cidr_netmask"), Some(&"24".to_string()));
+        assert_eq!(get_param(&agent.params, "ip"), Some(&"192.168.123.191".to_string()));
     }
 
     #[test]
@@ -719,10 +739,10 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "portblock");
         assert_eq!(agent.instance_name, "pblock0");
-        assert_eq!(agent.params.get("action"), Some(&"block".to_string()));
-        assert_eq!(agent.params.get("ip"), Some(&"192.168.123.191".to_string()));
-        assert_eq!(agent.params.get("portno"), Some(&"3260".to_string()));
-        assert_eq!(agent.params.get("protocol"), Some(&"tcp".to_string()));
+        assert_eq!(get_param(&agent.params, "action"), Some(&"block".to_string()));
+        assert_eq!(get_param(&agent.params, "ip"), Some(&"192.168.123.191".to_string()));
+        assert_eq!(get_param(&agent.params, "portno"), Some(&"3260".to_string()));
+        assert_eq!(get_param(&agent.params, "protocol"), Some(&"tcp".to_string()));
     }
 
     #[test]
@@ -735,9 +755,9 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "iSCSITarget");
         assert_eq!(agent.instance_name, "target");
-        assert_eq!(agent.params.get("allowed_initiators"), Some(&"".to_string()));
-        assert_eq!(agent.params.get("iqn"), Some(&"iqn.2025-12.com.linbit:iscsi2".to_string()));
-        assert_eq!(agent.params.get("portals"), Some(&"192.168.123.191:3260".to_string()));
+        assert_eq!(get_param(&agent.params, "allowed_initiators"), Some(&"".to_string()));
+        assert_eq!(get_param(&agent.params, "iqn"), Some(&"iqn.2025-12.com.linbit:iscsi2".to_string()));
+        assert_eq!(get_param(&agent.params, "portals"), Some(&"192.168.123.191:3260".to_string()));
     }
 
     #[test]
@@ -750,11 +770,11 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "iSCSILogicalUnit");
         assert_eq!(agent.instance_name, "lu1");
-        assert_eq!(agent.params.get("lun"), Some(&"1".to_string()));
-        assert_eq!(agent.params.get("path"), Some(&"/dev/drbd/by-res/iscsi2/1".to_string()));
-        assert_eq!(agent.params.get("product_id"), Some(&"d30d7c86".to_string()));
-        assert_eq!(agent.params.get("scsi_sn"), Some(&"d30d7c86".to_string()));
-        assert_eq!(agent.params.get("target_iqn"), Some(&"iqn.2025-12.com.linbit:iscsi2".to_string()));
+        assert_eq!(get_param(&agent.params, "lun"), Some(&"1".to_string()));
+        assert_eq!(get_param(&agent.params, "path"), Some(&"/dev/drbd/by-res/iscsi2/1".to_string()));
+        assert_eq!(get_param(&agent.params, "product_id"), Some(&"d30d7c86".to_string()));
+        assert_eq!(get_param(&agent.params, "scsi_sn"), Some(&"d30d7c86".to_string()));
+        assert_eq!(get_param(&agent.params, "target_iqn"), Some(&"iqn.2025-12.com.linbit:iscsi2".to_string()));
     }
 
     #[test]
@@ -955,7 +975,7 @@ mod tests {
         let agent = result.unwrap();
         // When no instance name is provided, should use default
         assert_eq!(agent.instance_name, "Filesystem_default");
-        assert_eq!(agent.params.get("device"), Some(&"/dev/drbd0".to_string()));
+        assert_eq!(get_param(&agent.params, "device"), Some(&"/dev/drbd0".to_string()));
     }
 
     #[test]
@@ -968,10 +988,10 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "exportfs");
         assert_eq!(agent.instance_name, "export_1_0");
-        assert_eq!(agent.params.get("clientspec"), Some(&"0.0.0.0/0.0.0.0".to_string()));
-        assert_eq!(agent.params.get("directory"), Some(&"/srv/gateway-exports/mynfs".to_string()));
-        assert_eq!(agent.params.get("fsid"), Some(&"199b431f-c4c3-5eb0-ab46-264e8261ad34".to_string()));
-        assert_eq!(agent.params.get("options"), Some(&"rw,all_squash,anonuid=0,anongid=0".to_string()));
+        assert_eq!(get_param(&agent.params, "clientspec"), Some(&"0.0.0.0/0.0.0.0".to_string()));
+        assert_eq!(get_param(&agent.params, "directory"), Some(&"/srv/gateway-exports/mynfs".to_string()));
+        assert_eq!(get_param(&agent.params, "fsid"), Some(&"199b431f-c4c3-5eb0-ab46-264e8261ad34".to_string()));
+        assert_eq!(get_param(&agent.params, "options"), Some(&"rw,all_squash,anonuid=0,anongid=0".to_string()));
     }
 
     #[test]
@@ -984,11 +1004,11 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "iSCSITarget");
         assert_eq!(agent.instance_name, "target");
-        assert_eq!(agent.params.get("allowed_initiators"), Some(&"".to_string()));
-        assert_eq!(agent.params.get("incoming_password"), Some(&"".to_string()));
-        assert_eq!(agent.params.get("incoming_username"), Some(&"".to_string()));
-        assert_eq!(agent.params.get("iqn"), Some(&"iqn.2025-12.com.linbit:iscsi2".to_string()));
-        assert_eq!(agent.params.get("portals"), Some(&"192.168.123.191:3260".to_string()));
+        assert_eq!(get_param(&agent.params, "allowed_initiators"), Some(&"".to_string()));
+        assert_eq!(get_param(&agent.params, "incoming_password"), Some(&"".to_string()));
+        assert_eq!(get_param(&agent.params, "incoming_username"), Some(&"".to_string()));
+        assert_eq!(get_param(&agent.params, "iqn"), Some(&"iqn.2025-12.com.linbit:iscsi2".to_string()));
+        assert_eq!(get_param(&agent.params, "portals"), Some(&"192.168.123.191:3260".to_string()));
     }
 
     #[test]
@@ -1088,8 +1108,8 @@ on-drbd-demote-failure = "reboot"
         assert_eq!(ocf1.provider, "heartbeat");
         assert_eq!(ocf1.agent_type, "IPaddr2");
         assert_eq!(ocf1.instance_name, "service_ip");
-        assert_eq!(ocf1.params.get("cidr_netmask"), Some(&"24".to_string()));
-        assert_eq!(ocf1.params.get("ip"), Some(&"192.168.123.200".to_string()));
+        assert_eq!(ocf1get_param(&.params, "cidr_netmask"), Some(&"24".to_string()));
+        assert_eq!(ocf1get_param(&.params, "ip"), Some(&"192.168.123.200".to_string()));
 
         // Third item: linstor-controller.service (not OCF)
         let item2 = &result.ocf_agents[2];

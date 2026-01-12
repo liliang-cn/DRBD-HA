@@ -74,7 +74,7 @@ pub async fn add_vip(
         ocf_agents: profile.ocf_agents.iter().map(|a| drbd_reactor_utils::OcfAgentConfig {
             name: a.name.clone(),
             instance_name: a.instance_name.clone(),
-            params: a.params.clone(),
+            params: crate::models::ha::ParamEntry::vec_to_config_gen(&a.params),
         }).collect(),
         mount_strategy: Some(format!("{:?}", profile.mount_strategy).to_lowercase()),
         mount_point: Some(profile.mount_point.clone()),
@@ -177,7 +177,7 @@ pub async fn remove_vip(
         ocf_agents: profile.ocf_agents.iter().map(|a| drbd_reactor_utils::OcfAgentConfig {
             name: a.name.clone(),
             instance_name: a.instance_name.clone(),
-            params: a.params.clone(),
+            params: crate::models::ha::ParamEntry::vec_to_config_gen(&a.params),
         }).collect(),
         mount_strategy: Some(format!("{:?}", profile.mount_strategy).to_lowercase()),
         mount_point: Some(profile.mount_point.clone()),

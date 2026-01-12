@@ -40,6 +40,7 @@ import type {
   ResourceAgentsByProvider,
   ParsedOcfAgent,
   ResourceAgent,
+  ParamEntry,
 } from '@/api/ha-profiles';
 import { useThemeStore } from '@/stores/theme';
 import type { FormInstance } from 'antd';
@@ -49,6 +50,40 @@ import { AddParameterModal } from './ocf-agent-editor/AddParameterModal';
 import { AgentPreview } from './ocf-agent-editor/AgentPreview';
 
 const { Title, Text } = Typography;
+
+// Helper functions to convert between ParamEntry[] and Record<string, string>
+function paramsToRecord(params: ParamEntry[]): Record<string, string> {
+  const record: Record<string, string> = {};
+  params.forEach(({ key, value }) => {
+    record[key] = value;
+  });
+  return record;
+}
+
+function recordToParams(record: Record<string, string>): ParamEntry[] {
+  return Object.entries(record).map(([key, value]) => ({ key, value }));
+}
+
+// Helper function to generate OCF string from agent data
+function generateOcfString(agent: ParsedOcfAgent, params?: ParamEntry[]): string {
+  const { provider, agent_type, instance_name } = agent;
+  const finalParams = params || agent.params;
+
+  // Build key=value pairs - order is preserved from the array
+  const paramStr = finalParams
+    .map(({ key, value }) => {
+      if (value === undefined || value === null) return '';
+      // Quote values if they contain spaces or special characters
+      if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
+        return `${key}='${value}'`;
+      }
+      return `${key}=${value}`;
+    })
+    .filter(Boolean)
+    .join(' ');
+
+  return `ocf:${provider}:${agent_type} ${instance_name}${paramStr ? ' ' + paramStr : ''}`;
+}
 
 interface OcfAgentEditorProps {
   // For edit mode
@@ -68,26 +103,7 @@ interface OcfAgentEditorProps {
   onPreviewChange?: (show: boolean) => void;  // Callback when preview toggle changes
 }
 
-// Helper function to generate OCF string from agent data
-function generateOcfString(agent: ParsedOcfAgent, params?: Record<string, any>): string {
-  const { provider, agent_type, instance_name } = agent;
-  const finalParams = params || agent.params;
 
-  // Build key=value pairs
-  const paramStr = Object.entries(finalParams || {})
-    .map(([key, value]) => {
-      if (value === undefined || value === null) return '';
-      // Quote values if they contain spaces or special characters
-      if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
-        return `${key}='${value}'`;
-      }
-      return `${key}=${value}`;
-    })
-    .filter(Boolean)
-    .join(' ');
-
-  return `ocf:${provider}:${agent_type} ${instance_name}${paramStr ? ' ' + paramStr : ''}`;
-}
 
 export function OcfAgentEditor({
   profile,
@@ -306,7 +322,7 @@ export function OcfAgentEditor({
           agents: agentsWithIds.map(agentWithMeta => {
             if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
               return {
-                params: agentWithMeta.item.ocf_agent.params || {},
+                params: paramsToRecord(agentWithMeta.item.ocf_agent.params || []),
                 original: agentWithMeta.item.original,
               };
             } else {
@@ -371,7 +387,7 @@ export function OcfAgentEditor({
         agents: agentsWithIds.map(agentWithMeta => {
           if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
             return {
-              params: agentWithMeta.item.ocf_agent.params || {},
+              params: paramsToRecord(agentWithMeta.item.ocf_agent.params || []),
               original: agentWithMeta.item.original,
             };
           } else {
@@ -520,11 +536,14 @@ export function OcfAgentEditor({
         if (item.is_ocf && item.ocf_agent) {
           // OCF agent - generate string from parsedAgent (source of truth)
           // Form values are used to update params if user changed them
-          const params = agentData.params || item.ocf_agent.params || {};
+          const formParams = agentData.params || {};
+          const originalParams = paramsToRecord(item.ocf_agent.params || []);
+          // Merge: form params override original params
+          const mergedParams = { ...originalParams, ...formParams };
           const agent = item.ocf_agent;
 
           // Generate parameter string (empty if no params)
-          const paramStr = Object.entries(params)
+          const paramStr = Object.entries(mergedParams)
             .filter(([_, value]) => value !== undefined && value !== '')
             .map(([key, value]) => {
               if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
@@ -592,7 +611,7 @@ export function OcfAgentEditor({
         const newFormAgents = newAgents.map(agentWithMeta => {
           if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
             return {
-              params: agentWithMeta.item.ocf_agent.params || {},
+              params: paramsToRecord(agentWithMeta.item.ocf_agent.params || []),
               original: agentWithMeta.item.original,
             };
           } else {
@@ -653,11 +672,33 @@ export function OcfAgentEditor({
 
           // For OCF agents with params
           if (agent.item.is_ocf && agent.item.ocf_agent && changedValue.params) {
-            // Merge params
-            const mergedParams = {
-              ...agent.item.ocf_agent.params,
+            // Merge params: convert ParamEntry[] to Record, merge, then convert back to ParamEntry[]
+            const originalParamsRecord = paramsToRecord(agent.item.ocf_agent.params || []);
+            const mergedParamsRecord = {
+              ...originalParamsRecord,
               ...changedValue.params,
             };
+
+            // Convert merged Record back to ParamEntry[], preserving order from original
+            // For keys that exist in original, keep their order
+            // For new keys from changedValue, append them
+            const originalParamsMap = new Map(agent.item.ocf_agent.params?.map(p => [p.key, p.value]) || []);
+            const mergedParams: ParamEntry[] = [];
+
+            // First, add all original params (with potentially updated values)
+            for (const entry of (agent.item.ocf_agent.params || [])) {
+              const key = entry.key;
+              // Use updated value if exists, otherwise use original
+              const value = mergedParamsRecord[key] ?? entry.value;
+              mergedParams.push({ key, value });
+              // Mark as processed
+              delete mergedParamsRecord[key];
+            }
+
+            // Then add any new params from changedValue
+            for (const [key, value] of Object.entries(mergedParamsRecord)) {
+              mergedParams.push({ key, value });
+            }
 
             // Update ocf_agent
             newAgent.item = {
@@ -673,10 +714,10 @@ export function OcfAgentEditor({
             const ocfAgent = agent.item.ocf_agent;
             newAgent.item.original = `ocf:${ocfAgent.provider}:${ocfAgent.agent_type} ${ocfAgent.instance_name}`;
 
-            // Add parameters to the original string
-            const paramStr = Object.entries(mergedParams)
-              .filter(([_, value]) => value !== undefined && value !== '')
-              .map(([key, value]) => {
+            // Add parameters to the original string (using mergedParamsRecord)
+            const paramStr = mergedParams
+              .filter(({ value }) => value !== undefined && value !== '')
+              .map(({ key, value }) => {
                 if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
                   return `${key}='${value}'`;
                 }
@@ -748,9 +789,8 @@ export function OcfAgentEditor({
     const agent = parsedAgents[arrayIndex];
     if (!agent.item.ocf_agent) return;
 
-    // Remove from params
-    const newParams = { ...agent.item.ocf_agent.params };
-    delete newParams[paramName];
+    // Remove from params (filter out the param to remove)
+    const newParams = (agent.item.ocf_agent.params || []).filter((p: ParamEntry) => p.key !== paramName);
 
     // Update agent
     const newAgent = {
@@ -821,9 +861,12 @@ export function OcfAgentEditor({
     const paramMeta = agent.metadata.parameters.find(p => p.name === selectedParam);
     if (!paramMeta) return;
 
-    // Add to params with default value
-    const newParams = { ...agent.item.ocf_agent.params };
-    newParams[selectedParam] = paramMeta.default || '';
+    // Add to params with default value (append new param to end)
+    const newParamEntry: ParamEntry = {
+      key: selectedParam,
+      value: paramMeta.default || '',
+    };
+    const newParams = [...(agent.item.ocf_agent.params || []), newParamEntry];
 
     // Update agent
     const newAgent = {
@@ -919,11 +962,15 @@ export function OcfAgentEditor({
       }
 
       // Generate default params from metadata
-      const defaultParams: Record<string, string> = {};
+      const defaultParamsList: ParamEntry[] = [];
+      const defaultParamsRecord: Record<string, string> = {};
+      
       agentMetadata.parameters.forEach(param => {
         // Only include required params
         if (param.required) {
-          defaultParams[param.name] = param.default || '';
+          const value = param.default || '';
+          defaultParamsList.push({ key: param.name, value });
+          defaultParamsRecord[param.name] = value;
         }
       });
 
@@ -947,7 +994,7 @@ export function OcfAgentEditor({
             provider: selectedProvider,
             agent_type: selectedAgent,
             instance_name: instanceName,
-            params: defaultParams,
+            params: defaultParamsList,
           },
         },
         metadata: agentMetadata,
@@ -965,7 +1012,7 @@ export function OcfAgentEditor({
       const agents = currentValues.agents || [];
       form.setFieldValue('agents', [...agents, {
         original: `ocf:${selectedProvider}:${selectedAgent} ${instanceName}`,
-        params: defaultParams,
+        params: defaultParamsRecord,
       }]);
 
       message.success(`Added OCF agent: ${selectedProvider}:${selectedAgent}`);

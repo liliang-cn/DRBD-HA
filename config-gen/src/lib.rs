@@ -23,7 +23,7 @@ pub type Result<T> = std::result::Result<T, ConfigError>;
 
 // Re-exports for convenience
 pub use types::{
-    NodeConfig, OcfAgentConfig, PromoterPluginConfig, ResourceConfig, VipPluginConfig,
+    NodeConfig, OcfAgentConfig, ParamEntry, PromoterPluginConfig, ResourceConfig, VipPluginConfig,
 };
 
 // Configuration types module
@@ -110,7 +110,14 @@ mod types {
     pub struct OcfAgentConfig {
         pub name: String,          // e.g., "ocf:heartbeat:IPaddr2"
         pub instance_name: String, // e.g., "r0_vip"
-        pub params: HashMap<String, String>,
+        pub params: Vec<ParamEntry>,
+    }
+
+    /// Ordered parameter entry (key-value pair with order preserved)
+    #[derive(Debug, Clone, Serialize)]
+    pub struct ParamEntry {
+        pub key: String,
+        pub value: String,
     }
 
     /// VIP configuration for drbd-reactor promoter

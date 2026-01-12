@@ -5,13 +5,19 @@ import type {
 } from '@/types';
 import { api } from './client';
 
+// Ordered parameter entry (matching backend ParamEntry)
+export interface ParamEntry {
+  key: string;
+  value: string;
+}
+
 // Types for parsed TOML with OCF agents (matching backend toml_parse.rs)
 export interface ParsedOcfAgent {
   original: string;
   provider: string;
   agent_type: string;
   instance_name: string;
-  params: Record<string, string>;
+  params: ParamEntry[];  // Changed from Record<string, string> to ParamEntry[]
 }
 
 // A generic item in the start/stop array

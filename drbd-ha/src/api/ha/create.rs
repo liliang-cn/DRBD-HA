@@ -126,16 +126,15 @@ pub async fn create_profile(
         if agent.name == "ocf:heartbeat:Filesystem" {
             manual_filesystem_agent_present = true;
 
-            let device_missing_or_empty = !agent.params.contains_key("device")
-                || agent
-                    .params
-                    .get("device")
-                    .is_some_and(|s| s.is_empty());
+            let device_missing_or_empty = !agent.has_param("device")
+                || agent.get_param("device")
+                    .map(|s| s.is_empty())
+                    .unwrap_or(true);
 
-            if device_missing_or_empty && !agent.params.contains_key("device") {
+            if device_missing_or_empty {
                 match get_drbd_device_for_resource(&req.resource_name, &state).await {
                     Some(device) => {
-                        agent.params.insert("device".to_string(), device);
+                        agent.set_param("device".to_string(), device);
                     }
                     None => {
                         return Err(AppError::Validation(format!(
@@ -146,28 +145,20 @@ pub async fn create_profile(
                 }
             }
 
-            if !agent.params.contains_key("directory")
-                || agent
-                    .params
-                    .get("directory")
+            if !agent.has_param("directory")
+                || agent.get_param("directory")
                     .map(|s| s.is_empty())
                     .unwrap_or(true)
             {
-                agent
-                    .params
-                    .insert("directory".to_string(), req.mount_point.clone());
+                agent.set_param("directory".to_string(), req.mount_point.clone());
             }
 
-            if !agent.params.contains_key("fstype")
-                || agent
-                    .params
-                    .get("fstype")
+            if !agent.has_param("fstype")
+                || agent.get_param("fstype")
                     .map(|s| s.is_empty())
                     .unwrap_or(true)
             {
-                agent
-                    .params
-                    .insert("fstype".to_string(), req.fs_type.clone());
+                agent.set_param("fstype".to_string(), req.fs_type.clone());
             }
         }
     }
@@ -1051,7 +1042,7 @@ pub async fn create_profile(
         ocf_agents: profile_for_gen.ocf_agents.iter().map(|a| drbd_reactor_utils::OcfAgentConfig {
             name: a.name.clone(),
             instance_name: a.instance_name.clone(),
-            params: a.params.clone(),
+            params: crate::models::ha::ParamEntry::vec_to_config_gen(&a.params),
         }).collect(),
         mount_strategy: Some(format!("{:?}", profile_for_gen.mount_strategy).to_lowercase()),
         mount_point: Some(profile_for_gen.mount_point.clone()),

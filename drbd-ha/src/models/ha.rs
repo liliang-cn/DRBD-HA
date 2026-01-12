@@ -1,7 +1,6 @@
 //! High Availability profile data models
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use utoipa::ToSchema;
 
 /// HA Profile Type
@@ -12,6 +11,47 @@ pub enum HaType {
     Generic,
 }
 
+/// Ordered parameter entry (key-value pair with order preserved)
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct ParamEntry {
+    pub key: String,
+    pub value: String,
+}
+
+impl ParamEntry {
+    /// Convert from config_gen ParamEntry
+    pub fn from_config_gen(entry: config_gen::ParamEntry) -> Self {
+        ParamEntry {
+            key: entry.key,
+            value: entry.value,
+        }
+    }
+
+    /// Convert to config_gen ParamEntry
+    pub fn to_config_gen(&self) -> config_gen::ParamEntry {
+        config_gen::ParamEntry {
+            key: self.key.clone(),
+            value: self.value.clone(),
+        }
+    }
+
+    /// Convert a Vec from config_gen
+    pub fn vec_from_config_gen(entries: Vec<config_gen::ParamEntry>) -> Vec<Self> {
+        entries.into_iter().map(|e| ParamEntry {
+            key: e.key,
+            value: e.value,
+        }).collect()
+    }
+
+    /// Convert a Vec to config_gen
+    pub fn vec_to_config_gen(entries: &[Self]) -> Vec<config_gen::ParamEntry> {
+        entries.iter().map(|e| config_gen::ParamEntry {
+            key: e.key.clone(),
+            value: e.value.clone(),
+        }).collect()
+    }
+}
+
 /// OCF Agent configuration
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct OcfAgentConfig {
@@ -19,8 +59,36 @@ pub struct OcfAgentConfig {
     pub name: String,
     /// Unique instance name (e.g., "r0_vip")
     pub instance_name: String,
-    /// Agent parameters
-    pub params: HashMap<String, String>,
+    /// Agent parameters (order preserved as array)
+    pub params: Vec<ParamEntry>,
+}
+
+impl OcfAgentConfig {
+    /// Get a parameter value by key
+    pub fn get_param(&self, key: &str) -> Option<&str> {
+        self.params.iter()
+            .find(|p| p.key == key)
+            .map(|p| p.value.as_str())
+    }
+
+    /// Check if a parameter exists
+    pub fn has_param(&self, key: &str) -> bool {
+        self.params.iter().any(|p| p.key == key)
+    }
+
+    /// Set a parameter value (updates if exists, appends if not)
+    pub fn set_param(&mut self, key: String, value: String) {
+        if let Some(existing) = self.params.iter_mut().find(|p| p.key == key) {
+            existing.value = value;
+        } else {
+            self.params.push(ParamEntry { key, value });
+        }
+    }
+
+    /// Remove a parameter by key
+    pub fn remove_param(&mut self, key: &str) {
+        self.params.retain(|p| p.key != key);
+    }
 }
 
 /// HA Profile - defines how a service should be made highly available

@@ -383,7 +383,7 @@ pub fn validate_ocf_agents(agents: &[OcfAgentConfig]) -> AppResult<()> {
                     {
                         // It is required and has no default value.
                         // Must be present in agent_config.params
-                        if !agent_config.params.contains_key(&param.name) {
+                        if !agent_config.has_param(&param.name) {
                             return Err(AppError::Validation(format!(
                                 "Missing required parameter '{}' for agent '{}'",
                                 param.name, agent_config.name

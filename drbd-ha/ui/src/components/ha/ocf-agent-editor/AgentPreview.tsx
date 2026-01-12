@@ -1,16 +1,16 @@
 import { Card, Spin, Typography } from 'antd';
-import type { OcfAgentWithMetadata, ParsedOcfAgent } from '@/api/ha-profiles';
+import type { OcfAgentWithMetadata, ParsedOcfAgent, ParamEntry } from '@/api/ha-profiles';
 
 const { Text } = Typography;
 
 // Helper function to generate OCF string from agent data
-function generateOcfString(agent: ParsedOcfAgent, params?: Record<string, any>): string {
+function generateOcfString(agent: ParsedOcfAgent, params?: ParamEntry[]): string {
   const { provider, agent_type, instance_name } = agent;
   const finalParams = params || agent.params;
 
-  // Build key=value pairs
-  const paramStr = Object.entries(finalParams || {})
-    .map(([key, value]) => {
+  // Build key=value pairs - order is preserved from the array
+  const paramStr = finalParams
+    .map(({ key, value }) => {
       if (value === undefined || value === null) return '';
       // Quote values if they contain spaces or special characters
       if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
@@ -36,7 +36,7 @@ export function AgentPreview({ parsedAgents, loading, currentTheme }: AgentPrevi
     if (itemWithMeta.item.is_ocf && itemWithMeta.item.ocf_agent) {
       // OCF agent - use generateOcfString
       const agent = itemWithMeta.item.ocf_agent;
-      const params = agent.params || {};
+      const params = agent.params || [];
       const result = generateOcfString(agent, params);
       return `    "${result}"`;
     } else {

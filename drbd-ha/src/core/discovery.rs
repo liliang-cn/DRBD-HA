@@ -132,18 +132,24 @@ impl ReactorDiscovery {
                                          let name = caps[1].to_string();
                                          let instance_name = caps[2].to_string();
                                          let params_str = caps.get(3).map(|m| m.as_str()).unwrap_or("");
-                                         
-                                         let mut params = HashMap::new();
+
+                                         let mut params = std::collections::HashMap::new();
                                          for pair in params_str.split_whitespace() {
                                              if let Some((k, v)) = pair.split_once('=') {
                                                  params.insert(k.to_string(), v.to_string());
                                              }
                                          }
-                                         
+
+                                         // Convert HashMap to Vec<ParamEntry> preserving order
+                                         let params_vec: Vec<crate::models::ha::ParamEntry> = params
+                                             .into_iter()
+                                             .map(|(k, v)| crate::models::ha::ParamEntry { key: k, value: v })
+                                             .collect();
+
                                          ocf_agents.push(OcfAgentConfig {
                                              name,
                                              instance_name,
-                                             params,
+                                             params: params_vec,
                                          });
                                      }
                                      continue;
