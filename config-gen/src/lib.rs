@@ -22,7 +22,9 @@ pub enum ConfigError {
 pub type Result<T> = std::result::Result<T, ConfigError>;
 
 // Re-exports for convenience
-pub use types::{NodeConfig, ResourceConfig, PromoterPluginConfig, OcfAgentConfig, VipPluginConfig};
+pub use types::{
+    NodeConfig, OcfAgentConfig, PromoterPluginConfig, ResourceConfig, VipPluginConfig,
+};
 
 // Configuration types module
 mod types {
@@ -227,7 +229,7 @@ start = [
     "{{ promoter.mount_unit }}",
 {% endif %}
 {% if promoter.vip %}
-    "ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }}",
+    "ocf:heartbeat:IPaddr2 vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }}",
 {% endif %}
 {% for agent in promoter.ocf_agents %}
     "{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}",
@@ -278,7 +280,10 @@ mod tests {
     #[test]
     fn test_config_generator_creation() {
         let gen = ConfigGenerator::new();
-        assert!(gen.is_ok(), "ConfigGenerator should be created successfully");
+        assert!(
+            gen.is_ok(),
+            "ConfigGenerator should be created successfully"
+        );
     }
 
     #[test]
@@ -468,12 +473,27 @@ mod tests {
     #[test]
     fn test_config_paths() {
         assert_eq!(ConfigPaths::drbd_resource_path("r0"), "/etc/drbd.d/r0.res");
-        assert_eq!(ConfigPaths::drbd_resource_path("mysql_data"), "/etc/drbd.d/mysql_data.res");
-        assert_eq!(ConfigPaths::drbd_resource_path("web"), "/etc/drbd.d/web.res");
+        assert_eq!(
+            ConfigPaths::drbd_resource_path("mysql_data"),
+            "/etc/drbd.d/mysql_data.res"
+        );
+        assert_eq!(
+            ConfigPaths::drbd_resource_path("web"),
+            "/etc/drbd.d/web.res"
+        );
 
-        assert_eq!(ConfigPaths::promoter_path("r0"), "/etc/drbd-reactor.d/r0.toml");
-        assert_eq!(ConfigPaths::promoter_path("mysql_ha"), "/etc/drbd-reactor.d/mysql_ha.toml");
-        assert_eq!(ConfigPaths::promoter_path("web_ha"), "/etc/drbd-reactor.d/web_ha.toml");
+        assert_eq!(
+            ConfigPaths::promoter_path("r0"),
+            "/etc/drbd-reactor.d/r0.toml"
+        );
+        assert_eq!(
+            ConfigPaths::promoter_path("mysql_ha"),
+            "/etc/drbd-reactor.d/mysql_ha.toml"
+        );
+        assert_eq!(
+            ConfigPaths::promoter_path("web_ha"),
+            "/etc/drbd-reactor.d/web_ha.toml"
+        );
 
         assert_eq!(ConfigPaths::DRBD_CONF_DIR, "/etc/drbd.d");
         assert_eq!(ConfigPaths::REACTOR_CONF_DIR, "/etc/drbd-reactor.d");
@@ -739,7 +759,9 @@ mod tests {
         assert!(output.contains("[promoter.resources.mysql_ha]"));
         assert!(output.contains("app.service"));
         assert!(output.contains("web.service"));
-        assert!(output.contains("ocf:heartbeat:IPaddr2 mysql_ha_vip ip=192.168.1.100 cidr_netmask=24"));
+        assert!(
+            output.contains("ocf:heartbeat:IPaddr2 mysql_ha_vip ip=192.168.1.100 cidr_netmask=24")
+        );
         assert!(output.contains("runner = \"systemd\""));
 
         // All advanced options
@@ -837,7 +859,7 @@ mod tests {
             stop_services_on_exit: true,
             on_drbd_demote_failure: "continue".to_string(),
             vip: None,
-            ocf_agents: vec![],  // Empty agents list
+            ocf_agents: vec![], // Empty agents list
             mount_strategy: None,
             mount_point: None,
             fs_type: None,
@@ -917,7 +939,14 @@ mod tests {
         assert!(config.dependencies_as.is_some());
         assert!(config.target_as.is_some());
         assert!(config.on_quorum_loss.is_some());
-        assert_eq!(config.preferred_nodes.as_ref().map(|v| v.len()).unwrap_or(0), 3);
+        assert_eq!(
+            config
+                .preferred_nodes
+                .as_ref()
+                .map(|v| v.len())
+                .unwrap_or(0),
+            3
+        );
         assert!(config.preferred_nodes_policy.is_some());
         assert_eq!(config.sleep_before_promote_factor, Some(5));
     }

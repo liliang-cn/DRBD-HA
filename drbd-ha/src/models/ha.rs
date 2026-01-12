@@ -231,6 +231,10 @@ pub struct CreateHaProfileRequest {
     /// This allows reviewing configuration before activation
     #[serde(default)]
     pub start_disabled: bool,
+    /// Optional raw drbd-reactor promoter TOML configuration
+    /// If provided, this will be used directly instead of generating from structured fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub promoter_config_raw: Option<String>,
 }
 
 /// Options for migrating existing data to DRBD storage

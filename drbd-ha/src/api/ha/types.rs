@@ -5,13 +5,13 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Response for HA profile list
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct HaProfileListResponse {
     pub profiles: Vec<HaProfile>,
 }
 
 /// Response for HA profile creation
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct HaProfileCreateResponse {
     pub profile: HaProfile,
     pub config_path: String,
@@ -37,7 +37,7 @@ pub struct HaProfileCreateResponse {
 }
 
 /// Summary of data migration result
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct MigrationResultInfo {
     pub bytes_transferred: u64,
     pub source_path: String,
@@ -45,7 +45,7 @@ pub struct MigrationResultInfo {
 }
 
 /// Response for HA profile detail
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct HaProfileDetailResponse {
     #[serde(flatten)]
     pub profile: HaProfile,
@@ -79,7 +79,7 @@ pub struct HaProfileDetailResponse {
 }
 
 /// Node configuration info for HA profile
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct NodeConfigInfo {
     pub hostname: String,
     pub ip: String,
@@ -91,7 +91,7 @@ pub struct NodeConfigInfo {
 }
 
 /// Configuration visibility information
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ConfigVisibility {
     /// Whether the promoter config file exists
     pub promoter_config_exists: bool,
@@ -101,7 +101,7 @@ pub struct ConfigVisibility {
     pub reactor_running: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ServiceStatusInfo {
     pub name: String,
     pub active: bool,
@@ -114,7 +114,7 @@ pub struct ServiceStatusInfo {
 }
 
 /// Query parameters for delete profile
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct DeleteProfileQuery {
     /// Also delete the associated DRBD resource
     #[serde(default)]
@@ -127,12 +127,13 @@ pub struct DeleteProfileQuery {
 }
 
 /// Query parameters for reactor log retrieval
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ReactorLogsQuery {
     /// Number of lines to retrieve (default: 100, max: 1000)
     #[serde(default = "default_reactor_log_lines")]
     pub lines: u32,
     /// Filter logs since this time (e.g., "1h", "30m", "2024-01-15")
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
 }
 
@@ -141,7 +142,7 @@ fn default_reactor_log_lines() -> u32 {
 }
 
 /// Response for reactor logs
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ReactorLogsResponse {
     pub service: String,
     pub lines: Vec<String>,
@@ -149,7 +150,7 @@ pub struct ReactorLogsResponse {
 }
 
 /// Query parameters for service listing
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ListServicesQuery {
     /// Include system services (default: false)
     #[serde(default)]
@@ -157,19 +158,19 @@ pub struct ListServicesQuery {
 }
 
 /// Response for service list
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ServiceListResponse {
     pub services: Vec<ServiceInfo>,
 }
 
 /// Response for service files list
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ServiceFileListResponse {
     pub services: Vec<ServiceFileInfo>,
 }
 
 /// Request for reactor reload
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ReactorReloadRequest {
     /// Action: "reload" or "restart"
     #[serde(default = "default_reload_action")]
@@ -181,7 +182,7 @@ fn default_reload_action() -> String {
 }
 
 /// Response for reactor reload
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ReactorReloadResponse {
     /// Local node result
     pub local: NodeReloadResult,
@@ -191,10 +192,11 @@ pub struct ReactorReloadResponse {
     pub message: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct NodeReloadResult {
     pub hostname: String,
     pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
@@ -212,9 +214,10 @@ pub struct ImportProfilesResponse {
 }
 
 /// Request for evicting an HA profile from a node
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct EvictProfileRequest {
     /// Target node hostname or ID to evict from (optional, defaults to local node)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub node: Option<String>,
     /// Delay in seconds to wait for peer takeover (default: 20)
     #[serde(default = "default_evict_delay")]
@@ -232,25 +235,27 @@ fn default_evict_delay() -> u32 {
 }
 
 /// Response for evict operation
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct EvictProfileResponse {
     pub success: bool,
     pub node: String,
     pub profile: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stdout: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stderr: Option<String>,
 }
 
 /// Request for adding VIP to a profile
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct AddVipRequest {
     pub address: String,
     pub netmask: u8,
 }
 
 /// Response for VIP operations
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct VipOperationResponse {
     pub message: String,
 }

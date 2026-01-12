@@ -1,16 +1,16 @@
-import { FileTextOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons';
+import { ApiOutlined, MoonOutlined, SunOutlined } from "@ant-design/icons";
 import {
   theme as antdTheme,
   Button,
   ConfigProvider,
   Layout,
   Tooltip,
-} from 'antd';
-import gsap from 'gsap';
-import { useEffect, useRef } from 'react';
-import { Link, Outlet } from 'react-router-dom';
-import { useThemeStore } from '@/stores/theme';
-import { PRIMARY_COLOR } from '@/theme/colors';
+} from "antd";
+import gsap from "gsap";
+import { useEffect, useRef } from "react";
+import { Link, Outlet } from "react-router-dom";
+import { useThemeStore } from "@/stores/theme";
+import { PRIMARY_COLOR } from "@/theme/colors";
 
 const { Header, Content } = Layout;
 
@@ -21,10 +21,10 @@ export function MainLayout() {
 
   useEffect(() => {
     // Apply theme to document
-    if (currentTheme === 'dark') {
-      document.documentElement.classList.add('dark');
+    if (currentTheme === "dark") {
+      document.documentElement.classList.add("dark");
     } else {
-      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.remove("dark");
     }
   }, [currentTheme]);
 
@@ -34,7 +34,7 @@ export function MainLayout() {
       gsap.fromTo(
         headerRef.current,
         { y: -100, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.6, ease: 'power3.out' },
+        { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }
       );
     }
 
@@ -43,7 +43,7 @@ export function MainLayout() {
       gsap.fromTo(
         contentRef.current,
         { y: 30, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.5, ease: 'power2.out', delay: 0.2 },
+        { y: 0, opacity: 1, duration: 0.5, ease: "power2.out", delay: 0.2 }
       );
     }
   }, []);
@@ -63,21 +63,21 @@ export function MainLayout() {
     <ConfigProvider
       theme={{
         algorithm:
-          currentTheme === 'dark'
+          currentTheme === "dark"
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
         token: {
           colorPrimary: PRIMARY_COLOR,
-          colorSuccess: '#5FD4A9',
-          colorWarning: '#E1C047',
-          colorError: '#FF6D6D',
+          colorSuccess: "#5FD4A9",
+          colorWarning: "#E1C047",
+          colorError: "#FF6D6D",
           borderRadius: 8,
         },
       }}
     >
       <Layout
         className={`min-h-screen ${
-          currentTheme === 'dark' ? 'bg-slate-900' : 'bg-slate-50'
+          currentTheme === "dark" ? "bg-slate-900" : "bg-slate-50"
         }`}
       >
         <Layout className="relative z-10">
@@ -85,11 +85,11 @@ export function MainLayout() {
           <Header
             ref={headerRef}
             style={{
-              backgroundColor: currentTheme === 'dark' ? '#1e293b' : '#fff',
+              backgroundColor: currentTheme === "dark" ? "#1e293b" : "#fff",
               borderBottom:
-                currentTheme === 'dark'
-                  ? '1px solid #334155'
-                  : '1px solid #e2e8f0',
+                currentTheme === "dark"
+                  ? "1px solid #334155"
+                  : "1px solid #e2e8f0",
             }}
             className="!px-0 !h-auto !py-0 sticky top-0 z-50 shadow-sm"
           >
@@ -98,12 +98,12 @@ export function MainLayout() {
               <Link
                 to="/"
                 className="flex items-center gap-2"
-                style={{ textDecoration: 'none' }}
+                style={{ textDecoration: "none" }}
               >
                 <img src="/favicon.svg" alt="DRBD HA" className="w-7 h-7" />
                 <span
                   className={`text-base font-semibold ${
-                    currentTheme === 'dark' ? 'text-white' : 'text-slate-800'
+                    currentTheme === "dark" ? "text-white" : "text-slate-800"
                   }`}
                 >
                   DRBD HA Manager
@@ -115,17 +115,17 @@ export function MainLayout() {
                 <Tooltip title="API Documentation">
                   <Button
                     type="text"
-                    icon={<FileTextOutlined />}
-                    onClick={() => window.open('/swagger-ui/', '_blank')}
+                    icon={<ApiOutlined />}
+                    onClick={() => window.open("/swagger-ui/", "_blank")}
                   />
                 </Tooltip>
                 <Tooltip
-                  title={currentTheme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                  title={currentTheme === "dark" ? "Light Mode" : "Dark Mode"}
                 >
                   <Button
                     type="text"
                     icon={
-                      currentTheme === 'dark' ? (
+                      currentTheme === "dark" ? (
                         <SunOutlined />
                       ) : (
                         <MoonOutlined />
@@ -143,7 +143,7 @@ export function MainLayout() {
             className="p-4"
             ref={contentRef}
             style={{
-              backgroundColor: currentTheme === 'dark' ? '#0f172a' : '#f8fafc',
+              backgroundColor: currentTheme === "dark" ? "#0f172a" : "#f8fafc",
             }}
           >
             <Outlet />

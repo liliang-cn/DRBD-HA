@@ -17,6 +17,20 @@ use super::types::{AddVipRequest, VipOperationResponse};
 use super::utils::create_profile_from_toml;
 
 /// POST /api/v1/ha/profiles/:id/vip
+#[utoipa::path(
+    post,
+    path = "/api/v1/ha/profiles/{id}/vip",
+    tag = "ha",
+    params(
+        ("id" = String, Path, description = "Profile ID or name")
+    ),
+    request_body = AddVipRequest,
+    responses(
+        (status = 200, description = "VIP added", body = VipOperationResponse),
+        (status = 404, description = "Profile not found"),
+        (status = 409, description = "VIP already configured")
+    )
+)]
 pub async fn add_vip(
     State(state): State<Arc<AppState>>,
     Path(id_or_name): Path<String>,
@@ -112,6 +126,19 @@ pub async fn add_vip(
 }
 
 /// DELETE /api/v1/ha/profiles/:id/vip
+#[utoipa::path(
+    delete,
+    path = "/api/v1/ha/profiles/{id}/vip",
+    tag = "ha",
+    params(
+        ("id" = String, Path, description = "Profile ID or name")
+    ),
+    responses(
+        (status = 200, description = "VIP removed", body = VipOperationResponse),
+        (status = 404, description = "Profile not found"),
+        (status = 400, description = "No VIP configured")
+    )
+)]
 pub async fn remove_vip(
     State(state): State<Arc<AppState>>,
     Path(id_or_name): Path<String>,

@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
+
 /// DRBD status from drbdsetup status --json
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct DrbdStatus {
     #[serde(default)]
     pub resources: Vec<ResourceStatus>,
@@ -9,6 +13,7 @@ pub struct DrbdStatus {
 
 /// Individual resource status
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ResourceStatus {
     pub name: String,
     pub role: String,
@@ -20,6 +25,7 @@ pub struct ResourceStatus {
 
 /// Device status
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct DeviceStatus {
     pub volume: u32,
     #[serde(rename = "disk-state")]
@@ -31,6 +37,7 @@ pub struct DeviceStatus {
 
 /// Connection status
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ConnectionStatus {
     #[serde(rename = "peer-node-id")]
     pub peer_node_id: u32,
@@ -45,6 +52,7 @@ pub struct ConnectionStatus {
 
 /// Peer device status
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PeerDeviceStatus {
     pub volume: u32,
     #[serde(rename = "replication-state")]
@@ -100,6 +108,7 @@ impl ResourceStatus {
 
 /// Detailed DRBD resource status (from drbdadm status)
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct DrbdResourceStatus {
     /// Resource name
     pub resource: String,
@@ -118,6 +127,7 @@ pub struct DrbdResourceStatus {
 
 /// Status of a DRBD peer node (from drbdadm status)
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct DrbdPeerStatus {
     /// Peer hostname
     pub name: String,

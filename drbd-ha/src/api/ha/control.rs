@@ -14,6 +14,18 @@ use super::reactor::reload_reactor;
 use super::types::{HaProfileDetailResponse, ReactorReloadRequest};
 
 /// POST /api/v1/ha/profiles/:id/activate
+#[utoipa::path(
+    post,
+    path = "/api/v1/ha/profiles/{id}/activate",
+    tag = "ha",
+    params(
+        ("id" = String, Path, description = "Profile ID or name")
+    ),
+    responses(
+        (status = 200, description = "Profile activated", body = HaProfileDetailResponse),
+        (status = 404, description = "Profile not found")
+    )
+)]
 pub async fn activate_profile(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -866,6 +878,18 @@ pub async fn activate_profile(
 }
 
 /// POST /api/v1/ha/profiles/:id/deactivate
+#[utoipa::path(
+    post,
+    path = "/api/v1/ha/profiles/{id}/deactivate",
+    tag = "ha",
+    params(
+        ("id" = String, Path, description = "Profile ID or name")
+    ),
+    responses(
+        (status = 200, description = "Profile deactivated", body = HaProfileDetailResponse),
+        (status = 404, description = "Profile not found")
+    )
+)]
 pub async fn deactivate_profile(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,

@@ -19,6 +19,14 @@ use super::types::{
 };
 
 /// GET /api/v1/ha/reactor/status
+#[utoipa::path(
+    get,
+    path = "/api/v1/ha/reactor/status",
+    tag = "ha",
+    responses(
+        (status = 200, description = "drbd-reactor service status", body = serde_json::Value)
+    )
+)]
 pub async fn reactor_status(
     State(_state): State<Arc<AppState>>,
 ) -> AppResult<Json<serde_json::Value>> {
@@ -34,6 +42,18 @@ pub async fn reactor_status(
 }
 
 /// GET /api/v1/ha/reactor/logs
+#[utoipa::path(
+    get,
+    path = "/api/v1/ha/reactor/logs",
+    tag = "ha",
+    params(
+        ("lines" = Option<u32>, Query, description = "Number of lines to retrieve (default: 100, max: 1000)"),
+        ("since" = Option<String>, Query, description = "Filter logs since this time (e.g., '1h', '30m')")
+    ),
+    responses(
+        (status = 200, description = "drbd-reactor logs", body = ReactorLogsResponse)
+    )
+)]
 pub async fn reactor_logs(
     Query(query): Query<ReactorLogsQuery>,
 ) -> AppResult<Json<ReactorLogsResponse>> {
@@ -62,6 +82,15 @@ pub async fn reactor_logs(
 }
 
 /// POST /api/v1/ha/reactor/reload
+#[utoipa::path(
+    post,
+    path = "/api/v1/ha/reactor/reload",
+    tag = "ha",
+    request_body = ReactorReloadRequest,
+    responses(
+        (status = 200, description = "Reload result", body = ReactorReloadResponse)
+    )
+)]
 pub async fn reload_reactor(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ReactorReloadRequest>,

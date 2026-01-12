@@ -39,6 +39,10 @@ impl DrbdCmd {
         drbd_utils::DrbdCmd::down_cmd(resource).map_err(|e| AppError::Validation(e.to_string()))
     }
 
+    pub fn wipe_md_cmd(resource: &str) -> AppResult<String> {
+        drbd_utils::DrbdCmd::wipe_md_cmd(resource).map_err(|e| AppError::Validation(e.to_string()))
+    }
+
     pub fn primary_cmd(resource: &str, force: bool) -> AppResult<String> {
         drbd_utils::DrbdCmd::primary_cmd(resource, force)
             .map_err(|e| AppError::Validation(e.to_string()))
@@ -122,8 +126,7 @@ impl DrbdCmd {
     }
 
     pub fn sh_dev_cmd(resource: &str) -> AppResult<String> {
-        drbd_utils::DrbdCmd::sh_dev_cmd(resource)
-            .map_err(|e| AppError::Validation(e.to_string()))
+        drbd_utils::DrbdCmd::sh_dev_cmd(resource).map_err(|e| AppError::Validation(e.to_string()))
     }
 
     pub fn status_all_cmd() -> String {

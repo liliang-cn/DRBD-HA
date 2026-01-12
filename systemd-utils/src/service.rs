@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
+
 /// Service status information
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ServiceStatus {
     pub name: String,
     pub active_state: String,
@@ -24,6 +28,7 @@ impl ServiceStatus {
 
 /// Information about a running service
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ServiceInfo {
     pub name: String,
     pub description: String,
@@ -34,6 +39,7 @@ pub struct ServiceInfo {
 
 /// Information about a service unit file
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ServiceFileInfo {
     pub name: String,
     pub path: String,

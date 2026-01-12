@@ -54,6 +54,17 @@ async fn get_drbd_device_for_resource(resource_name: &str, state: &AppState) -> 
 }
 
 /// POST /api/v1/ha/profiles
+#[utoipa::path(
+    post,
+    path = "/api/v1/ha/profiles",
+    tag = "ha",
+    request_body = CreateHaProfileRequest,
+    responses(
+        (status = 201, description = "HA profile created", body = HaProfileCreateResponse),
+        (status = 400, description = "Validation error"),
+        (status = 409, description = "Profile already exists")
+    )
+)]
 pub async fn create_profile(
     State(state): State<Arc<AppState>>,
     Json(mut req): Json<CreateHaProfileRequest>,

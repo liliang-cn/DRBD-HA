@@ -4,38 +4,37 @@ import {
   CheckCircleOutlined,
   LoadingOutlined,
   ThunderboltOutlined,
-  FileTextOutlined,
-} from '@ant-design/icons';
-import { Button, Form, message, Steps, Typography } from 'antd';
-import gsap from 'gsap';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { haProfilesApi, nodesApi, resourcesApi, servicesApi } from '@/api';
+  FundOutlined,
+} from "@ant-design/icons";
+import { Button, Form, message, Steps, Typography } from "antd";
+import gsap from "gsap";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { haProfilesApi, nodesApi, resourcesApi, servicesApi } from "@/api";
 import {
   DeploymentStatusStep,
   HaConfigStep,
   NodesVerificationStep,
   PreviewConfigStep,
   StorageConfigStep,
-} from '@/components/wizard';
-import { useHaProfilesStore } from '@/stores/ha-profiles';
-import { useNodesStore } from '@/stores/nodes';
-import { useNotificationsStore } from '@/stores/notifications';
-import { useResourcesStore } from '@/stores/resources';
-import { useThemeStore } from '@/stores/theme';
-import { ACCENT_COLORS } from '@/theme/colors';
+} from "@/components/wizard";
+import { useNodesStore } from "@/stores/nodes";
+import { useNotificationsStore } from "@/stores/notifications";
+import { useResourcesStore } from "@/stores/resources";
+import { useThemeStore } from "@/stores/theme";
+import { ACCENT_COLORS } from "@/theme/colors";
 import type {
   BlockDevice,
   CreateHaProfileRequest,
   Node,
   ServiceFileInfo,
-} from '@/types';
+} from "@/types";
 
 export interface WizardProps {
-  mode?: 'service' | 'storage';
+  mode?: "service" | "storage";
 }
 
-export function Wizard({ mode = 'service' }: WizardProps) {
+export function Wizard({ mode = "service" }: WizardProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { nodes, fetch: fetchNodes } = useNodesStore();
@@ -45,7 +44,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
   // Read step from URL (user-visible: 1=Nodes, 2=Storage, 3=HA Config, 4=Preview, 5=Activation)
   // Internal step is 0-indexed: 0=Nodes, 1=Storage, 2=HA Config, 3=Preview, 4=Activation
-  const userVisibleStep = parseInt(searchParams.get('step') || '1', 10);
+  const userVisibleStep = parseInt(searchParams.get("step") || "1", 10);
   const internalStep = Math.min(Math.max(userVisibleStep - 1, 0), 4);
   const [step, setStep] = useState(internalStep);
   const [loading, setLoading] = useState(false);
@@ -61,7 +60,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   >({});
   const [services, setServices] = useState<ServiceFileInfo[]>([]);
   // HA Type state
-  const [haType, setHaType] = useState<'generic'>('generic');
+  const [haType, setHaType] = useState<"generic">("generic");
   // Selected nodes for HA profile
   const [selectedNodes, setSelectedNodes] = useState<Node[]>([]);
   // Option to use existing DRBD resource (skip storage config step)
@@ -73,12 +72,12 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   // New state for generated config content
   const [generatedConfig, setGeneratedConfig] = useState<string | null>(null);
   const [createdDrbdConfig, setCreatedDrbdConfig] = useState<string | null>(
-    null,
+    null
   );
 
   // State for creation progress
   const [creatingProfileName, setCreatingProfileName] = useState<string | null>(
-    null,
+    null
   );
   const [creatingResourceName, setCreatingResourceName] = useState<
     string | null
@@ -87,11 +86,11 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   // Step 5: Activation state
   const [createdProfileId, setCreatedProfileId] = useState<string | null>(null);
   const [createdProfileName, setCreatedProfileName] = useState<string | null>(
-    null,
+    null
   );
   const [activationStatus, setActivationStatus] = useState<
-    'pending' | 'creating' | 'activating' | 'checking' | 'success' | 'error'
-  >('pending');
+    "pending" | "creating" | "activating" | "checking" | "success" | "error"
+  >("pending");
   const [_activationError, setActivationError] = useState<string | null>(null);
   const statusPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [progressSteps, setProgressSteps] = useState<
@@ -109,15 +108,18 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   }, []);
 
   // Update step and URL (user-visible step = internal step + 1)
-  const updateStep = useCallback((newInternalStep: number) => {
-    setStep(newInternalStep);
-    const userStep = newInternalStep + 1;
-    setSearchParams(userStep > 1 ? { step: userStep.toString() } : {});
-  }, [setSearchParams]);
+  const updateStep = useCallback(
+    (newInternalStep: number) => {
+      setStep(newInternalStep);
+      const userStep = newInternalStep + 1;
+      setSearchParams(userStep > 1 ? { step: userStep.toString() } : {});
+    },
+    [setSearchParams]
+  );
 
   // Sync URL step to state when URL changes (e.g., browser back/forward)
   useEffect(() => {
-    const urlStep = parseInt(searchParams.get('step') || '1', 10);
+    const urlStep = parseInt(searchParams.get("step") || "1", 10);
     const newInternalStep = Math.min(Math.max(urlStep - 1, 0), 4);
     if (newInternalStep !== step) {
       setStep(newInternalStep);
@@ -127,19 +129,19 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   // Scroll logs to bottom only when logs change AND already have content
   useEffect(() => {
     if (logs.length > 0 && logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [logs]);
 
   // GSAP Entrance Animations
   useEffect(() => {
-    const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+    const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
 
     if (containerRef.current) {
       gsap.fromTo(
         containerRef.current,
         { opacity: 0 },
-        { opacity: 1, duration: 0.4 },
+        { opacity: 1, duration: 0.4 }
       );
     }
 
@@ -148,7 +150,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         mainPanelRef.current,
         { x: -50, opacity: 0 },
         { x: 0, opacity: 1, duration: 0.6 },
-        0.2,
+        0.2
       );
     }
 
@@ -157,7 +159,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         logPanelRef.current,
         { x: 50, opacity: 0 },
         { x: 0, opacity: 1, duration: 0.6 },
-        0.3,
+        0.3
       );
     }
   }, []);
@@ -168,7 +170,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       gsap.fromTo(
         contentRef.current,
         { y: 20, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.4, ease: 'power2.out' },
+        { y: 0, opacity: 1, duration: 0.4, ease: "power2.out" }
       );
     }
   }, []);
@@ -204,18 +206,17 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       });
 
       // Auto-generate port and minor numbers based on existing resources
-      const usedMinors = (resources || []).flatMap((r) =>
-        r.devices?.map((d) => d.minor) || [],
+      const usedMinors = (resources || []).flatMap(
+        (r) => r.devices?.map((d) => d.minor) || []
       );
 
       // Find the maximum port used by existing resources and increment by 1
       // Filter out invalid port numbers (undefined, null, NaN)
       const validResources = (resources || []).filter(
-        (r) => r && typeof r.port === 'number' && !Number.isNaN(r.port),
+        (r) => r && typeof r.port === "number" && !Number.isNaN(r.port)
       );
       const usedPorts = validResources.map((r) => r.port);
-      const maxPort =
-        usedPorts.length > 0 ? Math.max(...usedPorts) : 7000;
+      const maxPort = usedPorts.length > 0 ? Math.max(...usedPorts) : 7000;
       const nextPort = maxPort + 1;
 
       // Use ref to ensure we only generate it once per step entry
@@ -269,25 +270,25 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       // Step 2: Resource creation phase
       targetName = creatingResourceName;
       relevantOperations = [
-        'create_resource',
-        'init_resource',
-        'mkfs',
-        'drbd_sync',
+        "create_resource",
+        "init_resource",
+        "mkfs",
+        "drbd_sync",
       ];
     } else if (step === 2 && creatingProfileName) {
       // Step 3: HA profile creation
       targetName = creatingProfileName;
-      relevantOperations = ['create_ha_profile', 'drbd_sync'];
+      relevantOperations = ["create_ha_profile", "drbd_sync"];
     } else if (step === 3) {
       // Step 4: Preview - show any pending progress for current resources
       targetName = null; // Will be handled in the filter logic
       relevantOperations = [
-        'create_ha_profile',
-        'create_resource',
-        'init_resource',
-        'mkfs',
-        'activate_profile',
-        'drbd_sync',
+        "create_ha_profile",
+        "create_resource",
+        "init_resource",
+        "mkfs",
+        "activate_profile",
+        "drbd_sync",
       ];
     }
 
@@ -324,7 +325,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       }
 
       // For drbd_sync, show sync progress for any resource that matches current context
-      if (p.operation === 'drbd_sync') {
+      if (p.operation === "drbd_sync") {
         if (
           step === 1 &&
           creatingResourceName &&
@@ -353,7 +354,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     if (relevantProgress.length > 0) {
       // Sort by operation_id to maintain order
       const sortedProgress = relevantProgress.sort((a, b) =>
-        a.operation_id.localeCompare(b.operation_id),
+        a.operation_id.localeCompare(b.operation_id)
       );
 
       // Update Progress Steps for Activation View
@@ -380,7 +381,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         // Check for completion and errors
         if (progress.completed && progress.success === false) {
           if (step === 3) {
-            setActivationStatus('error');
+            setActivationStatus("error");
             setActivationError(progress.message);
           }
           addLog(`Error: ${progress.message}`);
@@ -402,12 +403,12 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
       const allServicesRunning =
         status.service_statuses?.every((s) => s.active) ?? false;
-      const hasDrbdRole = status.drbd?.role === 'Primary';
+      const hasDrbdRole = status.drbd?.role === "Primary";
 
       if (allServicesRunning && hasDrbdRole) {
-        setActivationStatus('success');
+        setActivationStatus("success");
         addLog(
-          'Service activation confirmed: All services running and DRBD is Primary',
+          "Service activation confirmed: All services running and DRBD is Primary"
         );
         return;
       }
@@ -415,28 +416,28 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       if (retries > 0) {
         statusPollRef.current = setTimeout(
           () => pollServiceStatus(profileId, retries - 1),
-          2000,
+          2000
         );
       } else {
         if (status.active_node) {
-          setActivationStatus('success');
+          setActivationStatus("success");
           addLog(
-            `Service activation successful on node: ${status.active_node}`,
+            `Service activation successful on node: ${status.active_node}`
           );
         } else {
-          setActivationStatus('error');
-          setActivationError('Services did not start within expected time');
-          addLog('Error: Services did not start within expected time');
+          setActivationStatus("error");
+          setActivationError("Services did not start within expected time");
+          addLog("Error: Services did not start within expected time");
         }
       }
     } catch (err) {
       if (retries > 0) {
         statusPollRef.current = setTimeout(
           () => pollServiceStatus(profileId, retries - 1),
-          2000,
+          2000
         );
       } else {
-        setActivationStatus('error');
+        setActivationStatus("error");
         setActivationError((err as { message: string }).message);
         addLog(`Error polling status: ${(err as { message: string }).message}`);
       }
@@ -446,12 +447,12 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const handleNext = async () => {
     if (step === 0) {
       if (nodes.length < 2) {
-        message.warning('At least 2 nodes are required for HA');
-        addLog('Validation failed: At least 2 nodes are required');
+        message.warning("At least 2 nodes are required for HA");
+        addLog("Validation failed: At least 2 nodes are required");
         return;
       }
 
-      addLog('Nodes verification passed');
+      addLog("Nodes verification passed");
       updateStep(1);
     } else if (step === 1) {
       try {
@@ -465,22 +466,22 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         if (values.protocol) {
           netOptions.protocol = values.protocol;
         }
-        if (values.verify_alg && values.verify_alg !== 'none') {
-          netOptions['verify-alg'] = values.verify_alg;
+        if (values.verify_alg && values.verify_alg !== "none") {
+          netOptions["verify-alg"] = values.verify_alg;
         }
         if (values.max_epoch_size) {
-          netOptions['max-epoch-size'] = values.max_epoch_size.toString();
+          netOptions["max-epoch-size"] = values.max_epoch_size.toString();
         }
 
         // Split-brain recovery policies
         if (values.after_sb_0pri) {
-          netOptions['after-sb-0pri'] = values.after_sb_0pri;
+          netOptions["after-sb-0pri"] = values.after_sb_0pri;
         }
         if (values.after_sb_1pri) {
-          netOptions['after-sb-1pri'] = values.after_sb_1pri;
+          netOptions["after-sb-1pri"] = values.after_sb_1pri;
         }
         if (values.after_sb_2pri) {
-          netOptions['after-sb-2pri'] = values.after_sb_2pri;
+          netOptions["after-sb-2pri"] = values.after_sb_2pri;
         }
 
         // Note: rs-discard-granularity is a disk option, not net option
@@ -495,17 +496,17 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         addLog(`Starting DRBD resource creation: ${values.name}`);
 
         await resourcesApi.create(createRequest);
-        message.success('DRBD resource created');
+        message.success("DRBD resource created");
         addLog(`DRBD resource '${values.name}' created successfully`);
 
         await fetchResources();
         try {
           addLog(`Initializing resource '${values.name}'...`);
           await resourcesApi.init(values.name);
-          message.success('Resource initialized');
+          message.success("Resource initialized");
           addLog(`Resource '${values.name}' initialized`);
 
-          const fsType = values.fs_type || 'xfs';
+          const fsType = values.fs_type || "xfs";
           try {
             addLog(`Creating filesystem (${fsType}) on '${values.name}'...`);
             await resourcesApi.mkfs(values.name, fsType, true);
@@ -513,19 +514,19 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             addLog(`Filesystem (${fsType}) created successfully`);
           } catch (mkfsErr) {
             const errMsg =
-              (mkfsErr as { message?: string }).message || 'unknown error';
+              (mkfsErr as { message?: string }).message || "unknown error";
             message.warning(`Filesystem creation skipped: ${errMsg}`);
             addLog(`Warning: Filesystem creation skipped: ${errMsg}`);
           }
         } catch (initErr) {
           const errMsg =
-            (initErr as { message?: string }).message || 'unknown error';
+            (initErr as { message?: string }).message || "unknown error";
           message.warning(`Resource initialization skipped: ${errMsg}`);
           addLog(`Warning: Resource initialization skipped: ${errMsg}`);
         }
 
-        haForm.setFieldValue('resource_name', values.name);
-        haForm.setFieldValue('fs_type', values.fs_type || 'xfs');
+        haForm.setFieldValue("resource_name", values.name);
+        haForm.setFieldValue("fs_type", values.fs_type || "xfs");
 
         // Clear resource creation tracking before moving to next step
         setCreatingResourceName(null);
@@ -548,9 +549,9 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         const haValues = haForm.getFieldsValue(true); // true = include disabled fields
 
         if (!haValues.resource_name) {
-          console.error('ERROR: Resource name is empty!');
-          message.error('Resource name is missing. Please go back and check.');
-          addLog('Error: Resource name is missing in HA config');
+          console.error("ERROR: Resource name is empty!");
+          message.error("Resource name is missing. Please go back and check.");
+          addLog("Error: Resource name is missing in HA config");
           setLoading(false);
           return;
         }
@@ -562,14 +563,19 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         setProgressSteps([]);
         addLog(`Starting HA Profile creation: ${haValues.name}`);
 
+        // Determine configuration mode (simple vs advanced)
+        const isSimpleMode =
+          !haValues.ocf_agents || haValues.ocf_agents.length === 0;
+
         const request: CreateHaProfileRequest = {
           name: haValues.name,
           ha_type: haType,
           resource_name: haValues.resource_name,
           mount_point: haValues.mount_point,
-          fs_type: haValues.fs_type || 'xfs',
-          services: [], // Services are now managed via OCF agents
-          ocf_agents: haValues.ocf_agents || [],
+          fs_type: haValues.fs_type || "xfs",
+          // Simple mode: send services and vip; Advanced mode: send ocf_agents
+          services: isSimpleMode ? haValues.services || [] : [],
+          ocf_agents: isSimpleMode ? [] : haValues.ocf_agents || [],
           auto_disable_services: true,
           start_disabled: true, // Create in disabled state for review
           // Advanced Promoter Settings
@@ -588,7 +594,14 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           zfs_pool_id: haValues.zfs_pool_id,
           zfs_volume_size_gb: haValues.zfs_volume_size_gb,
 
-          vip: undefined, // VIP can be configured via OCF agents if needed
+          // Simple mode: send vip as separate field; Advanced mode: vip is part of ocf_agents
+          vip:
+            isSimpleMode && haValues.vip_address
+              ? {
+                  address: haValues.vip_address,
+                  netmask: haValues.vip_netmask || 24,
+                }
+              : undefined,
           migration: haValues.migrate_data
             ? {
                 migrate_data: true,
@@ -605,7 +618,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         setGeneratedConfig(result.promoter_config_content || null);
         setCreatedDrbdConfig(result.drbd_config_content || null);
         addLog(
-          `HA Profile '${result.profile.name}' created successfully (disabled)`,
+          `HA Profile '${result.profile.name}' created successfully (disabled)`
         );
 
         setLoading(false);
@@ -625,35 +638,37 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     else if (step === 3) {
       // Enable the profile (calls drbd-reactorctl enable)
       if (!createdProfileId) {
-        message.error('No profile to enable');
-        addLog('Error: No profile ID available');
+        message.error("No profile to enable");
+        addLog("Error: No profile ID available");
         return;
       }
 
       setLoading(true);
       addLog(`Enabling HA profile '${createdProfileName}' on all nodes...`);
-      setActivationStatus('activating');
+      setActivationStatus("activating");
 
       try {
         const result = await haProfilesApi.enable(createdProfileId);
         addLog(result.message || `Profile enable initiated`);
         if (result.enabled_nodes.length > 0) {
-          addLog(`Enabled on nodes: ${result.enabled_nodes.join(', ')}`);
+          addLog(`Enabled on nodes: ${result.enabled_nodes.join(", ")}`);
         }
         if (result.failed_nodes.length > 0) {
           addLog(
-            `Failed on nodes: ${result.failed_nodes.map((n) => n[0]).join(', ')}`,
+            `Failed on nodes: ${result.failed_nodes
+              .map((n) => n[0])
+              .join(", ")}`
           );
         }
         // After enable succeeds, move directly to Status step
         setLoading(false);
-        setActivationStatus('checking');
+        setActivationStatus("checking");
         updateStep(4);
         // Start polling service status
         pollServiceStatus(createdProfileId);
       } catch (err) {
         const errMsg = (err as { message: string }).message;
-        setActivationStatus('error');
+        setActivationStatus("error");
         setActivationError(errMsg);
         addLog(`Error enabling profile: ${errMsg}`);
         setLoading(false);
@@ -675,22 +690,22 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   };
 
   const handleDone = () => {
-    navigate('/');
+    navigate("/");
   };
 
   const _handleRetry = async () => {
     if (createdProfileId) {
-      setActivationStatus('activating');
+      setActivationStatus("activating");
       setActivationError(null);
       setProgressSteps([]);
-      addLog('Retrying activation...');
+      addLog("Retrying activation...");
       try {
         await haProfilesApi.activate(createdProfileId);
-        setActivationStatus('checking');
+        setActivationStatus("checking");
         pollServiceStatus(createdProfileId);
       } catch (err) {
         const errMsg = (err as { message: string }).message;
-        setActivationStatus('error');
+        setActivationStatus("error");
         setActivationError(errMsg);
         addLog(`Retry failed: ${errMsg}`);
       }
@@ -700,17 +715,17 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const currentProgress = progressEvents.find(
     (p) =>
       p.resource === createdProfileName &&
-      (p.operation === 'create_ha_profile' ||
-        p.operation === 'activate_profile') &&
-      !p.completed,
+      (p.operation === "create_ha_profile" ||
+        p.operation === "activate_profile") &&
+      !p.completed
   );
   const _progressPercent =
     currentProgress?.progress ??
-    (activationStatus === 'checking'
+    (activationStatus === "checking"
       ? 90
-      : activationStatus === 'success'
-        ? 100
-        : 0);
+      : activationStatus === "success"
+      ? 100
+      : 0);
 
   const renderStepContent = () => {
     switch (step) {
@@ -719,7 +734,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           <NodesVerificationStep
             nodes={nodes}
             sharedState={{
-              storageStrategy: 'raw',
+              storageStrategy: "raw",
               setStorageStrategy: () => {},
               haType,
               setHaType,
@@ -795,16 +810,21 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         <div
           ref={mainPanelRef}
           className={`relative flex-1 p-10 rounded-2xl shadow-lg border overflow-y-auto ${
-            currentTheme === 'dark'
-              ? 'bg-slate-800 border-slate-700'
-              : 'bg-white border-slate-200'
+            currentTheme === "dark"
+              ? "bg-slate-800 border-slate-700"
+              : "bg-white border-slate-200"
           }`}
         >
           {/* Expand/Collapse Log Panel Button - Top Right of Content Area */}
           <Button
-            icon={<FileTextOutlined />}
+            icon={<FundOutlined />}
             onClick={() => setIsLogPanelVisible(!isLogPanelVisible)}
-            style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 10 }}
+            style={{
+              position: "absolute",
+              top: "1rem",
+              right: "1rem",
+              zIndex: 10,
+            }}
             type="text"
             title={isLogPanelVisible ? "Hide logs" : "Show logs"}
           />
@@ -839,11 +859,15 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             current={step}
             className="mb-8"
             items={[
-              { title: 'Nodes' },
-              { title: 'Storage', disabled: useExistingResource, status: useExistingResource ? 'wait' : undefined },
-              { title: 'Services' },
-              { title: 'Preview' },
-              { title: 'Status' },
+              { title: "Nodes" },
+              {
+                title: "Storage",
+                disabled: useExistingResource,
+                status: useExistingResource ? "wait" : undefined,
+              },
+              { title: "Services" },
+              { title: "Preview" },
+              { title: "Status" },
             ]}
           />
 
@@ -857,10 +881,10 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             {step < 4 && (
               <Button
                 icon={<ArrowLeftOutlined />}
-                onClick={step === 0 ? () => navigate('/') : handlePrev}
+                onClick={step === 0 ? () => navigate("/") : handlePrev}
                 className="hover:!bg-slate-100"
               >
-                {step === 0 ? 'Cancel' : 'Previous'}
+                {step === 0 ? "Cancel" : "Previous"}
               </Button>
             )}
 
@@ -890,109 +914,118 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
         {/* Right Side Log Panel */}
         {isLogPanelVisible && (
-        <div
-          ref={logPanelRef}
-          className={`w-96 shrink-0 p-4 rounded-2xl shadow-lg border flex flex-col transition-all duration-300 ${
-            currentTheme === 'dark'
-              ? 'bg-slate-800 border-slate-700'
-              : 'bg-white border-slate-200'
-          }`}
-        >
           <div
-            className={`mb-4 pb-3 border-b flex justify-between items-center ${
-              currentTheme === 'dark' ? 'border-slate-700' : 'border-slate-100'
+            ref={logPanelRef}
+            className={`w-96 shrink-0 p-4 rounded-2xl shadow-lg border flex flex-col transition-all duration-300 ${
+              currentTheme === "dark"
+                ? "bg-slate-800 border-slate-700"
+                : "bg-white border-slate-200"
             }`}
           >
-            <div className="flex items-center gap-2">
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
-                style={{
-                  background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
-                }}
-              >
-                <ThunderboltOutlined className="text-sm" />
-              </div>
-              <Typography.Title
-                level={5}
-                className={`!mb-0 ${currentTheme === 'dark' ? '!text-slate-100' : ''}`}
-              >
-                Operation Logs
-              </Typography.Title>
-            </div>
-            <Button size="small" type="text" onClick={() => setLogs([])}>
-              Clear
-            </Button>
-          </div>
-
-          {/* Progress Steps */}
-          {progressSteps.length > 0 && (
             <div
-              className="mb-4 p-3 rounded-xl border"
-              style={{
-                background: `linear-gradient(135deg, ${ACCENT_COLORS.mint}15, ${ACCENT_COLORS.cyan}15)`,
-                borderColor: `${ACCENT_COLORS.mint}40`,
-              }}
+              className={`mb-4 pb-3 border-b flex justify-between items-center ${
+                currentTheme === "dark"
+                  ? "border-slate-700"
+                  : "border-slate-100"
+              }`}
             >
-              <div
-                className="text-xs font-medium mb-2"
-                style={{ color: ACCENT_COLORS.sky }}
-              >
-                Progress:
-              </div>
-              <div className="flex flex-col gap-2">
-                {progressSteps.slice(-3).map((s, idx) => (
-                  <div key={`step-${idx}-${s.done}`} className="flex items-start gap-2 text-sm">
-                    {s.done ? (
-                      <CheckCircleOutlined
-                        className="mt-0.5 shrink-0"
-                        style={{ color: ACCENT_COLORS.mint }}
-                      />
-                    ) : (
-                      <LoadingOutlined
-                        className="mt-0.5 shrink-0 animate-spin"
-                        style={{ color: ACCENT_COLORS.sky }}
-                      />
-                    )}
-                    <span
-                      className={s.done ? 'text-slate-600' : 'font-medium'}
-                      style={s.done ? {} : { color: ACCENT_COLORS.sky }}
-                    >
-                      {s.message}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Logs */}
-          <div className="flex-1 overflow-y-auto space-y-2 font-mono text-xs">
-            {logs.length === 0 && progressSteps.length === 0 ? (
-              <div
-                className={`flex flex-col items-center justify-center h-full ${
-                  currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'
-                }`}
-              >
-                <ThunderboltOutlined className="text-4xl mb-2 opacity-30" />
-                <div>No logs yet</div>
-              </div>
-            ) : (
-              logs.map((log, i) => (
+              <div className="flex items-center gap-2">
                 <div
-                  key={`log-${i}-${log.slice(0, 20)}`}
-                  className={`break-words leading-relaxed border-b pb-1.5 last:border-0 ${
-                    currentTheme === 'dark'
-                      ? 'text-slate-300 border-slate-700'
-                      : 'text-slate-600 border-slate-50'
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                  style={{
+                    background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
+                  }}
+                >
+                  <ThunderboltOutlined className="text-sm" />
+                </div>
+                <Typography.Title
+                  level={5}
+                  className={`!mb-0 ${
+                    currentTheme === "dark" ? "!text-slate-100" : ""
                   }`}
                 >
-                  {log}
+                  Operation Logs
+                </Typography.Title>
+              </div>
+              <Button size="small" type="text" onClick={() => setLogs([])}>
+                Clear
+              </Button>
+            </div>
+
+            {/* Progress Steps */}
+            {progressSteps.length > 0 && (
+              <div
+                className="mb-4 p-3 rounded-xl border"
+                style={{
+                  background: `linear-gradient(135deg, ${ACCENT_COLORS.mint}15, ${ACCENT_COLORS.cyan}15)`,
+                  borderColor: `${ACCENT_COLORS.mint}40`,
+                }}
+              >
+                <div
+                  className="text-xs font-medium mb-2"
+                  style={{ color: ACCENT_COLORS.sky }}
+                >
+                  Progress:
                 </div>
-              ))
+                <div className="flex flex-col gap-2">
+                  {progressSteps.slice(-3).map((s, idx) => (
+                    <div
+                      key={`step-${idx}-${s.done}`}
+                      className="flex items-start gap-2 text-sm"
+                    >
+                      {s.done ? (
+                        <CheckCircleOutlined
+                          className="mt-0.5 shrink-0"
+                          style={{ color: ACCENT_COLORS.mint }}
+                        />
+                      ) : (
+                        <LoadingOutlined
+                          className="mt-0.5 shrink-0 animate-spin"
+                          style={{ color: ACCENT_COLORS.sky }}
+                        />
+                      )}
+                      <span
+                        className={s.done ? "text-slate-600" : "font-medium"}
+                        style={s.done ? {} : { color: ACCENT_COLORS.sky }}
+                      >
+                        {s.message}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
-            <div ref={logsEndRef} />
+
+            {/* Logs */}
+            <div className="flex-1 overflow-y-auto space-y-2 font-mono text-xs">
+              {logs.length === 0 && progressSteps.length === 0 ? (
+                <div
+                  className={`flex flex-col items-center justify-center h-full ${
+                    currentTheme === "dark"
+                      ? "text-slate-500"
+                      : "text-slate-400"
+                  }`}
+                >
+                  <ThunderboltOutlined className="text-4xl mb-2 opacity-30" />
+                  <div>No logs yet</div>
+                </div>
+              ) : (
+                logs.map((log, i) => (
+                  <div
+                    key={`log-${i}-${log.slice(0, 20)}`}
+                    className={`break-words leading-relaxed border-b pb-1.5 last:border-0 ${
+                      currentTheme === "dark"
+                        ? "text-slate-300 border-slate-700"
+                        : "text-slate-600 border-slate-50"
+                    }`}
+                  >
+                    {log}
+                  </div>
+                ))
+              )}
+              <div ref={logsEndRef} />
+            </div>
           </div>
-        </div>
         )}
       </div>
     </div>

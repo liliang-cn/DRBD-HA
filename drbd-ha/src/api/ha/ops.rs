@@ -72,6 +72,19 @@ fn ensure_node_in_store(state: &AppState, hostname: &str) -> AppResult<Node> {
 }
 
 /// POST /api/v1/ha/profiles/:id/evict
+#[utoipa::path(
+    post,
+    path = "/api/v1/ha/profiles/{id}/evict",
+    tag = "ha",
+    params(
+        ("id" = String, Path, description = "Profile ID or name")
+    ),
+    request_body = EvictProfileRequest,
+    responses(
+        (status = 200, description = "Evict operation result", body = EvictProfileResponse),
+        (status = 404, description = "Profile not found")
+    )
+)]
 pub async fn evict_profile(
     State(state): State<Arc<AppState>>,
     Path(id_or_name): Path<String>,
@@ -101,7 +114,10 @@ pub async fn evict_profile(
     let target_node: Node = if let Some(ref node_id) = request.node {
         // Try to find existing node first
         let nodes = state.node_store.get_all()?;
-        if let Some(node) = nodes.into_iter().find(|n| n.id == *node_id || n.hostname == *node_id) {
+        if let Some(node) = nodes
+            .into_iter()
+            .find(|n| n.id == *node_id || n.hostname == *node_id)
+        {
             node
         } else {
             // Auto-discover and add node if not in store
@@ -176,7 +192,9 @@ pub async fn evict_profile(
         request.force
     );
 
+    // Execute evict command on the target (active) node
     let (success, stdout, stderr) = if target_node.is_local {
+        // Local node - execute directly
         let output = run_shell_command(
             &evict_cmd,
             &format!("Evict HA profile {} from local node", profile.name),
@@ -184,9 +202,23 @@ pub async fn evict_profile(
         .await?;
         (output.success(), Some(output.stdout), Some(output.stderr))
     } else {
+        // Remote node - execute via SSH with sudo
         let credential = Some(crate::core::SshCredential::Password("ignored".to_string()));
 
         if let Some(cred) = credential {
+            // Add sudo if user is not root
+            let remote_cmd = if target_node.ssh_user != "root" {
+                format!("sudo {}", evict_cmd)
+            } else {
+                evict_cmd.clone()
+            };
+
+            tracing::info!(
+                "Executing evict command on remote node {}: {}",
+                target_node.hostname,
+                remote_cmd
+            );
+
             match state
                 .ssh_manager
                 .execute(
@@ -194,12 +226,26 @@ pub async fn evict_profile(
                     target_node.ssh_port,
                     &target_node.ssh_user,
                     &cred,
-                    &evict_cmd,
+                    &remote_cmd,
                 )
                 .await
             {
-                Ok(output) => (output.success(), Some(output.stdout), Some(output.stderr)),
+                Ok(output) => {
+                    tracing::info!(
+                        "Evict command on {} completed with exit code: {}",
+                        target_node.hostname,
+                        output.exit_code
+                    );
+                    if !output.stdout.is_empty() {
+                        tracing::debug!("stdout: {}", output.stdout);
+                    }
+                    if !output.stderr.is_empty() {
+                        tracing::debug!("stderr: {}", output.stderr);
+                    }
+                    (output.success(), Some(output.stdout), Some(output.stderr))
+                }
                 Err(e) => {
+                    tracing::error!("Failed to execute evict on {}: {}", target_node.hostname, e);
                     return Err(AppError::Ssh(format!(
                         "Failed to execute evict on {}: {}",
                         target_node.hostname, e
@@ -283,6 +329,19 @@ pub async fn evict_profile(
 }
 
 /// POST /api/v1/ha/profiles/:id/:node/disable
+#[utoipa::path(
+    post,
+    path = "/api/v1/ha/profiles/{id}/{node}/disable",
+    tag = "ha",
+    params(
+        ("id" = String, Path, description = "Profile ID or name"),
+        ("node" = String, Path, description = "Node hostname")
+    ),
+    responses(
+        (status = 200, description = "Profile disabled on node", body = serde_json::Value),
+        (status = 404, description = "Profile or node not found")
+    )
+)]
 pub async fn disable_profile_on_node(
     State(state): State<Arc<AppState>>,
     Path((id_or_name, node_hostname)): Path<(String, String)>,
@@ -293,18 +352,30 @@ pub async fn disable_profile_on_node(
     // Verify profile exists (check both .toml and .toml.disabled)
     let reactor_dir = crate::core::ReactorConfigPaths::REACTOR_CONF_DIR;
     let config_path = std::path::Path::new(reactor_dir).join(format!("{}.toml", id_or_name));
-    let disabled_path = std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", id_or_name));
+    let disabled_path =
+        std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", id_or_name));
 
     if !config_path.exists() && !disabled_path.exists() {
-        return Err(AppError::NotFound(format!("HA profile {} not found", id_or_name)));
+        return Err(AppError::NotFound(format!(
+            "HA profile {} not found",
+            id_or_name
+        )));
     }
 
-    tracing::info!("Disabling HA profile {} on node {}", id_or_name, target_node.hostname);
+    tracing::info!(
+        "Disabling HA profile {} on node {}",
+        id_or_name,
+        target_node.hostname
+    );
 
     let disable_cmd = format!("sudo drbd-reactorctl disable {}", id_or_name);
 
     let result = if target_node.is_local {
-        run_shell_command(&disable_cmd, &format!("Disable profile {} locally", id_or_name)).await
+        run_shell_command(
+            &disable_cmd,
+            &format!("Disable profile {} locally", id_or_name),
+        )
+        .await
     } else {
         let credential = crate::core::SshCredential::Password("ignored".to_string());
         state
@@ -341,6 +412,18 @@ pub async fn disable_profile_on_node(
 }
 
 /// POST /api/v1/ha/profiles/:id/enable
+#[utoipa::path(
+    post,
+    path = "/api/v1/ha/profiles/{id}/enable",
+    tag = "ha",
+    params(
+        ("id" = String, Path, description = "Profile ID or name")
+    ),
+    responses(
+        (status = 200, description = "Profile enabled on all nodes", body = serde_json::Value),
+        (status = 404, description = "Profile not found")
+    )
+)]
 pub async fn enable_profile(
     State(state): State<Arc<AppState>>,
     Path(id_or_name): Path<String>,
@@ -348,10 +431,14 @@ pub async fn enable_profile(
     // Verify profile exists (check both .toml and .toml.disabled)
     let reactor_dir = crate::core::ReactorConfigPaths::REACTOR_CONF_DIR;
     let config_path = std::path::Path::new(reactor_dir).join(format!("{}.toml", id_or_name));
-    let disabled_path = std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", id_or_name));
+    let disabled_path =
+        std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", id_or_name));
 
     if !config_path.exists() && !disabled_path.exists() {
-        return Err(AppError::NotFound(format!("HA profile {} not found", id_or_name)));
+        return Err(AppError::NotFound(format!(
+            "HA profile {} not found",
+            id_or_name
+        )));
     }
 
     // Get all nodes
@@ -365,7 +452,11 @@ pub async fn enable_profile(
 
     for node in &nodes {
         let result = if node.is_local {
-            run_shell_command(&enable_cmd, &format!("Enable profile {} locally", id_or_name)).await
+            run_shell_command(
+                &enable_cmd,
+                &format!("Enable profile {} locally", id_or_name),
+            )
+            .await
         } else {
             let credential = crate::core::SshCredential::Password("ignored".to_string());
             state
@@ -383,15 +474,29 @@ pub async fn enable_profile(
 
         match result {
             Ok(output) if output.success() => {
-                tracing::info!("Successfully enabled profile {} on node {}", id_or_name, node.hostname);
+                tracing::info!(
+                    "Successfully enabled profile {} on node {}",
+                    id_or_name,
+                    node.hostname
+                );
                 enabled_nodes.push(node.hostname.clone());
             }
             Ok(output) => {
-                tracing::warn!("Failed to enable profile {} on node {}: {}", id_or_name, node.hostname, output.stderr);
+                tracing::warn!(
+                    "Failed to enable profile {} on node {}: {}",
+                    id_or_name,
+                    node.hostname,
+                    output.stderr
+                );
                 failed_nodes.push((node.hostname.clone(), output.stderr));
             }
             Err(e) => {
-                tracing::error!("Error enabling profile {} on node {}: {}", id_or_name, node.hostname, e);
+                tracing::error!(
+                    "Error enabling profile {} on node {}: {}",
+                    id_or_name,
+                    node.hostname,
+                    e
+                );
                 failed_nodes.push((node.hostname.clone(), e.to_string()));
             }
         }
@@ -399,11 +504,20 @@ pub async fn enable_profile(
 
     let success = enabled_nodes.len() > 0;
     let message = if failed_nodes.is_empty() {
-        format!("Profile '{}' enabled on all {} nodes", id_or_name, enabled_nodes.len())
+        format!(
+            "Profile '{}' enabled on all {} nodes",
+            id_or_name,
+            enabled_nodes.len()
+        )
     } else if enabled_nodes.is_empty() {
         format!("Failed to enable profile '{}' on any node", id_or_name)
     } else {
-        format!("Profile '{}' enabled on {}/{} nodes", id_or_name, enabled_nodes.len(), nodes.len())
+        format!(
+            "Profile '{}' enabled on {}/{} nodes",
+            id_or_name,
+            enabled_nodes.len(),
+            nodes.len()
+        )
     };
 
     Ok(Json(serde_json::json!({
@@ -416,6 +530,19 @@ pub async fn enable_profile(
 }
 
 /// POST /api/v1/ha/profiles/:id/:node/enable
+#[utoipa::path(
+    post,
+    path = "/api/v1/ha/profiles/{id}/{node}/enable",
+    tag = "ha",
+    params(
+        ("id" = String, Path, description = "Profile ID or name"),
+        ("node" = String, Path, description = "Node hostname")
+    ),
+    responses(
+        (status = 200, description = "Profile enabled on node", body = serde_json::Value),
+        (status = 404, description = "Profile or node not found")
+    )
+)]
 pub async fn enable_profile_on_node(
     State(state): State<Arc<AppState>>,
     Path((id_or_name, node_hostname)): Path<(String, String)>,
@@ -426,18 +553,30 @@ pub async fn enable_profile_on_node(
     // Verify profile exists (check both .toml and .toml.disabled)
     let reactor_dir = crate::core::ReactorConfigPaths::REACTOR_CONF_DIR;
     let config_path = std::path::Path::new(reactor_dir).join(format!("{}.toml", id_or_name));
-    let disabled_path = std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", id_or_name));
+    let disabled_path =
+        std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", id_or_name));
 
     if !config_path.exists() && !disabled_path.exists() {
-        return Err(AppError::NotFound(format!("HA profile {} not found", id_or_name)));
+        return Err(AppError::NotFound(format!(
+            "HA profile {} not found",
+            id_or_name
+        )));
     }
 
-    tracing::info!("Enabling HA profile {} on node {}", id_or_name, target_node.hostname);
+    tracing::info!(
+        "Enabling HA profile {} on node {}",
+        id_or_name,
+        target_node.hostname
+    );
 
     let enable_cmd = format!("sudo drbd-reactorctl enable {}", id_or_name);
 
     let result = if target_node.is_local {
-        run_shell_command(&enable_cmd, &format!("Enable profile {} locally", id_or_name)).await
+        run_shell_command(
+            &enable_cmd,
+            &format!("Enable profile {} locally", id_or_name),
+        )
+        .await
     } else {
         let credential = crate::core::SshCredential::Password("ignored".to_string());
         state

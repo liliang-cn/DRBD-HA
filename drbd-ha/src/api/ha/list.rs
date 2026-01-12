@@ -61,6 +61,15 @@ fn resolve_hostname_to_ip(hostname: &str) -> Option<String> {
 }
 
 /// GET /api/v1/ha/profiles
+#[utoipa::path(
+    get,
+    path = "/api/v1/ha/profiles",
+    tag = "ha",
+    summary = "List all HA profiles",
+    responses(
+        (status = 200, description = "List of HA profiles", body = HaProfileListResponse)
+    )
+)]
 pub async fn list_profiles(State(state): State<Arc<AppState>>) -> AppResult<Json<HaProfileListResponse>> {
     let profile_names = get_all_ha_profile_names(&state).await?;
     let mut profiles = Vec::new();
@@ -199,6 +208,18 @@ async fn check_if_enabled_on_other_nodes(state: &Arc<AppState>, profile_name: &s
 }
 
 /// GET /api/v1/ha/profiles/:id
+#[utoipa::path(
+    get,
+    path = "/api/v1/ha/profiles/{id}",
+    tag = "ha",
+    params(
+        ("id" = String, Path, description = "Profile ID or name")
+    ),
+    responses(
+        (status = 200, description = "HA profile details", body = HaProfileDetailResponse),
+        (status = 404, description = "Profile not found")
+    )
+)]
 pub async fn get_profile(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1075,6 +1096,18 @@ async fn check_nodes_disabled_status(
 }
 
 /// GET /api/v1/ha/profiles/:id/status
+#[utoipa::path(
+    get,
+    path = "/api/v1/ha/profiles/{id}/status",
+    tag = "ha",
+    params(
+        ("id" = String, Path, description = "Profile ID or name")
+    ),
+    responses(
+        (status = 200, description = "HA profile status", body = HaProfileDetailResponse),
+        (status = 404, description = "Profile not found")
+    )
+)]
 pub async fn get_profile_status(
     State(state): State<Arc<AppState>>,
     Path(id_or_name): Path<String>,

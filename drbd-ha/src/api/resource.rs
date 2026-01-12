@@ -8,6 +8,7 @@ use axum::{
 use serde::Serialize;
 use std::sync::Arc;
 use tracing::info;
+use utoipa::ToSchema;
 
 use crate::core::{
     drbd_cmd::{parse_drbd_status, DrbdCmd, ResourceStatus},
@@ -28,13 +29,13 @@ use crate::models::{
 use crate::state::{AppState, NotificationLevel};
 
 /// Response for resource list
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ResourceListResponse {
     pub resources: Vec<ResourceStatus>,
 }
 
 /// Response for resource creation
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ResourceCreateResponse {
     pub name: String,
     pub message: String,
@@ -42,7 +43,7 @@ pub struct ResourceCreateResponse {
 }
 
 /// Response for resource action
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ResourceActionResponse {
     pub resource: String,
     pub action: String,
@@ -52,6 +53,15 @@ pub struct ResourceActionResponse {
 
 /// GET /api/v1/resources
 /// List all DRBD resources
+#[utoipa::path(
+    get,
+    path = "/api/v1/resources",
+    tag = "resources",
+    summary = "List all DRBD resources",
+    responses(
+        (status = 200, description = "List of DRBD resources", body = ResourceListResponse)
+    )
+)]
 pub async fn list_resources(
     State(_state): State<Arc<AppState>>,
 ) -> AppResult<Json<ResourceListResponse>> {
@@ -69,6 +79,18 @@ pub async fn list_resources(
 
 /// GET /api/v1/resources/:name
 /// Get status of a specific resource
+#[utoipa::path(
+    get,
+    path = "/api/v1/resources/{name}",
+    tag = "resources",
+    params(
+        ("name" = String, Path, description = "Resource name")
+    ),
+    responses(
+        (status = 200, description = "Resource status", body = ResourceStatus),
+        (status = 404, description = "Resource not found")
+    )
+)]
 pub async fn get_resource(
     State(_state): State<Arc<AppState>>,
     Path(name): Path<String>,
@@ -92,6 +114,17 @@ pub async fn get_resource(
 
 /// POST /api/v1/resources
 /// Create a new DRBD resource
+#[utoipa::path(
+    post,
+    path = "/api/v1/resources",
+    tag = "resources",
+    request_body = CreateResourceRequest,
+    responses(
+        (status = 201, description = "Resource created successfully", body = ResourceCreateResponse),
+        (status = 400, description = "Validation error"),
+        (status = 409, description = "Resource already exists")
+    )
+)]
 pub async fn create_resource(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateResourceRequest>,
@@ -685,6 +718,19 @@ pub async fn create_resource(
 
 /// POST /api/v1/resources/:name/action
 /// Perform an action on a resource (up, down, primary, secondary, etc.)
+#[utoipa::path(
+    post,
+    path = "/api/v1/resources/{name}/action",
+    tag = "resources",
+    params(
+        ("name" = String, Path, description = "Resource name")
+    ),
+    request_body = ResourceActionRequest,
+    responses(
+        (status = 200, description = "Action executed", body = ResourceActionResponse),
+        (status = 400, description = "Invalid request")
+    )
+)]
 pub async fn resource_action(
     State(_state): State<Arc<AppState>>,
     Path(name): Path<String>,
@@ -793,6 +839,18 @@ async fn recover_split_brain(name: &str) -> AppResult<Json<ResourceActionRespons
 
 /// POST /api/v1/resources/:name/init
 /// Initialize resource (create-md) on all nodes
+#[utoipa::path(
+    post,
+    path = "/api/v1/resources/{name}/init",
+    tag = "resources",
+    params(
+        ("name" = String, Path, description = "Resource name")
+    ),
+    responses(
+        (status = 200, description = "Resource initialized", body = ResourceActionResponse),
+        (status = 404, description = "Resource not found")
+    )
+)]
 pub async fn init_resource(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
@@ -1175,6 +1233,19 @@ pub async fn init_resource(
 
 /// POST /api/v1/resources/:name/mkfs
 /// Create filesystem on DRBD device (must be primary)
+#[utoipa::path(
+    post,
+    path = "/api/v1/resources/{name}/mkfs",
+    tag = "resources",
+    params(
+        ("name" = String, Path, description = "Resource name")
+    ),
+    request_body = CreateFilesystemRequest,
+    responses(
+        (status = 200, description = "Filesystem created", body = ResourceActionResponse),
+        (status = 400, description = "Invalid request")
+    )
+)]
 pub async fn create_filesystem(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
@@ -1445,6 +1516,19 @@ pub async fn create_filesystem(
 
 /// POST /api/v1/resources/:name/mount
 /// Mount DRBD device (must be primary)
+#[utoipa::path(
+    post,
+    path = "/api/v1/resources/{name}/mount",
+    tag = "resources",
+    params(
+        ("name" = String, Path, description = "Resource name")
+    ),
+    request_body = MountRequest,
+    responses(
+        (status = 200, description = "Device mounted", body = ResourceActionResponse),
+        (status = 400, description = "Invalid request")
+    )
+)]
 pub async fn mount_resource(
     Path(name): Path<String>,
     Json(req): Json<MountRequest>,
@@ -1546,6 +1630,19 @@ pub async fn mount_resource(
 
 /// POST /api/v1/resources/:name/umount
 /// Unmount DRBD device
+#[utoipa::path(
+    post,
+    path = "/api/v1/resources/{name}/umount",
+    tag = "resources",
+    params(
+        ("name" = String, Path, description = "Resource name")
+    ),
+    request_body = MountRequest,
+    responses(
+        (status = 200, description = "Device unmounted", body = ResourceActionResponse),
+        (status = 400, description = "Invalid request")
+    )
+)]
 pub async fn umount_resource(
     Path(name): Path<String>,
     Json(req): Json<MountRequest>,
@@ -1569,12 +1666,13 @@ pub async fn umount_resource(
 }
 
 /// Query parameters for log retrieval
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, ToSchema)]
 pub struct LogsQuery {
     /// Number of lines to retrieve (default: 100, max: 1000)
     #[serde(default = "default_log_lines")]
     pub lines: u32,
     /// Filter logs since this time (e.g., "1h", "30m", "2024-01-15")
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
 }
 
@@ -1583,7 +1681,7 @@ fn default_log_lines() -> u32 {
 }
 
 /// Response for log retrieval
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct LogsResponse {
     pub resource: String,
     pub lines: Vec<String>,
@@ -1592,6 +1690,19 @@ pub struct LogsResponse {
 
 /// GET /api/v1/resources/:name/logs
 /// Get DRBD resource logs from journalctl
+#[utoipa::path(
+    get,
+    path = "/api/v1/resources/{name}/logs",
+    tag = "resources",
+    params(
+        ("name" = String, Path, description = "Resource name"),
+        ("lines" = Option<u32>, Query, description = "Number of lines to retrieve (default: 100, max: 1000)"),
+        ("since" = Option<String>, Query, description = "Filter logs since this time (e.g., '1h', '30m')")
+    ),
+    responses(
+        (status = 200, description = "Resource logs", body = LogsResponse)
+    )
+)]
 pub async fn get_resource_logs(
     Path(name): Path<String>,
     axum::extract::Query(query): axum::extract::Query<LogsQuery>,
@@ -1635,6 +1746,18 @@ pub async fn get_resource_logs(
 
 /// DELETE /api/v1/resources/:name
 /// Delete a DRBD resource
+#[utoipa::path(
+    delete,
+    path = "/api/v1/resources/{name}",
+    tag = "resources",
+    params(
+        ("name" = String, Path, description = "Resource name")
+    ),
+    responses(
+        (status = 204, description = "Resource deleted"),
+        (status = 404, description = "Resource not found")
+    )
+)]
 pub async fn delete_resource(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,

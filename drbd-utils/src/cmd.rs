@@ -42,6 +42,12 @@ impl DrbdCmd {
         Ok(format!("drbdadm down {}", resource))
     }
 
+    /// Wipe metadata command (clears DRBD metadata from device)
+    pub fn wipe_md_cmd(resource: &str) -> DrbdResult<String> {
+        validator::validate_resource_name(resource)?;
+        Ok(format!("drbdadm wipe-md {}", resource))
+    }
+
     /// Primary command
     pub fn primary_cmd(resource: &str, force: bool) -> DrbdResult<String> {
         validator::validate_resource_name(resource)?;
