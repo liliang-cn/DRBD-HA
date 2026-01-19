@@ -49,7 +49,7 @@ export function AddParameterModal({
                     if (!agent.metadata) return [];
 
                     const existingParams = new Set(
-                      Object.keys(agent.item.ocf_agent?.params || {})
+                      (agent.item.ocf_agent?.params || []).map(p => p.key)
                     );
 
                     return agent.metadata.parameters

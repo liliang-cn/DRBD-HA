@@ -2,10 +2,9 @@ import {
   DeleteOutlined,
   HolderOutlined,
   CaretRightOutlined,
-  InfoCircleOutlined,
-  QuestionCircleOutlined,
   PlusOutlined,
   MinusCircleOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import {
   Button,
@@ -22,9 +21,19 @@ import {
 } from 'antd';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { OcfAgentWithMetadata, ResourceAgent } from '@/api/ha-profiles';
+import type { OcfAgentWithMetadata, ResourceAgent, ParamEntry } from '@/api/ha-profiles';
 
 const { Text } = Typography;
+
+// Helper to get param value from ParamEntry[]
+function getParamValue(params: ParamEntry[] | undefined, key: string): string | undefined {
+  return params?.find(p => p.key === key)?.value;
+}
+
+// Helper to check if param exists
+function hasParam(params: ParamEntry[] | undefined, key: string): boolean {
+  return params?.some(p => p.key === key) || false;
+}
 
 export interface SortableItemProps {
   id: string;
@@ -109,7 +118,18 @@ export function SortableAgentItem({
     if (!ocfAgent) return null;
 
     const fieldName = [`agents`, index, `params`, param.name];
-    const currentValue = ocfAgent.params[param.name];
+    const currentValue = getParamValue(ocfAgent.params, param.name);
+
+    const label = (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <span style={{ fontSize: '13px', color: '#333' }}>{param.name}</span>
+        {(param.longdesc || param.shortdesc) && (
+          <Tooltip title={<div style={{ whiteSpace: 'pre-wrap', maxWidth: '400px' }}>{param.longdesc || param.shortdesc}</div>}>
+            <QuestionCircleOutlined style={{ color: '#999', fontSize: '12px' }} />
+          </Tooltip>
+        )}
+      </div>
+    );
 
     switch (param.type) {
       case 'integer':
@@ -117,26 +137,7 @@ export function SortableAgentItem({
           <Form.Item
             key={param.name}
             name={fieldName}
-            label={
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span>{param.name}</span>
-                <Tooltip title={param.shortdesc || param.name}>
-                  <InfoCircleOutlined style={{ color: '#999', fontSize: '12px' }} />
-                </Tooltip>
-              </div>
-            }
-            tooltip={
-              param.longdesc
-                ? {
-                    title: (
-                      <div style={{ whiteSpace: 'pre-wrap', maxHeight: '60px', overflow: 'auto', fontSize: '12px' }}>
-                        {param.longdesc}
-                      </div>
-                    ),
-                    icon: <QuestionCircleOutlined />,
-                  }
-                : undefined
-            }
+            label={label}
             initialValue={currentValue}
             rules={[
               {
@@ -154,26 +155,7 @@ export function SortableAgentItem({
           <Form.Item
             key={param.name}
             name={fieldName}
-            label={
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span>{param.name}</span>
-                <Tooltip title={param.shortdesc || param.name}>
-                  <InfoCircleOutlined style={{ color: '#999', fontSize: '12px' }} />
-                </Tooltip>
-              </div>
-            }
-            tooltip={
-              param.longdesc
-                ? {
-                    title: (
-                      <div style={{ whiteSpace: 'pre-wrap', maxHeight: '60px', overflow: 'auto', fontSize: '12px' }}>
-                        {param.longdesc}
-                      </div>
-                    ),
-                    icon: <QuestionCircleOutlined />,
-                  }
-                : undefined
-            }
+            label={label}
             valuePropName="checked"
             getValueFrom={(value: boolean) => value ? 'true' : 'false'}
             getValueProps={(value: string) => ({
@@ -200,26 +182,7 @@ export function SortableAgentItem({
           <Form.Item
             key={param.name}
             name={fieldName}
-            label={
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span>{param.name}</span>
-                <Tooltip title={param.shortdesc || param.name}>
-                  <InfoCircleOutlined style={{ color: '#999', fontSize: '12px' }} />
-                </Tooltip>
-              </div>
-            }
-            tooltip={
-              param.longdesc
-                ? {
-                    title: (
-                      <div style={{ whiteSpace: 'pre-wrap', maxHeight: '60px', overflow: 'auto', fontSize: '12px' }}>
-                        {param.longdesc}
-                      </div>
-                    ),
-                    icon: <QuestionCircleOutlined />,
-                  }
-                : undefined
-            }
+            label={label}
             initialValue={currentValue}
             rules={[
               {
@@ -401,19 +364,19 @@ export function SortableAgentItem({
               </div>
 
               {/* Only show parameters that exist in TOML or were added by user */}
-              {Object.keys(ocfAgent?.params || {}).map((paramName) => {
-                const param = metadata.parameters.find(p => p.name === paramName);
+              {(ocfAgent?.params || []).map((paramEntry) => {
+                const param = metadata.parameters.find(p => p.name === paramEntry.key);
                 if (!param) return null;
 
                 return (
-                  <div key={paramName} style={{ position: 'relative', paddingRight: '40px' }}>
+                  <div key={paramEntry.key} style={{ position: 'relative', paddingRight: '40px' }}>
                     {renderFormField(param)}
                     <Button
                       type="text"
                       size="small"
                       danger
                       icon={<MinusCircleOutlined />}
-                      onClick={() => onRemoveParam(stableKey, paramName)}
+                      onClick={() => onRemoveParam(stableKey, paramEntry.key)}
                       style={{
                         position: 'absolute',
                         right: '0',
@@ -427,7 +390,7 @@ export function SortableAgentItem({
               {/* Show manually added parameters */}
               {Array.from(addedParams.get(stableKey) || []).map((paramName) => {
                 const param = metadata.parameters.find(p => p.name === paramName);
-                if (!param || ocfAgent?.params?.[paramName] !== undefined) return null;
+                if (!param || hasParam(ocfAgent?.params, paramName)) return null;
 
                 return (
                   <div key={paramName} style={{ position: 'relative', paddingRight: '40px' }}>
