@@ -25,6 +25,9 @@ pub struct Node {
     /// Node status
     #[serde(default)]
     pub status: NodeStatus,
+    /// Last status detail, typically for connection/sudo validation failures
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_message: Option<String>,
     /// Last successful connection time
     pub last_seen: Option<DateTime<Utc>>,
 }

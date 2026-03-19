@@ -281,6 +281,7 @@ impl ReactorDiscovery {
                         ssh_user: "root".to_string(), // Default assumption
                         is_local: false,              // Will be checked later
                         status: NodeStatus::Unknown,
+                        status_message: None,
                         last_seen: None,
                     });
                 }

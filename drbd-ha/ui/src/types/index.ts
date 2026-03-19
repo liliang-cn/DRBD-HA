@@ -7,6 +7,7 @@ export interface Node {
   ssh_user: string;
   is_local: boolean;
   status: 'online' | 'offline' | 'error' | 'unknown';
+  status_message?: string | null;
   last_seen: string | null;
 }
 
@@ -315,6 +316,7 @@ export interface NodeStatusEvent {
   id: string;
   hostname: string;
   status: string;
+  status_message?: string | null;
   last_seen: number | null;
 }
 

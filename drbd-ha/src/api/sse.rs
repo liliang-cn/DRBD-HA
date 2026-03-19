@@ -102,6 +102,7 @@ pub struct NodeStatusEvent {
     pub id: String,
     pub hostname: String,
     pub status: NodeStatus,
+    pub status_message: Option<String>,
     pub last_seen: Option<i64>,
 }
 
@@ -397,6 +398,7 @@ pub async fn all_events_stream(
                                 id: n.id.clone(),
                                 hostname: n.hostname.clone(),
                                 status: n.status.clone(),
+                                status_message: n.status_message.clone(),
                                 last_seen: n.last_seen.map(|dt| dt.timestamp()),
                             })
                             .collect();

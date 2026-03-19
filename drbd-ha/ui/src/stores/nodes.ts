@@ -14,7 +14,12 @@ interface NodesState {
   ) => Promise<Node>;
   remove: (id: string) => Promise<void>;
   updateStatus: (
-    updates: Array<{ id: string; status: string; last_seen?: number }>,
+    updates: Array<{
+      id: string;
+      status: string;
+      status_message?: string | null;
+      last_seen?: number | null;
+    }>,
   ) => void;
 }
 
@@ -60,6 +65,7 @@ export const useNodesStore = create<NodesState>((set, get) => ({
           return {
             ...node,
             status: update.status as Node['status'],
+            status_message: update.status_message ?? node.status_message,
             last_seen: update.last_seen
               ? new Date(update.last_seen * 1000).toISOString()
               : node.last_seen,

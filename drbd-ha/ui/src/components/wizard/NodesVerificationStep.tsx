@@ -17,11 +17,11 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
 } from 'antd';
 import { useEffect, useState } from 'react';
 import { nodesApi } from '@/api';
 import { useNodesStore } from '@/stores/nodes';
-import { useThemeStore } from '@/stores/theme';
 import type { AddNodeRequest, Node } from '@/types';
 import type { WizardSharedState } from './types';
 
@@ -42,7 +42,6 @@ export function NodesVerificationStep({
   sharedState,
 }: NodesVerificationStepProps) {
   const { add, remove, fetch, update } = useNodesStore();
-  const { theme: currentTheme } = useThemeStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingNode, setEditingNode] = useState<Node | null>(null);
@@ -95,8 +94,12 @@ export function NodesVerificationStep({
       const result = await nodesApi.check(id);
       if (result.status === 'online') {
         message.success(`Node ${result.hostname} is online`);
+      } else if (result.status === 'offline') {
+        message.error(
+          `Node ${result.hostname}: ${result.message || 'SSH connection failed'}`,
+        );
       } else {
-        message.warning(
+        message.error(
           `Node ${result.hostname}: ${result.message || result.status}`,
         );
       }
@@ -160,9 +163,16 @@ export function NodesVerificationStep({
     {
       title: 'Status',
       dataIndex: 'status',
-      render: (status: string) => (
-        <Tag color={statusColor[status]}>{status.toUpperCase()}</Tag>
-      ),
+      render: (status: string, record: Node) => {
+        const tag = (
+          <Tag color={statusColor[status]}>{status.toUpperCase()}</Tag>
+        );
+        return record.status_message ? (
+          <Tooltip title={record.status_message}>{tag}</Tooltip>
+        ) : (
+          tag
+        );
+      },
     },
     {
       title: 'Type',
@@ -223,6 +233,14 @@ export function NodesVerificationStep({
       className="w-full"
     >
       <div className="p-4">
+        <Alert
+          message="Remote access requirements"
+          description="Each selected node must allow passwordless SSH. If the SSH user is not root, it must also allow passwordless sudo (`sudo -n`). The Check action only reports online when these validations pass."
+          type="info"
+          showIcon
+          className="mb-4"
+        />
+
         {nodes.length === 0 ? (
           <Alert
             message="No nodes available"
@@ -293,7 +311,12 @@ export function NodesVerificationStep({
           <Form.Item name="ssh_port" label="SSH Port" initialValue={22}>
             <InputNumber min={1} max={65535} className="w-full" />
           </Form.Item>
-          <Form.Item name="ssh_user" label="SSH User" initialValue="root">
+          <Form.Item
+            name="ssh_user"
+            label="SSH User"
+            initialValue="root"
+            extra="Use root, or a user with passwordless sudo (`sudo -n`)."
+          >
             <Input />
           </Form.Item>
           <Form.Item>
@@ -332,6 +355,7 @@ export function NodesVerificationStep({
           <Form.Item
             name="ssh_user"
             label="SSH User"
+            extra="Use root, or a user with passwordless sudo (`sudo -n`)."
             rules={[
               {
                 required: true,

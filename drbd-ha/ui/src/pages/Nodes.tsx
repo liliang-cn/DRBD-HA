@@ -4,6 +4,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 import {
+  Alert,
   Button,
   Form,
   Input,
@@ -14,6 +15,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
 } from 'antd';
 import { useEffect, useState } from 'react';
 import { nodesApi } from '@/api';
@@ -65,8 +67,12 @@ export function Nodes() {
       const result = await nodesApi.check(id);
       if (result.status === 'online') {
         message.success(`Node ${result.hostname} is online`);
+      } else if (result.status === 'offline') {
+        message.error(
+          `Node ${result.hostname}: ${result.message || 'SSH connection failed'}`,
+        );
       } else {
-        message.warning(
+        message.error(
           `Node ${result.hostname}: ${result.message || result.status}`,
         );
       }
@@ -85,9 +91,16 @@ export function Nodes() {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      render: (status: Node['status']) => (
-        <Tag color={statusColor[status]}>{status.toUpperCase()}</Tag>
-      ),
+      render: (status: Node['status'], record: Node) => {
+        const tag = (
+          <Tag color={statusColor[status]}>{status.toUpperCase()}</Tag>
+        );
+        return record.status_message ? (
+          <Tooltip title={record.status_message}>{tag}</Tooltip>
+        ) : (
+          tag
+        );
+      },
     },
     {
       title: 'Type',
@@ -136,6 +149,13 @@ export function Nodes() {
         </Button>
       </div>
 
+      <Alert
+        type="info"
+        showIcon
+        message="Remote access requirements"
+        description="Nodes must allow passwordless SSH. If SSH User is not root, that user must also support passwordless sudo (`sudo -n`). Node Check only reports online when these requirements pass."
+      />
+
       <Table
         dataSource={nodes}
         columns={columns}
@@ -165,7 +185,12 @@ export function Nodes() {
           <Form.Item name="ssh_port" label="SSH Port" initialValue={22}>
             <InputNumber min={1} max={65535} className="w-full" />
           </Form.Item>
-          <Form.Item name="ssh_user" label="SSH User" initialValue="root">
+          <Form.Item
+            name="ssh_user"
+            label="SSH User"
+            initialValue="root"
+            extra="Use root, or a user with passwordless sudo (`sudo -n`)."
+          >
             <Input />
           </Form.Item>
           <Form.Item>

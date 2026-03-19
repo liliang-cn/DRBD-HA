@@ -53,6 +53,64 @@ fn get_node_by_id_resolved(state: &AppState, id: &str) -> AppResult<Node> {
         .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))
 }
 
+/// Verify remote access requirements for a managed node.
+///
+/// A node is only considered online if:
+/// 1. Passwordless SSH works
+/// 2. For non-root users, passwordless sudo (`sudo -n`) also works
+async fn verify_remote_node_access(
+    state: &AppState,
+    ip: &str,
+    ssh_port: u16,
+    ssh_user: &str,
+) -> (NodeStatus, Option<String>) {
+    let credential = SshCredential::Password("ignored".to_string());
+
+    let ssh_check = state
+        .ssh_manager
+        .execute(ip, ssh_port, ssh_user, &credential, "echo ok")
+        .await;
+
+    match ssh_check {
+        Ok(output) if output.success() => {
+            if ssh_user == "root" {
+                (NodeStatus::Online, None)
+            } else {
+                match state
+                    .ssh_manager
+                    .execute(ip, ssh_port, ssh_user, &credential, "sudo -n true")
+                    .await
+                {
+                    Ok(output) if output.success() => (NodeStatus::Online, None),
+                    Ok(output) => (
+                        NodeStatus::Error,
+                        Some(format!(
+                            "SSH ok, but passwordless sudo failed for user '{}': {}",
+                            ssh_user,
+                            output.stderr.trim()
+                        )),
+                    ),
+                    Err(e) => (
+                        NodeStatus::Error,
+                        Some(format!(
+                            "SSH ok, but sudo validation failed for user '{}': {}",
+                            ssh_user, e
+                        )),
+                    ),
+                }
+            }
+        }
+        Ok(output) => (
+            NodeStatus::Error,
+            Some(format!("SSH check failed: {}", output.stderr.trim())),
+        ),
+        Err(e) => (
+            NodeStatus::Offline,
+            Some(format!("SSH connection failed: {}", e)),
+        ),
+    }
+}
+
 /// Parse node information from DRBD .res configuration files
 /// Extracts hostname and IP from "on <hostname> { address ... }" blocks
 async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<Node>> {
@@ -133,37 +191,29 @@ async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<
                     let is_local = hostname == local_hostname;
 
                     // Use existing SSH settings if node already exists
-                    let (ssh_port, ssh_user, status, last_seen) =
+                    let (ssh_port, ssh_user, status, status_message, last_seen) =
                         if let Ok(Some(existing)) = state.node_store.get(&hostname) {
                             (
                                 existing.ssh_port,
                                 existing.ssh_user,
                                 existing.status,
+                                existing.status_message,
                                 existing.last_seen,
                             )
                         } else {
                             let ssh_port = state.config.ssh.default_port;
                             let ssh_user = state.config.ssh.default_user.clone();
 
-                            // Try to check connectivity
-                            let (status, last_seen) = match state
-                                .ssh_manager
-                                .execute(
-                                    &ip,
-                                    ssh_port,
-                                    &ssh_user,
-                                    &SshCredential::Password("ignored".to_string()),
-                                    "echo ok",
-                                )
-                                .await
-                            {
-                                Ok(output) if output.success() => {
-                                    (NodeStatus::Online, Some(chrono::Utc::now()))
-                                }
-                                _ => (NodeStatus::Unknown, None),
+                            // Try to check connectivity and sudo capability
+                            let (status, status_message) =
+                                verify_remote_node_access(state, &ip, ssh_port, &ssh_user).await;
+                            let last_seen = if status == NodeStatus::Online {
+                                Some(chrono::Utc::now())
+                            } else {
+                                None
                             };
 
-                            (ssh_port, ssh_user, status, last_seen)
+                            (ssh_port, ssh_user, status, status_message, last_seen)
                         };
 
                     let node = Node {
@@ -174,6 +224,7 @@ async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<
                         ssh_user,
                         is_local,
                         status,
+                        status_message,
                         last_seen,
                     };
 
@@ -274,17 +325,8 @@ pub async fn add_node(
         .clone()
         .unwrap_or(state.config.ssh.default_user.clone());
 
-    // Dummy credential
-    let credential = SshCredential::Password("ignored".to_string());
-
-    let status = match state
-        .ssh_manager
-        .execute(&req.ip, ssh_port, &ssh_user, &credential, "echo ok")
-        .await
-    {
-        Ok(output) if output.success() => NodeStatus::Online,
-        _ => NodeStatus::Unknown,
-    };
+    let (status, status_message) =
+        verify_remote_node_access(&state, &req.ip, ssh_port, &ssh_user).await;
 
     // Create node
     let node = Node {
@@ -297,6 +339,7 @@ pub async fn add_node(
             .unwrap_or(state.config.ssh.default_user.clone()),
         is_local: false,
         status: status.clone(),
+        status_message,
         last_seen: if status == NodeStatus::Online {
             Some(chrono::Utc::now())
         } else {
@@ -386,6 +429,7 @@ pub async fn update_node(
         ssh_user,
         is_local: existing.is_local,
         status: existing.status,
+        status_message: existing.status_message,
         last_seen: existing.last_seen,
     };
 
@@ -604,6 +648,7 @@ pub async fn check_node_status(
 
     if node.is_local {
         node.status = NodeStatus::Online;
+        node.status_message = None;
         node.last_seen = Some(chrono::Utc::now());
         state.node_store.insert(&node)?;
 
@@ -615,27 +660,8 @@ pub async fn check_node_status(
         }));
     }
 
-    // Use dummy credential
-    let credential = SshCredential::Password("ignored".to_string());
-
-    let (status, message) = match state
-        .ssh_manager
-        .execute(
-            &node.ip,
-            node.ssh_port,
-            &node.ssh_user,
-            &credential,
-            "echo ok",
-        )
-        .await
-    {
-        Ok(output) if output.success() => (NodeStatus::Online, None),
-        Ok(output) => (
-            NodeStatus::Error,
-            Some(format!("Command failed: {}", output.stderr)),
-        ),
-        Err(e) => (NodeStatus::Offline, Some(e.to_string())),
-    };
+    let (status, message) =
+        verify_remote_node_access(&state, &node.ip, node.ssh_port, &node.ssh_user).await;
 
     let last_seen = if status == NodeStatus::Online {
         Some(chrono::Utc::now())
@@ -644,6 +670,7 @@ pub async fn check_node_status(
     };
 
     node.status = status.clone();
+    node.status_message = message.clone();
     if last_seen.is_some() {
         node.last_seen = last_seen;
     }

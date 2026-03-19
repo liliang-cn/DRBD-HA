@@ -15,6 +15,7 @@ A modern, Rust-based High Availability management system for DRBD, LVM, and Syst
 
 *   **Operating System**: Linux (tested on Ubuntu/Debian, RHEL/CentOS).
 *   **Permissions**: **Must run as root** on the management node.
+*   **Remote Access**: Managed nodes must allow passwordless SSH. If the remote SSH user is not `root`, it must also allow passwordless sudo (`sudo -n`).
 *   **Dependencies**:
     *   `lvm2`
     *   `drbd-utils` & `drbd-dkms` (Kernel module loaded)
@@ -105,7 +106,12 @@ make release
 
 #### 2. Setup SSH Access (IMPORTANT)
 
-**The drbd-ha service runs as root**, so SSH keys must be configured for the **root** user.
+**The drbd-ha service runs as root on the controller**, so SSH keys must be configured for the **root** user on the machine running `drbd-ha`.
+
+On managed nodes, you have two supported options:
+
+- SSH directly as `root`
+- SSH as a non-root user that has passwordless sudo (`sudo -n`)
 
 On the machine where drbd-ha will run:
 
@@ -116,15 +122,28 @@ sudo -i
 # Generate SSH key (if not exists)
 ssh-keygen -t rsa -b 4096
 
-# Copy public key to each cluster node
-ssh-copy-id liliang@orange2
-ssh-copy-id liliang@orange3
+# Option A: SSH as root on each cluster node
+ssh-copy-id root@orange2
+ssh-copy-id root@orange3
 
-# Test connection (should print "ok")
-ssh -o BatchMode=yes liliang@orange2 echo ok
+# Test root SSH access
+ssh -o BatchMode=yes root@orange2 echo ok
+
+# Option B: SSH as a non-root user with passwordless sudo
+# First, ensure the user can sudo without a password on the managed nodes:
+#   sudo visudo
+#   <user> ALL=(ALL) NOPASSWD:ALL
+ssh-copy-id ubuntu@orange2
+ssh-copy-id ubuntu@orange3
+
+# Test SSH and passwordless sudo
+ssh -o BatchMode=yes ubuntu@orange2 echo ok
+ssh -o BatchMode=yes ubuntu@orange2 "sudo -n true"
 ```
 
-**Why root?** The drbd-ha service manages DRBD, LVM, and systemd services which require root privileges. It runs as root and uses SSH to execute commands on remote nodes, so SSH keys must be in `/root/.ssh/`, not your regular user's home directory.
+**Why root on the controller?** The drbd-ha service manages DRBD, LVM, and systemd services which require root privileges. It runs as root and uses SSH to execute commands on remote nodes, so SSH keys must be in `/root/.ssh/`, not your regular user's home directory.
+
+**How node checks work:** The built-in node health check only reports a remote node as online when passwordless SSH works and, for non-root SSH users, `sudo -n` also succeeds.
 
 #### 3. Deploy as System Service
 

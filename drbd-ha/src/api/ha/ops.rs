@@ -53,6 +53,7 @@ fn ensure_node_in_store(state: &AppState, hostname: &str) -> AppResult<Node> {
         ssh_user,
         is_local,
         status: NodeStatus::Online,
+        status_message: None,
         last_seen: Some(chrono::Utc::now()),
     };
 

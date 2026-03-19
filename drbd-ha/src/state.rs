@@ -138,6 +138,7 @@ impl AppState {
                 ssh_user: "root".to_string(),
                 is_local: true,
                 status: NodeStatus::Online,
+                status_message: None,
                 last_seen: Some(chrono::Utc::now()),
             };
 
