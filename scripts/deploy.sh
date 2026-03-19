@@ -70,9 +70,22 @@ fi
 
 # 3. Restart service if requested
 if [[ "$RESTART" == true ]]; then
-    echo "[3/3] Restarting service..."
-    ssh "$REMOTE_HOST" "sudo systemctl restart drbd-ha"
-    echo "  → Service restarted"
+    ACTIVE_STATE=$(ssh "$REMOTE_HOST" "sudo systemctl is-active drbd-ha 2>/dev/null || true")
+    if ssh "$REMOTE_HOST" "test -f /run/systemd/system/drbd-ha.service.d/reactor.conf"; then
+        if [[ "$ACTIVE_STATE" == "active" || "$ACTIVE_STATE" == "activating" || "$ACTIVE_STATE" == "reloading" ]]; then
+            echo "[3/3] Restarting active reactor-controlled service..."
+            ssh "$REMOTE_HOST" "sudo systemctl restart drbd-ha"
+            echo "  → Active service restarted"
+        else
+            echo "[3/3] Skipping restart on reactor-controlled standby ($ACTIVE_STATE)"
+            ssh "$REMOTE_HOST" "sudo systemctl reset-failed drbd-ha >/dev/null 2>&1 || true"
+            echo "  → Standby node left untouched"
+        fi
+    else
+        echo "[3/3] Restarting service..."
+        ssh "$REMOTE_HOST" "sudo systemctl restart drbd-ha"
+        echo "  → Service restarted"
+    fi
 else
     echo "[3/3] Done! (service not restarted)"
 fi

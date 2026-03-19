@@ -12,7 +12,7 @@ if [[ $# -eq 0 ]]; then
     echo "         $0 orange1,orange2,orange3 --restart"
     echo ""
     echo "Options:"
-    echo "  --restart       Restart drbd-ha service after deployment on all hosts"
+    echo "  --restart       Restart active drbd-ha services after deployment"
     echo "  --skip-build    Skip building (use existing binary)"
     echo ""
     echo "Note: Supports both space-separated and comma-separated host lists"
@@ -83,7 +83,7 @@ echo "Deployed to: ${REMOTE_HOSTS[*]}"
 
 if [[ -z "$RESTART_FLAG" ]]; then
     echo ""
-    echo "To restart services on all hosts:"
+    echo "To restart services on all hosts manually:"
     for host in "${REMOTE_HOSTS[@]}"; do
         echo "  ssh $host 'sudo systemctl restart drbd-ha' &"
     done
