@@ -62,8 +62,13 @@ impl LvmClient {
 
     /// List all LVM Logical Volumes
     pub async fn list_lvs(&self) -> anyhow::Result<Vec<LvmLvInfo>> {
+        self.inner.list_lvs().await.map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// List available (unused) LVM Logical Volumes
+    pub async fn list_available_lvs(&self) -> anyhow::Result<Vec<LvmLvInfo>> {
         self.inner
-            .list_lvs()
+            .list_available_lvs()
             .await
             .map_err(|e| anyhow::anyhow!(e))
     }
@@ -85,7 +90,5 @@ pub async fn list_vg_info() -> anyhow::Result<Vec<LvmVgInfo>> {
 
 /// List all LVM Logical Volumes (Local).
 pub async fn list_lvs() -> anyhow::Result<Vec<LvmLvInfo>> {
-    lvm_utils::list_lvs()
-        .await
-        .map_err(|e| anyhow::anyhow!(e))
+    lvm_utils::list_lvs().await.map_err(|e| anyhow::anyhow!(e))
 }

@@ -1,8 +1,8 @@
 import {
   DeleteOutlined,
+  EditOutlined,
   PlusOutlined,
   ReloadOutlined,
-  EditOutlined,
 } from '@ant-design/icons';
 import {
   Alert,
@@ -332,7 +332,12 @@ export function NodesVerificationStep({
           <Form.Item
             name="ssh_user"
             label="SSH User"
-            rules={[{ required: true, message: 'SSH User is required for remote operations' }]}
+            rules={[
+              {
+                required: true,
+                message: 'SSH User is required for remote operations',
+              },
+            ]}
           >
             <Input placeholder="root" />
           </Form.Item>

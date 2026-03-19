@@ -20,17 +20,31 @@ impl LvmCmd {
 
     /// Create thin pool
     pub fn create_thin_pool_cmd(vg_name: &str, pool_name: &str, size: &str) -> String {
-        format!("lvcreate -y -L {} --type thin -n {} {}", size, pool_name, vg_name)
+        format!(
+            "lvcreate -y -L {} --type thin -n {} {}",
+            size, pool_name, vg_name
+        )
     }
 
     /// Create thin volume from thin pool
-    pub fn create_thin_volume_cmd(vg_name: &str, pool_name: &str, vol_name: &str, size: &str) -> String {
-        format!("lvcreate -y -V {} --type thin -n {} --thinpool {} {}", size, vol_name, pool_name, vg_name)
+    pub fn create_thin_volume_cmd(
+        vg_name: &str,
+        pool_name: &str,
+        vol_name: &str,
+        size: &str,
+    ) -> String {
+        format!(
+            "lvcreate -y -V {} --type thin -n {} --thinpool {} {}",
+            size, vol_name, pool_name, vg_name
+        )
     }
 
     /// Create regular logical volume
     pub fn create_lv_cmd(vg_name: &str, vol_name: &str, size_gb: u64) -> String {
-        format!("lvcreate -y -L {}G -n {} {} --yes", size_gb, vol_name, vg_name)
+        format!(
+            "lvcreate -y -L {}G -n {} {} --yes",
+            size_gb, vol_name, vg_name
+        )
     }
 
     /// Delete logical volume
@@ -45,7 +59,8 @@ impl LvmCmd {
 
     /// List all volume groups (JSON output)
     pub fn vgs_list_cmd() -> String {
-        "vgs --reportformat json --units b --nosuffix -o vg_name,vg_size,vg_free,pv_count,lv_count".to_string()
+        "vgs --reportformat json --units b --nosuffix -o vg_name,vg_size,vg_free,pv_count,lv_count"
+            .to_string()
     }
 
     /// List all logical volumes (JSON output)

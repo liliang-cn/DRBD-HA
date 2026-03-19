@@ -374,7 +374,12 @@ impl DrbdTransactionBuilder {
     }
 
     /// Build transaction for deleting a DRBD resource
-    pub fn delete_resource(&self, resource_name: &str, config_path: &str, nodes: Vec<NodeTarget>) -> Transaction {
+    pub fn delete_resource(
+        &self,
+        resource_name: &str,
+        config_path: &str,
+        nodes: Vec<NodeTarget>,
+    ) -> Transaction {
         let mut tx = Transaction::new(self.ssh_manager.clone());
         let config_path = format!("{}/{}.res", config_path, resource_name);
 

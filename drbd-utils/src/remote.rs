@@ -5,7 +5,13 @@ use crate::models::DrbdResourceStatus;
 /// This allows the backend to provide SSH implementation while drbd-utils defines the logic
 pub trait RemoteExecutor: Send + Sync {
     /// Execute a command on a remote node and return the output
-    fn execute(&self, ip: &str, port: u16, user: &str, command: &str) -> impl std::future::Future<Output = DrbdResult<CommandOutput>> + Send;
+    fn execute(
+        &self,
+        ip: &str,
+        port: u16,
+        user: &str,
+        command: &str,
+    ) -> impl std::future::Future<Output = DrbdResult<CommandOutput>> + Send;
 }
 
 /// Output from a remote command execution
@@ -68,7 +74,7 @@ impl<E: RemoteExecutor> RemoteDrbdQuery<E> {
         remote_ip: &str,
         profile_name: &str,
     ) -> DrbdResult<Option<String>> {
-        let command = format!("drbd-reactorctl status {}", profile_name);
+        let command = format!("drbd-reactorctl status --json {}", profile_name);
         let sudo_command = format!("sudo {}", command);
 
         let output = self

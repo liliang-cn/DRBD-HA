@@ -51,10 +51,9 @@ impl NodeStore {
     /// Update an existing node (must exist)
     pub fn update(&self, node: &Node) -> AppResult<()> {
         let mut nodes = self.get_all()?;
-        let idx = nodes
-            .iter()
-            .position(|n| n.id == node.id)
-            .ok_or_else(|| crate::error::AppError::NotFound(format!("Node {} not found", node.id)))?;
+        let idx = nodes.iter().position(|n| n.id == node.id).ok_or_else(|| {
+            crate::error::AppError::NotFound(format!("Node {} not found", node.id))
+        })?;
         nodes[idx] = node.clone();
         self.save(&nodes)
     }
@@ -78,8 +77,9 @@ impl NodeStore {
         let data = NodesData {
             nodes: nodes.to_vec(),
         };
-        let content = toml::to_string_pretty(&data)
-            .map_err(|e| crate::error::AppError::Internal(format!("TOML serialization error: {}", e)))?;
+        let content = toml::to_string_pretty(&data).map_err(|e| {
+            crate::error::AppError::Internal(format!("TOML serialization error: {}", e))
+        })?;
         fs::write(&self.path, content)?;
         Ok(())
     }

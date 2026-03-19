@@ -353,7 +353,7 @@ pub fn parse_drbdadm_status(output: &str, resource_name: &str) -> Option<DrbdRes
         role,
         disk,
         open,
-        minor: None,  // Not available in text format
+        minor: None, // Not available in text format
         peers,
     })
 }
@@ -439,20 +439,18 @@ mod tests {
                 minor: 0,
                 size: Some(20970204),
             }],
-            connections: vec![
-                ConnectionStatus {
-                    peer_node_id: 2,
-                    name: "orange2".to_string(),
-                    connection_state: "Connected".to_string(),
-                    peer_role: Some("Secondary".to_string()),
-                    peer_devices: vec![PeerDeviceStatus {
-                        volume: 0,
-                        replication_state: "Established".to_string(),
-                        peer_disk_state: "UpToDate".to_string(),
-                        percent_in_sync: Some(100.0),
-                    }],
-                },
-            ],
+            connections: vec![ConnectionStatus {
+                peer_node_id: 2,
+                name: "orange2".to_string(),
+                connection_state: "Connected".to_string(),
+                peer_role: Some("Secondary".to_string()),
+                peer_devices: vec![PeerDeviceStatus {
+                    volume: 0,
+                    replication_state: "Established".to_string(),
+                    peer_disk_state: "UpToDate".to_string(),
+                    percent_in_sync: Some(100.0),
+                }],
+            }],
         };
 
         let drbd_status = convert_resource_status(&resource);
@@ -462,8 +460,14 @@ mod tests {
         assert_eq!(drbd_status.peers.len(), 1);
         assert_eq!(drbd_status.peers[0].name, "orange2");
         assert_eq!(drbd_status.peers[0].role, "Secondary");
-        assert_eq!(drbd_status.peers[0].connection, Some("Connected".to_string()));
-        assert_eq!(drbd_status.peers[0].replication, Some("Established".to_string()));
+        assert_eq!(
+            drbd_status.peers[0].connection,
+            Some("Connected".to_string())
+        );
+        assert_eq!(
+            drbd_status.peers[0].replication,
+            Some("Established".to_string())
+        );
     }
 }
 
@@ -472,34 +476,45 @@ mod tests {
 /// This function converts the JSON-parsed ResourceStatus into the simpler
 /// DrbdResourceStatus format used by the HA profile API.
 pub fn convert_resource_status(resource: &ResourceStatus) -> DrbdResourceStatus {
-    let peers = resource.connections.iter().map(|conn| {
-        let peer_device = conn.peer_devices.first();
-        DrbdPeerStatus {
-            name: conn.name.clone(),
-            role: conn.peer_role.clone().unwrap_or_else(|| {
-                // Try to infer from replication state
-                if peer_device.map(|p| p.replication_state.contains("Target")).unwrap_or(false) {
-                    "Secondary".to_string()
-                } else {
-                    "Unknown".to_string()
-                }
-            }),
-            peer_disk: peer_device
-                .map(|p| p.peer_disk_state.clone())
-                .unwrap_or_else(|| "Unknown".to_string()),
-            connection: Some(conn.connection_state.clone()),
-            replication: peer_device.map(|p| p.replication_state.clone()),
-            sync_percent: peer_device.and_then(|p| p.percent_in_sync),
-        }
-    }).collect();
+    let peers = resource
+        .connections
+        .iter()
+        .map(|conn| {
+            let peer_device = conn.peer_devices.first();
+            DrbdPeerStatus {
+                name: conn.name.clone(),
+                role: conn.peer_role.clone().unwrap_or_else(|| {
+                    // Try to infer from replication state
+                    if peer_device
+                        .map(|p| p.replication_state.contains("Target"))
+                        .unwrap_or(false)
+                    {
+                        "Secondary".to_string()
+                    } else {
+                        "Unknown".to_string()
+                    }
+                }),
+                peer_disk: peer_device
+                    .map(|p| p.peer_disk_state.clone())
+                    .unwrap_or_else(|| "Unknown".to_string()),
+                connection: Some(conn.connection_state.clone()),
+                replication: peer_device.map(|p| p.replication_state.clone()),
+                sync_percent: peer_device.and_then(|p| p.percent_in_sync),
+            }
+        })
+        .collect();
 
     DrbdResourceStatus {
         resource: resource.name.clone(),
         role: resource.role.clone(),
-        disk: resource.devices.first()
+        disk: resource
+            .devices
+            .first()
             .map(|d| d.disk_state.clone())
             .unwrap_or_else(|| "Unknown".to_string()),
-        open: resource.devices.first()
+        open: resource
+            .devices
+            .first()
             .map(|d| d.size.is_some())
             .unwrap_or(false),
         minor: resource.devices.first().map(|d| d.minor),

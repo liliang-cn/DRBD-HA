@@ -135,18 +135,24 @@ pub async fn update_profile_toml(
     Json(request): Json<UpdateTomlRequest>,
 ) -> AppResult<Json<TomlContentResponse>> {
     // Validate the TOML content before writing
-    toml::from_str::<toml::Value>(&request.content).map_err(|e| {
-        AppError::Validation(format!("Invalid TOML content: {}", e))
-    })?;
+    toml::from_str::<toml::Value>(&request.content)
+        .map_err(|e| AppError::Validation(format!("Invalid TOML content: {}", e)))?;
 
     let config_path = state.reactor_config_path(&id);
 
     // Write the TOML content
     fs::write(&config_path, &request.content).map_err(|e| {
-        AppError::Internal(format!("Failed to write TOML file '{}': {}", config_path, e))
+        AppError::Internal(format!(
+            "Failed to write TOML file '{}': {}",
+            config_path, e
+        ))
     })?;
 
-    tracing::info!("Updated TOML configuration for profile '{}': {}", id, config_path);
+    tracing::info!(
+        "Updated TOML configuration for profile '{}': {}",
+        id,
+        config_path
+    );
 
     Ok(Json(TomlContentResponse {
         profile: id,
@@ -206,9 +212,10 @@ pub async fn sync_profile_toml(
     };
 
     // Sync to all nodes
-    let synced_nodes = cluster_sync.sync_ha_config(&sync_config).await.map_err(|e| {
-        AppError::Internal(format!("Failed to sync TOML configuration: {}", e))
-    })?;
+    let synced_nodes = cluster_sync
+        .sync_ha_config(&sync_config)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to sync TOML configuration: {}", e)))?;
 
     // Reload systemd on local node
     let systemd = SystemdController::new().await;
@@ -268,22 +275,29 @@ pub async fn update_start_array(
 ) -> AppResult<Json<UpdateStartArrayResponse>> {
     // First, get the profile details to find configured nodes
     // Use the same logic as get_profile endpoint
-    let profile_details = match super::list::fetch_profile_details(state.clone(), id.clone()).await {
+    let profile_details = match super::list::fetch_profile_details(state.clone(), id.clone()).await
+    {
         Ok(details) => details,
         Err(e) => {
-            tracing::warn!("Failed to fetch profile details for '{}': {}, will try to sync anyway", id, e);
+            tracing::warn!(
+                "Failed to fetch profile details for '{}': {}, will try to sync anyway",
+                id,
+                e
+            );
             // Continue anyway - we'll try to determine nodes differently
             return Err(e);
         }
     };
 
-    let configured_hostnames: Vec<String> = profile_details.configured_nodes
+    let configured_hostnames: Vec<String> = profile_details
+        .configured_nodes
         .iter()
         .map(|n| n.hostname.clone())
         .collect();
 
     // Build a map of hostname -> IP from configured_nodes
-    let configured_node_map: std::collections::HashMap<String, String> = profile_details.configured_nodes
+    let configured_node_map: std::collections::HashMap<String, String> = profile_details
+        .configured_nodes
         .iter()
         .map(|n| (n.hostname.clone(), n.ip.clone()))
         .collect();
@@ -295,10 +309,7 @@ pub async fn update_start_array(
         configured_hostnames
     );
 
-    tracing::info!(
-        "Configured nodes with IPs: {:?}",
-        configured_node_map
-    );
+    tracing::info!("Configured nodes with IPs: {:?}", configured_node_map);
 
     let config_path = state.reactor_config_path(&id);
 
@@ -317,7 +328,10 @@ pub async fn update_start_array(
 
     // Parse using toml_edit to preserve formatting and comments
     let mut doc: toml_edit::DocumentMut = content.parse().map_err(|e| {
-        AppError::Validation(format!("Failed to parse TOML file '{}': {}", config_path, e))
+        AppError::Validation(format!(
+            "Failed to parse TOML file '{}': {}",
+            config_path, e
+        ))
     })?;
 
     // Find and update the start array
@@ -343,7 +357,8 @@ pub async fn update_start_array(
                                     }
 
                                     // Insert the new array
-                                    resource_table.insert("start", toml_edit::Item::Value(new_array.into()));
+                                    resource_table
+                                        .insert("start", toml_edit::Item::Value(new_array.into()));
                                     found = true;
                                 }
                             }
@@ -356,7 +371,7 @@ pub async fn update_start_array(
 
     if !found {
         return Err(AppError::NotFound(
-            "Could not find 'start' array in TOML configuration".to_string()
+            "Could not find 'start' array in TOML configuration".to_string(),
         ));
     }
 
@@ -365,10 +380,17 @@ pub async fn update_start_array(
 
     // Write back to file
     fs::write(&config_path, updated_content.as_bytes()).map_err(|e| {
-        AppError::Internal(format!("Failed to write TOML file '{}': {}", config_path, e))
+        AppError::Internal(format!(
+            "Failed to write TOML file '{}': {}",
+            config_path, e
+        ))
     })?;
 
-    tracing::info!("Updated start array in TOML configuration for profile '{}': {}", id, config_path);
+    tracing::info!(
+        "Updated start array in TOML configuration for profile '{}': {}",
+        id,
+        config_path
+    );
 
     // Reload systemd and drbd-reactor on local node
     let systemd = SystemdController::new().await;
@@ -384,7 +406,11 @@ pub async fn update_start_array(
     // Get default SSH settings from config
     let default_ssh_user = &state.config.ssh.default_user;
     let default_ssh_port = state.config.ssh.default_port;
-    tracing::info!("Default SSH settings: user={}, port={}", default_ssh_user, default_ssh_port);
+    tracing::info!(
+        "Default SSH settings: user={}, port={}",
+        default_ssh_user,
+        default_ssh_port
+    );
 
     // Get all nodes from node_store for SSH credentials
     let all_nodes = state.node_store.get_all().unwrap_or_default();
@@ -401,15 +427,25 @@ pub async fn update_start_array(
         }
 
         // Try to find SSH credentials from node_store
-        let node_info = all_nodes.iter().find(|n| &n.hostname == hostname || &n.ip == ip);
+        let node_info = all_nodes
+            .iter()
+            .find(|n| &n.hostname == hostname || &n.ip == ip);
 
         let (ssh_user, ssh_port) = if let Some(node) = node_info {
-            tracing::info!("Found SSH info for {} from node_store: user={}, port={}",
-                hostname, node.ssh_user, node.ssh_port);
+            tracing::info!(
+                "Found SSH info for {} from node_store: user={}, port={}",
+                hostname,
+                node.ssh_user,
+                node.ssh_port
+            );
             (node.ssh_user.as_str(), node.ssh_port)
         } else {
-            tracing::warn!("Node {} not found in node_store, using config defaults: user={}, port={}",
-                hostname, default_ssh_user, default_ssh_port);
+            tracing::warn!(
+                "Node {} not found in node_store, using config defaults: user={}, port={}",
+                hostname,
+                default_ssh_user,
+                default_ssh_port
+            );
             (default_ssh_user.as_str(), default_ssh_port)
         };
 
@@ -423,14 +459,18 @@ pub async fn update_start_array(
         );
 
         // Write the file using SshManager's write_file method
-        match state.ssh_manager.write_file(
-            ip,
-            ssh_port,
-            ssh_user,
-            &credential,
-            &config_path,
-            &updated_content,
-        ).await {
+        match state
+            .ssh_manager
+            .write_file(
+                ip,
+                ssh_port,
+                ssh_user,
+                &credential,
+                &config_path,
+                &updated_content,
+            )
+            .await
+        {
             Ok(_) => {
                 tracing::info!("✓ Successfully synced to node {}", hostname);
                 synced_nodes.push(hostname.clone());
@@ -438,20 +478,13 @@ pub async fn update_start_array(
                 // Reload drbd-reactor on remote node
                 let remote_systemd = RemoteSystemdController::new(state.ssh_manager.clone());
 
-                let _ = remote_systemd.daemon_reload(
-                    ip,
-                    ssh_port,
-                    ssh_user,
-                    &credential,
-                ).await;
+                let _ = remote_systemd
+                    .daemon_reload(ip, ssh_port, ssh_user, &credential)
+                    .await;
 
-                let _ = remote_systemd.reload(
-                    "drbd-reactor.service",
-                    ssh_port,
-                    ip,
-                    &credential,
-                    ssh_user,
-                ).await;
+                let _ = remote_systemd
+                    .reload("drbd-reactor.service", ssh_port, ip, &credential, ssh_user)
+                    .await;
             }
             Err(e) => {
                 tracing::error!("✗ Failed to sync to node {}: {}", hostname, e);
@@ -490,4 +523,3 @@ pub async fn update_start_array(
         message,
     }))
 }
-

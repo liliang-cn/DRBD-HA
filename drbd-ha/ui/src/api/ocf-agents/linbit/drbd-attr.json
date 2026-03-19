@@ -1,0 +1,103 @@
+{
+  "@name": "drbd-attr",
+  "@version": "1.0",
+  "version": "1.0",
+  "provider": "linbit",
+  "longdesc": {
+    "@lang": "en",
+    "$value": "This listens for DRBD state change events, and sets or deletes transient node\nattributes based on the \"promotion_score\" and \"may_promote\" values as presented\nby the DRBD events2 interface.\n\nOptionally using a dampening delay, see attrd_updater for details.\n\nTo be used as a clone on all DRBD nodes.  The idea is to start DRBD outside of\npacemaker, use DRBD auto-promote, and add location constraints for the\nFilesystem or other resource agents which are using DRBD."
+  },
+  "shortdesc": {
+    "@lang": "en",
+    "$value": "import DRBD state change events as transient node attributes"
+  },
+  "parameters": {
+    "parameter": [
+      {
+        "@name": "dampening_delay",
+        "@unique": "",
+        "@required": "",
+        "longdesc": {
+          "@lang": "en",
+          "$value": "To be used as dampening delay in attrd_updater."
+        },
+        "shortdesc": {
+          "@lang": "en",
+          "$value": "attrd_updater --delay"
+        },
+        "content": {
+          "@type": "integer",
+          "@default": "5"
+        }
+      },
+      {
+        "@name": "attr_name_prefix",
+        "@unique": "",
+        "@required": "",
+        "longdesc": {
+          "@lang": "en",
+          "$value": "The attributes will be named \"*prefix*-drbd_resource_name\".\nYou can chose that prefix here."
+        },
+        "shortdesc": {
+          "@lang": "en",
+          "$value": "attrd_updater --name *prefix*-drbd_resource_name"
+        },
+        "content": {
+          "@type": "string",
+          "@default": "drbd-promotion-score"
+        }
+      },
+      {
+        "@name": "record_event_details",
+        "@unique": "",
+        "@required": "",
+        "longdesc": {
+          "@lang": "en",
+          "$value": "It may be convenient to know which event lead to the current score.\nThis setting toggles the recording of the event.\nThe attributes will be named \"*prefix*:event-details-drbd_resource_name\"."
+        },
+        "shortdesc": {
+          "@lang": "en",
+          "$value": ""
+        },
+        "content": {
+          "@type": "boolean",
+          "@default": "false"
+        }
+      }
+    ]
+  },
+  "actions": {
+    "action": [
+      {
+        "@name": "start",
+        "@timeout": "20s",
+        "@interval": "",
+        "@depth": ""
+      },
+      {
+        "@name": "stop",
+        "@timeout": "20s",
+        "@interval": "",
+        "@depth": ""
+      },
+      {
+        "@name": "monitor",
+        "@timeout": "20s",
+        "@interval": "60s",
+        "@depth": "0"
+      },
+      {
+        "@name": "validate-all",
+        "@timeout": "20s",
+        "@interval": "",
+        "@depth": ""
+      },
+      {
+        "@name": "meta-data",
+        "@timeout": "5s",
+        "@interval": "",
+        "@depth": ""
+      }
+    ]
+  }
+}

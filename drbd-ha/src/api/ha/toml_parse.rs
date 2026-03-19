@@ -5,13 +5,13 @@ use axum::{
     extract::{Path as AxumPath, State},
     Json,
 };
+use indexmap::IndexMap;
 use ra_params::{get_agent_metadata, models::ResourceAgent as RaParamsResourceAgent};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path as StdPath;
 use std::sync::Arc;
 use utoipa::ToSchema;
-use indexmap::IndexMap;
 
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -64,21 +64,31 @@ impl From<&RaParamsResourceAgent> for ResourceAgent {
             version: ra.version(),
             shortdesc: ra.shortdesc.text.clone(),
             longdesc: ra.longdesc.text.clone(),
-            parameters: ra.parameters.parameters.iter().map(|p| Parameter {
-                name: p.name.clone(),
-                unique: p.unique == "1",
-                required: p.required == "1",
-                shortdesc: p.shortdesc.text.clone(),
-                longdesc: p.longdesc.text.clone(),
-                type_: p.content.type_.clone(),
-                default: p.content.default.clone(),
-            }).collect(),
-            actions: ra.actions.actions.iter().map(|a| Action {
-                name: a.name.clone(),
-                timeout: a.timeout.clone(),
-                interval: a.interval.clone(),
-                depth: a.depth.clone(),
-            }).collect(),
+            parameters: ra
+                .parameters
+                .parameters
+                .iter()
+                .map(|p| Parameter {
+                    name: p.name.clone(),
+                    unique: p.unique == "1",
+                    required: p.required == "1",
+                    shortdesc: p.shortdesc.text.clone(),
+                    longdesc: p.longdesc.text.clone(),
+                    type_: p.content.type_.clone(),
+                    default: p.content.default.clone(),
+                })
+                .collect(),
+            actions: ra
+                .actions
+                .actions
+                .iter()
+                .map(|a| Action {
+                    name: a.name.clone(),
+                    timeout: a.timeout.clone(),
+                    interval: a.interval.clone(),
+                    depth: a.depth.clone(),
+                })
+                .collect(),
         }
     }
 }
@@ -291,7 +301,10 @@ fn parse_ocf_agent_string(agent_str: &str) -> Option<ParsedOcfAgent> {
     // Convert IndexMap to Vec<ParamEntry> to preserve order in JSON
     let params: Vec<ParamEntry> = params_map
         .iter()
-        .map(|(k, v)| ParamEntry { key: k.clone(), value: v.clone() })
+        .map(|(k, v)| ParamEntry {
+            key: k.clone(),
+            value: v.clone(),
+        })
         .collect();
 
     Some(ParsedOcfAgent {
@@ -358,13 +371,21 @@ fn parse_toml_with_agents(content: &str) -> TomlWithAgents {
                 // Array section [[promoter]]
                 let full_name = trimmed[2..trimmed.len() - 2].to_string();
                 // Use only the last part as the section name (e.g., "promoter.resources.iscsi2" -> "iscsi2")
-                let name = full_name.split('.').last().unwrap_or(&full_name).to_string();
+                let name = full_name
+                    .split('.')
+                    .last()
+                    .unwrap_or(&full_name)
+                    .to_string();
                 current_section = Some((name, true, Vec::new()));
             } else if trimmed.starts_with('[') && trimmed.ends_with(']') {
                 // Regular section [section]
                 let full_name = trimmed[1..trimmed.len() - 1].to_string();
                 // Use only the last part as the section name (e.g., "promoter.metadata" -> "metadata")
-                let name = full_name.split('.').last().unwrap_or(&full_name).to_string();
+                let name = full_name
+                    .split('.')
+                    .last()
+                    .unwrap_or(&full_name)
+                    .to_string();
                 current_section = Some((name, false, Vec::new()));
             }
             line_idx += 1;
@@ -396,7 +417,9 @@ fn parse_toml_with_agents(content: &str) -> TomlWithAgents {
                     let mut quote_char = ' ';
 
                     for ch in inner_content.chars() {
-                        if (ch == '"' || ch == '\'') && (current.is_empty() || current.chars().last() != Some('\\')) {
+                        if (ch == '"' || ch == '\'')
+                            && (current.is_empty() || current.chars().last() != Some('\\'))
+                        {
                             if !in_quotes {
                                 in_quotes = true;
                                 quote_char = ch;
@@ -412,7 +435,8 @@ fn parse_toml_with_agents(content: &str) -> TomlWithAgents {
                             let trimmed = current.trim().to_string();
                             if !trimmed.is_empty() {
                                 // Remove surrounding quotes
-                                let element = if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+                                let element = if (trimmed.starts_with('"')
+                                    && trimmed.ends_with('"'))
                                     || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
                                 {
                                     trimmed[1..trimmed.len() - 1].to_string()
@@ -470,8 +494,10 @@ fn parse_toml_with_agents(content: &str) -> TomlWithAgents {
                             };
 
                             // Remove quotes
-                            let element_str = if (content_clean.starts_with('"') && content_clean.ends_with('"'))
-                                || (content_clean.starts_with('\'') && content_clean.ends_with('\''))
+                            let element_str = if (content_clean.starts_with('"')
+                                && content_clean.ends_with('"'))
+                                || (content_clean.starts_with('\'')
+                                    && content_clean.ends_with('\''))
                             {
                                 content_clean[1..content_clean.len() - 1].to_string()
                             } else {
@@ -535,7 +561,9 @@ fn parse_toml_with_agents(content: &str) -> TomlWithAgents {
 
                 // Check if this is an OCF agent string
                 let is_ocf_agent = value_str.starts_with("ocf:");
-                let parsed_agent = is_ocf_agent.then(|| parse_ocf_agent_string(&value_str)).flatten();
+                let parsed_agent = is_ocf_agent
+                    .then(|| parse_ocf_agent_string(&value_str))
+                    .flatten();
 
                 let item = TomlItem {
                     key: key.clone(),
@@ -673,7 +701,10 @@ mod tests {
 
     // Helper function to get param value by key from Vec<ParamEntry>
     fn get_param(params: &[ParamEntry], key: &str) -> Option<&str> {
-        params.iter().find(|p| p.key == key).map(|p| p.value.as_str())
+        params
+            .iter()
+            .find(|p| p.key == key)
+            .map(|p| p.value.as_str())
     }
 
     #[test]
@@ -686,9 +717,18 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "Filesystem");
         assert_eq!(agent.instance_name, "fs_cluster_private");
-        assert_eq!(get_param(&agent.params, "device"), Some(&"/dev/drbd0".to_string()));
-        assert_eq!(get_param(&agent.params, "directory"), Some(&"/data".to_string()));
-        assert_eq!(get_param(&agent.params, "fstype"), Some(&"ext4".to_string()));
+        assert_eq!(
+            get_param(&agent.params, "device"),
+            Some(&"/dev/drbd0".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "directory"),
+            Some(&"/data".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "fstype"),
+            Some(&"ext4".to_string())
+        );
         assert_eq!(agent.params.len(), 3);
     }
 
@@ -702,7 +742,10 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "Filesystem");
         assert_eq!(agent.instance_name, "fs_cluster_private");
-        assert_eq!(get_param(&agent.params, "options"), Some(&"rw,all_squash,anonuid=0".to_string()));
+        assert_eq!(
+            get_param(&agent.params, "options"),
+            Some(&"rw,all_squash,anonuid=0".to_string())
+        );
     }
 
     #[test]
@@ -712,7 +755,10 @@ mod tests {
 
         assert!(result.is_some());
         let agent = result.unwrap();
-        assert_eq!(get_param(&agent.params, "directory"), Some(&"/path with spaces".to_string()));
+        assert_eq!(
+            get_param(&agent.params, "directory"),
+            Some(&"/path with spaces".to_string())
+        );
     }
 
     #[test]
@@ -725,8 +771,14 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "IPaddr2");
         assert_eq!(agent.instance_name, "service_ip0");
-        assert_eq!(get_param(&agent.params, "cidr_netmask"), Some(&"24".to_string()));
-        assert_eq!(get_param(&agent.params, "ip"), Some(&"192.168.123.191".to_string()));
+        assert_eq!(
+            get_param(&agent.params, "cidr_netmask"),
+            Some(&"24".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "ip"),
+            Some(&"192.168.123.191".to_string())
+        );
     }
 
     #[test]
@@ -739,10 +791,22 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "portblock");
         assert_eq!(agent.instance_name, "pblock0");
-        assert_eq!(get_param(&agent.params, "action"), Some(&"block".to_string()));
-        assert_eq!(get_param(&agent.params, "ip"), Some(&"192.168.123.191".to_string()));
-        assert_eq!(get_param(&agent.params, "portno"), Some(&"3260".to_string()));
-        assert_eq!(get_param(&agent.params, "protocol"), Some(&"tcp".to_string()));
+        assert_eq!(
+            get_param(&agent.params, "action"),
+            Some(&"block".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "ip"),
+            Some(&"192.168.123.191".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "portno"),
+            Some(&"3260".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "protocol"),
+            Some(&"tcp".to_string())
+        );
     }
 
     #[test]
@@ -755,9 +819,18 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "iSCSITarget");
         assert_eq!(agent.instance_name, "target");
-        assert_eq!(get_param(&agent.params, "allowed_initiators"), Some(&"".to_string()));
-        assert_eq!(get_param(&agent.params, "iqn"), Some(&"iqn.2025-12.com.linbit:iscsi2".to_string()));
-        assert_eq!(get_param(&agent.params, "portals"), Some(&"192.168.123.191:3260".to_string()));
+        assert_eq!(
+            get_param(&agent.params, "allowed_initiators"),
+            Some(&"".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "iqn"),
+            Some(&"iqn.2025-12.com.linbit:iscsi2".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "portals"),
+            Some(&"192.168.123.191:3260".to_string())
+        );
     }
 
     #[test]
@@ -771,10 +844,22 @@ mod tests {
         assert_eq!(agent.agent_type, "iSCSILogicalUnit");
         assert_eq!(agent.instance_name, "lu1");
         assert_eq!(get_param(&agent.params, "lun"), Some(&"1".to_string()));
-        assert_eq!(get_param(&agent.params, "path"), Some(&"/dev/drbd/by-res/iscsi2/1".to_string()));
-        assert_eq!(get_param(&agent.params, "product_id"), Some(&"d30d7c86".to_string()));
-        assert_eq!(get_param(&agent.params, "scsi_sn"), Some(&"d30d7c86".to_string()));
-        assert_eq!(get_param(&agent.params, "target_iqn"), Some(&"iqn.2025-12.com.linbit:iscsi2".to_string()));
+        assert_eq!(
+            get_param(&agent.params, "path"),
+            Some(&"/dev/drbd/by-res/iscsi2/1".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "product_id"),
+            Some(&"d30d7c86".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "scsi_sn"),
+            Some(&"d30d7c86".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "target_iqn"),
+            Some(&"iqn.2025-12.com.linbit:iscsi2".to_string())
+        );
     }
 
     #[test]
@@ -804,7 +889,10 @@ mod tests {
 
         let agent = &result.ocf_agents[0];
         assert_eq!(agent.item.ocf_agent.as_ref().unwrap().provider, "heartbeat");
-        assert_eq!(agent.item.ocf_agent.as_ref().unwrap().agent_type, "Filesystem");
+        assert_eq!(
+            agent.item.ocf_agent.as_ref().unwrap().agent_type,
+            "Filesystem"
+        );
         assert_eq!(agent.item.ocf_agent.as_ref().unwrap().instance_name, "fs");
         assert_eq!(agent.position.key, "start");
     }
@@ -850,76 +938,200 @@ mod tests {
 
         // Verify first agent: Filesystem
         let fs_agent = &result.ocf_agents[0];
-        assert_eq!(fs_agent.item.ocf_agent.as_ref().unwrap().provider, "heartbeat");
-        assert_eq!(fs_agent.item.ocf_agent.as_ref().unwrap().agent_type, "Filesystem");
-        assert_eq!(fs_agent.item.ocf_agent.as_ref().unwrap().instance_name, "fs_cluster_private");
-        assert_eq!(fs_agent.item.ocf_agent.as_ref().unwrap().params.get("device"), Some(&"/dev/drbd/by-res/iscsi2/0".to_string()));
-        assert_eq!(fs_agent.item.ocf_agent.as_ref().unwrap().params.get("directory"), Some(&"/srv/ha/internal/iscsi2".to_string()));
-        assert_eq!(fs_agent.item.ocf_agent.as_ref().unwrap().params.get("fstype"), Some(&"ext4".to_string()));
-        assert_eq!(fs_agent.item.ocf_agent.as_ref().unwrap().params.get("run_fsck"), Some(&"no".to_string()));
-        assert_eq!(fs_agent.position.section, "iscsi2");  // Changed from "promoter" to "iscsi2"
+        assert_eq!(
+            fs_agent.item.ocf_agent.as_ref().unwrap().provider,
+            "heartbeat"
+        );
+        assert_eq!(
+            fs_agent.item.ocf_agent.as_ref().unwrap().agent_type,
+            "Filesystem"
+        );
+        assert_eq!(
+            fs_agent.item.ocf_agent.as_ref().unwrap().instance_name,
+            "fs_cluster_private"
+        );
+        assert_eq!(
+            fs_agent
+                .item
+                .ocf_agent
+                .as_ref()
+                .unwrap()
+                .params
+                .get("device"),
+            Some(&"/dev/drbd/by-res/iscsi2/0".to_string())
+        );
+        assert_eq!(
+            fs_agent
+                .item
+                .ocf_agent
+                .as_ref()
+                .unwrap()
+                .params
+                .get("directory"),
+            Some(&"/srv/ha/internal/iscsi2".to_string())
+        );
+        assert_eq!(
+            fs_agent
+                .item
+                .ocf_agent
+                .as_ref()
+                .unwrap()
+                .params
+                .get("fstype"),
+            Some(&"ext4".to_string())
+        );
+        assert_eq!(
+            fs_agent
+                .item
+                .ocf_agent
+                .as_ref()
+                .unwrap()
+                .params
+                .get("run_fsck"),
+            Some(&"no".to_string())
+        );
+        assert_eq!(fs_agent.position.section, "iscsi2"); // Changed from "promoter" to "iscsi2"
         assert_eq!(fs_agent.position.key, "start");
         assert_eq!(fs_agent.position.index, 0);
 
         // Verify second agent: portblock (pblock0)
         let pblock0 = &result.ocf_agents[1];
-        assert_eq!(pblock0.item.ocf_agent.as_ref().unwrap().agent_type, "portblock");
-        assert_eq!(pblock0.item.ocf_agent.as_ref().unwrap().instance_name, "pblock0");
-        assert_eq!(pblock0.item.ocf_agent.as_ref().unwrap().params.get("action"), Some(&"block".to_string()));
+        assert_eq!(
+            pblock0.item.ocf_agent.as_ref().unwrap().agent_type,
+            "portblock"
+        );
+        assert_eq!(
+            pblock0.item.ocf_agent.as_ref().unwrap().instance_name,
+            "pblock0"
+        );
+        assert_eq!(
+            pblock0
+                .item
+                .ocf_agent
+                .as_ref()
+                .unwrap()
+                .params
+                .get("action"),
+            Some(&"block".to_string())
+        );
         assert_eq!(pblock0.position.index, 1);
 
         // Verify third agent: IPaddr2
         let ipaddr2 = &result.ocf_agents[2];
-        assert_eq!(ipaddr2.item.ocf_agent.as_ref().unwrap().agent_type, "IPaddr2");
-        assert_eq!(ipaddr2.item.ocf_agent.as_ref().unwrap().instance_name, "service_ip0");
-        assert_eq!(ipaddr2.item.ocf_agent.as_ref().unwrap().params.get("ip"), Some(&"192.168.123.191".to_string()));
+        assert_eq!(
+            ipaddr2.item.ocf_agent.as_ref().unwrap().agent_type,
+            "IPaddr2"
+        );
+        assert_eq!(
+            ipaddr2.item.ocf_agent.as_ref().unwrap().instance_name,
+            "service_ip0"
+        );
+        assert_eq!(
+            ipaddr2.item.ocf_agent.as_ref().unwrap().params.get("ip"),
+            Some(&"192.168.123.191".to_string())
+        );
         assert_eq!(ipaddr2.position.index, 2);
 
         // Verify fourth agent: iSCSITarget
         let target = &result.ocf_agents[3];
-        assert_eq!(target.item.ocf_agent.as_ref().unwrap().agent_type, "iSCSITarget");
-        assert_eq!(target.item.ocf_agent.as_ref().unwrap().instance_name, "target");
-        assert_eq!(target.item.ocf_agent.as_ref().unwrap().params.get("iqn"), Some(&"iqn.2025-12.com.linbit:iscsi2".to_string()));
+        assert_eq!(
+            target.item.ocf_agent.as_ref().unwrap().agent_type,
+            "iSCSITarget"
+        );
+        assert_eq!(
+            target.item.ocf_agent.as_ref().unwrap().instance_name,
+            "target"
+        );
+        assert_eq!(
+            target.item.ocf_agent.as_ref().unwrap().params.get("iqn"),
+            Some(&"iqn.2025-12.com.linbit:iscsi2".to_string())
+        );
         assert_eq!(target.position.index, 3);
 
         // Verify fifth agent: iSCSILogicalUnit lu1
         let lu1 = &result.ocf_agents[4];
-        assert_eq!(lu1.item.ocf_agent.as_ref().unwrap().agent_type, "iSCSILogicalUnit");
+        assert_eq!(
+            lu1.item.ocf_agent.as_ref().unwrap().agent_type,
+            "iSCSILogicalUnit"
+        );
         assert_eq!(lu1.item.ocf_agent.as_ref().unwrap().instance_name, "lu1");
-        assert_eq!(lu1.item.ocf_agent.as_ref().unwrap().params.get("lun"), Some(&"1".to_string()));
-        assert_eq!(lu1.item.ocf_agent.as_ref().unwrap().params.get("path"), Some(&"/dev/drbd/by-res/iscsi2/1".to_string()));
+        assert_eq!(
+            lu1.item.ocf_agent.as_ref().unwrap().params.get("lun"),
+            Some(&"1".to_string())
+        );
+        assert_eq!(
+            lu1.item.ocf_agent.as_ref().unwrap().params.get("path"),
+            Some(&"/dev/drbd/by-res/iscsi2/1".to_string())
+        );
         assert_eq!(lu1.position.index, 4);
 
         // Verify sixth agent: iSCSILogicalUnit lu2
         let lu2 = &result.ocf_agents[5];
         assert_eq!(lu2.item.ocf_agent.as_ref().unwrap().instance_name, "lu2");
-        assert_eq!(lu2.item.ocf_agent.as_ref().unwrap().params.get("lun"), Some(&"2".to_string()));
-        assert_eq!(lu2.item.ocf_agent.as_ref().unwrap().params.get("path"), Some(&"/dev/drbd/by-res/iscsi2/2".to_string()));
+        assert_eq!(
+            lu2.item.ocf_agent.as_ref().unwrap().params.get("lun"),
+            Some(&"2".to_string())
+        );
+        assert_eq!(
+            lu2.item.ocf_agent.as_ref().unwrap().params.get("path"),
+            Some(&"/dev/drbd/by-res/iscsi2/2".to_string())
+        );
         assert_eq!(lu2.position.index, 5);
 
         // Verify seventh agent: iSCSILogicalUnit lu3
         let lu3 = &result.ocf_agents[6];
         assert_eq!(lu3.item.ocf_agent.as_ref().unwrap().instance_name, "lu3");
-        assert_eq!(lu3.item.ocf_agent.as_ref().unwrap().params.get("lun"), Some(&"3".to_string()));
-        assert_eq!(lu3.item.ocf_agent.as_ref().unwrap().params.get("path"), Some(&"/dev/drbd/by-res/iscsi2/3".to_string()));
+        assert_eq!(
+            lu3.item.ocf_agent.as_ref().unwrap().params.get("lun"),
+            Some(&"3".to_string())
+        );
+        assert_eq!(
+            lu3.item.ocf_agent.as_ref().unwrap().params.get("path"),
+            Some(&"/dev/drbd/by-res/iscsi2/3".to_string())
+        );
         assert_eq!(lu3.position.index, 6);
 
         // Verify eighth agent: portblock (portunblock0)
         let portunblock0 = &result.ocf_agents[7];
-        assert_eq!(portunblock0.item.ocf_agent.as_ref().unwrap().agent_type, "portblock");
-        assert_eq!(portunblock0.item.ocf_agent.as_ref().unwrap().instance_name, "portunblock0");
-        assert_eq!(portunblock0.item.ocf_agent.as_ref().unwrap().params.get("action"), Some(&"unblock".to_string()));
-        assert_eq!(portunblock0.item.ocf_agent.as_ref().unwrap().params.get("tickle_dir"), Some(&"/srv/ha/internal/iscsi2".to_string()));
+        assert_eq!(
+            portunblock0.item.ocf_agent.as_ref().unwrap().agent_type,
+            "portblock"
+        );
+        assert_eq!(
+            portunblock0.item.ocf_agent.as_ref().unwrap().instance_name,
+            "portunblock0"
+        );
+        assert_eq!(
+            portunblock0
+                .item
+                .ocf_agent
+                .as_ref()
+                .unwrap()
+                .params
+                .get("action"),
+            Some(&"unblock".to_string())
+        );
+        assert_eq!(
+            portunblock0
+                .item
+                .ocf_agent
+                .as_ref()
+                .unwrap()
+                .params
+                .get("tickle_dir"),
+            Some(&"/srv/ha/internal/iscsi2".to_string())
+        );
         assert_eq!(portunblock0.position.index, 7);
 
         // Verify that the metadata section was parsed
-        let metadata_section = result.sections.iter()
-            .find(|s| s.name == "metadata");  // Changed from "promoter.metadata" to "metadata"
+        let metadata_section = result.sections.iter().find(|s| s.name == "metadata"); // Changed from "promoter.metadata" to "metadata"
         assert!(metadata_section.is_some());
 
         // Verify that non-OCF items were parsed correctly
         let metadata_items = metadata_section.unwrap();
-        assert!(metadata_items.items.iter()
+        assert!(metadata_items
+            .items
+            .iter()
             .any(|item| item.key == "linstor-gateway-schema-version" && item.value == "1"));
     }
 
@@ -975,7 +1187,10 @@ mod tests {
         let agent = result.unwrap();
         // When no instance name is provided, should use default
         assert_eq!(agent.instance_name, "Filesystem_default");
-        assert_eq!(get_param(&agent.params, "device"), Some(&"/dev/drbd0".to_string()));
+        assert_eq!(
+            get_param(&agent.params, "device"),
+            Some(&"/dev/drbd0".to_string())
+        );
     }
 
     #[test]
@@ -988,10 +1203,22 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "exportfs");
         assert_eq!(agent.instance_name, "export_1_0");
-        assert_eq!(get_param(&agent.params, "clientspec"), Some(&"0.0.0.0/0.0.0.0".to_string()));
-        assert_eq!(get_param(&agent.params, "directory"), Some(&"/srv/gateway-exports/mynfs".to_string()));
-        assert_eq!(get_param(&agent.params, "fsid"), Some(&"199b431f-c4c3-5eb0-ab46-264e8261ad34".to_string()));
-        assert_eq!(get_param(&agent.params, "options"), Some(&"rw,all_squash,anonuid=0,anongid=0".to_string()));
+        assert_eq!(
+            get_param(&agent.params, "clientspec"),
+            Some(&"0.0.0.0/0.0.0.0".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "directory"),
+            Some(&"/srv/gateway-exports/mynfs".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "fsid"),
+            Some(&"199b431f-c4c3-5eb0-ab46-264e8261ad34".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "options"),
+            Some(&"rw,all_squash,anonuid=0,anongid=0".to_string())
+        );
     }
 
     #[test]
@@ -1004,11 +1231,26 @@ mod tests {
         assert_eq!(agent.provider, "heartbeat");
         assert_eq!(agent.agent_type, "iSCSITarget");
         assert_eq!(agent.instance_name, "target");
-        assert_eq!(get_param(&agent.params, "allowed_initiators"), Some(&"".to_string()));
-        assert_eq!(get_param(&agent.params, "incoming_password"), Some(&"".to_string()));
-        assert_eq!(get_param(&agent.params, "incoming_username"), Some(&"".to_string()));
-        assert_eq!(get_param(&agent.params, "iqn"), Some(&"iqn.2025-12.com.linbit:iscsi2".to_string()));
-        assert_eq!(get_param(&agent.params, "portals"), Some(&"192.168.123.191:3260".to_string()));
+        assert_eq!(
+            get_param(&agent.params, "allowed_initiators"),
+            Some(&"".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "incoming_password"),
+            Some(&"".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "incoming_username"),
+            Some(&"".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "iqn"),
+            Some(&"iqn.2025-12.com.linbit:iscsi2".to_string())
+        );
+        assert_eq!(
+            get_param(&agent.params, "portals"),
+            Some(&"192.168.123.191:3260".to_string())
+        );
     }
 
     #[test]
@@ -1037,30 +1279,60 @@ mod tests {
         // Verify first agent: portblock
         let pblock = &result.ocf_agents[0];
         assert!(pblock.item.is_ocf);
-        assert_eq!(pblock.item.ocf_agent.as_ref().unwrap().agent_type, "portblock");
-        assert_eq!(pblock.item.ocf_agent.as_ref().unwrap().instance_name, "portblock");
+        assert_eq!(
+            pblock.item.ocf_agent.as_ref().unwrap().agent_type,
+            "portblock"
+        );
+        assert_eq!(
+            pblock.item.ocf_agent.as_ref().unwrap().instance_name,
+            "portblock"
+        );
         assert_eq!(pblock.position.index, 0);
 
         // Verify second agent: Filesystem fs_cluster_private
         let fs1 = &result.ocf_agents[1];
         assert!(fs1.item.is_ocf);
-        assert_eq!(fs1.item.ocf_agent.as_ref().unwrap().agent_type, "Filesystem");
-        assert_eq!(fs1.item.ocf_agent.as_ref().unwrap().instance_name, "fs_cluster_private");
+        assert_eq!(
+            fs1.item.ocf_agent.as_ref().unwrap().agent_type,
+            "Filesystem"
+        );
+        assert_eq!(
+            fs1.item.ocf_agent.as_ref().unwrap().instance_name,
+            "fs_cluster_private"
+        );
         assert_eq!(fs1.position.index, 1);
 
         // Verify third agent: Filesystem fs_1
         let fs2 = &result.ocf_agents[2];
         assert!(fs2.item.is_ocf);
-        assert_eq!(fs2.item.ocf_agent.as_ref().unwrap().agent_type, "Filesystem");
+        assert_eq!(
+            fs2.item.ocf_agent.as_ref().unwrap().agent_type,
+            "Filesystem"
+        );
         assert_eq!(fs2.item.ocf_agent.as_ref().unwrap().instance_name, "fs_1");
         assert_eq!(fs2.position.index, 2);
 
         // Verify sixth agent: exportfs with quoted options
         let exportfs = &result.ocf_agents[5];
         assert!(exportfs.item.is_ocf);
-        assert_eq!(exportfs.item.ocf_agent.as_ref().unwrap().agent_type, "exportfs");
-        assert_eq!(exportfs.item.ocf_agent.as_ref().unwrap().instance_name, "export_1_0");
-        assert_eq!(exportfs.item.ocf_agent.as_ref().unwrap().params.get("options"), Some(&"rw,all_squash,anonuid=0,anongid=0".to_string()));
+        assert_eq!(
+            exportfs.item.ocf_agent.as_ref().unwrap().agent_type,
+            "exportfs"
+        );
+        assert_eq!(
+            exportfs.item.ocf_agent.as_ref().unwrap().instance_name,
+            "export_1_0"
+        );
+        assert_eq!(
+            exportfs
+                .item
+                .ocf_agent
+                .as_ref()
+                .unwrap()
+                .params
+                .get("options"),
+            Some(&"rw,all_squash,anonuid=0,anongid=0".to_string())
+        );
         assert_eq!(exportfs.position.index, 5);
 
         // Verify all agents are in "mynfs" section

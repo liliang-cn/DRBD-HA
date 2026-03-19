@@ -17,7 +17,7 @@ export interface ParsedOcfAgent {
   provider: string;
   agent_type: string;
   instance_name: string;
-  params: ParamEntry[];  // Changed from Record<string, string> to ParamEntry[]
+  params: ParamEntry[]; // Changed from Record<string, string> to ParamEntry[]
 }
 
 // A generic item in the start/stop array
@@ -37,6 +37,7 @@ export interface OcfAgentPosition {
 // ResourceAgent metadata matching backend all_agents.ts format
 export interface ResourceAgent {
   name: string;
+  provider: string;
   version: string;
   shortdesc: string;
   longdesc: string;

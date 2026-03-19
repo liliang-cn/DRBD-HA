@@ -9,21 +9,22 @@ use tracing::info;
 
 use crate::core::{
     cluster_sync::{ClusterSync, HaSyncConfig},
+    drbd_cmd::DrbdCmd,
     mount_unit::MountUnitGenerator,
     run_shell_command,
     service_override::ServiceOverrideGenerator,
     systemd_ctrl::{RemoteSystemdController, SystemdController},
-    validator, LvmProvider, ServiceInitFactory, StorageProvider, ZfsProvider,
-    DrbdConfigGenerator, DrbdConfigPaths, ReactorConfigGenerator, ReactorConfigPaths, NodeConfig, ResourceConfig,
-    drbd_cmd::DrbdCmd,
+    validator, DrbdConfigGenerator, DrbdConfigPaths, LvmProvider, NodeConfig,
+    ReactorConfigGenerator, ReactorConfigPaths, ResourceConfig, ServiceInitFactory,
+    StorageProvider, ZfsProvider,
 };
-use systemd_utils::SystemdCmd;
 use crate::error::{AppError, AppResult};
 use crate::models::{
     CreateHaProfileRequest, GeneratedUnits, HaProfile, HaProfileStatus, HaType, Node,
     PromoterSettings, ServiceOverride,
 };
 use crate::state::{AppState, NotificationLevel};
+use systemd_utils::SystemdCmd;
 
 use super::types::HaProfileCreateResponse;
 
@@ -127,7 +128,8 @@ pub async fn create_profile(
             manual_filesystem_agent_present = true;
 
             let device_missing_or_empty = !agent.has_param("device")
-                || agent.get_param("device")
+                || agent
+                    .get_param("device")
                     .map(|s| s.is_empty())
                     .unwrap_or(true);
 
@@ -146,7 +148,8 @@ pub async fn create_profile(
             }
 
             if !agent.has_param("directory")
-                || agent.get_param("directory")
+                || agent
+                    .get_param("directory")
                     .map(|s| s.is_empty())
                     .unwrap_or(true)
             {
@@ -154,7 +157,8 @@ pub async fn create_profile(
             }
 
             if !agent.has_param("fstype")
-                || agent.get_param("fstype")
+                || agent
+                    .get_param("fstype")
                     .map(|s| s.is_empty())
                     .unwrap_or(true)
             {
@@ -171,23 +175,19 @@ pub async fn create_profile(
             "create_ha_profile",
             Some(&req.name),
             10,
-            "Creating LVM volume...",
+            "Ensuring LVM storage pool...",
             false,
             None,
         );
 
-        let vg_info = crate::core::get_vg_info(pool_id)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Storage pool '{}' not found", pool_id)))?;
-
-        let storage_pool_name = vg_info.name;
+        let storage_pool_name = pool_id.clone();
         let mut node_lvm_paths: Vec<(Node, String)> = Vec::new();
 
         for node in &all_nodes {
             let current_vg_name = storage_pool_name.clone();
             let lv_name = format!("drbd-ha-lv-{}", req.resource_name);
 
-            let lvm_provider = if node.is_local {
+            let mut lvm_provider = if node.is_local {
                 LvmProvider::new_local(current_vg_name.clone())
             } else {
                 let credential = crate::core::SshCredential::Password("ignored".to_string());
@@ -200,6 +200,57 @@ pub async fn create_profile(
                     credential,
                 )
             };
+
+            // Configure allocation policy (Thin vs Thick)
+            // LvmProvider defaults to Some("thinpool"). We override it with the request value.
+            // If req.lvm_thin_pool_name is None, it means Thick provisioning.
+            // If it is Some("name"), it means Thin provisioning with that pool.
+            lvm_provider.thin_pool_name = req.lvm_thin_pool_name.clone();
+
+            // Check if VG exists on this node
+            let vg_exists = if node.is_local {
+                crate::core::get_vg_info(&current_vg_name).await?.is_some()
+            } else {
+                let credential = crate::core::SshCredential::Password("ignored".to_string());
+                let client = crate::core::lvm_utils::LvmClient::new_remote(
+                    state.ssh_manager.clone(),
+                    node.ip.clone(),
+                    node.ssh_port,
+                    node.ssh_user.clone(),
+                    credential,
+                );
+                client.get_vg_info(&current_vg_name).await?.is_some()
+            };
+
+            if !vg_exists {
+                if let Some(ref disks) = req.node_disks {
+                    if let Some(disk) = disks.get(&node.id) {
+                        state.send_progress(
+                            &operation_id,
+                            "create_ha_profile",
+                            Some(&req.name),
+                            12,
+                            &format!(
+                                "Initializing VG {} on disk {} for node {}...",
+                                current_vg_name, disk, node.hostname
+                            ),
+                            false,
+                            None,
+                        );
+                        lvm_provider.init_pool(disk).await?;
+                    } else {
+                        return Err(AppError::NotFound(format!(
+                            "Storage pool '{}' not found on node {} and no disk provided for initialization",
+                            pool_id, node.hostname
+                        )));
+                    }
+                } else {
+                    return Err(AppError::NotFound(format!(
+                        "Storage pool '{}' not found on node {} and node_disks missing",
+                        pool_id, node.hostname
+                    )));
+                }
+            }
 
             let device_path = lvm_provider
                 .create_volume(&lv_name, *volume_size_gb)
@@ -353,8 +404,7 @@ pub async fn create_profile(
                 )
                 .await?;
         }
-    }
-    else if let (Some(pool_id), Some(volume_size_gb)) =
+    } else if let (Some(pool_id), Some(volume_size_gb)) =
         (&req.zfs_pool_id, &req.zfs_volume_size_gb)
     {
         state.send_progress(
@@ -1035,15 +1085,22 @@ pub async fn create_profile(
         start: _start_services.clone(),
         stop_services_on_exit: profile_for_gen.promoter.stop_on_demote,
         on_drbd_demote_failure: profile_for_gen.promoter.on_demote_failure.clone(),
-        vip: profile_for_gen.vip.as_ref().map(|v| drbd_reactor_utils::VipConfig {
-            address: v.address.clone(),
-            netmask: v.netmask,
-        }),
-        ocf_agents: profile_for_gen.ocf_agents.iter().map(|a| drbd_reactor_utils::OcfAgentConfig {
-            name: a.name.clone(),
-            instance_name: a.instance_name.clone(),
-            params: crate::models::ha::ParamEntry::vec_to_config_gen(&a.params),
-        }).collect(),
+        vip: profile_for_gen
+            .vip
+            .as_ref()
+            .map(|v| drbd_reactor_utils::VipConfig {
+                address: v.address.clone(),
+                netmask: v.netmask,
+            }),
+        ocf_agents: profile_for_gen
+            .ocf_agents
+            .iter()
+            .map(|a| drbd_reactor_utils::OcfAgentConfig {
+                name: a.name.clone(),
+                instance_name: a.instance_name.clone(),
+                params: crate::models::ha::ParamEntry::vec_to_config_gen(&a.params),
+            })
+            .collect(),
         mount_strategy: Some(format!("{:?}", profile_for_gen.mount_strategy).to_lowercase()),
         mount_point: Some(profile_for_gen.mount_point.clone()),
         fs_type: Some(profile_for_gen.fs_type.clone()),
@@ -1253,7 +1310,10 @@ pub async fn create_profile(
                 }
             } else {
                 let cred = crate::core::SshCredential::Password("ignored".to_string());
-                let reload_cmd = format!("sudo {}", SystemdCmd::reload_service_cmd("drbd-reactor.service"));
+                let reload_cmd = format!(
+                    "sudo {}",
+                    SystemdCmd::reload_service_cmd("drbd-reactor.service")
+                );
 
                 match state
                     .ssh_manager
@@ -1326,7 +1386,15 @@ pub async fn create_profile(
     state.send_notification(
         NotificationLevel::Success,
         "HA Profile Created",
-        &format!("HA profile '{}' created successfully{}", req.name, if req.start_disabled { " (disabled)" } else { "" }),
+        &format!(
+            "HA profile '{}' created successfully{}",
+            req.name,
+            if req.start_disabled {
+                " (disabled)"
+            } else {
+                ""
+            }
+        ),
     );
 
     // Read DRBD config content for preview

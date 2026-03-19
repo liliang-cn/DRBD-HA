@@ -149,19 +149,25 @@ pub struct PeerSyncStatus {
 
 impl SyncStatus {
     fn from_json_resource(resource: &ResourceStatus) -> Self {
-        let peers = resource.connections.iter().map(|conn| {
-            PeerSyncStatus {
+        let peers = resource
+            .connections
+            .iter()
+            .map(|conn| PeerSyncStatus {
                 name: conn.name.clone(),
                 role: conn.peer_role.as_deref().unwrap_or("Unknown").to_string(),
-                disk_state: conn.peer_devices.first()
+                disk_state: conn
+                    .peer_devices
+                    .first()
                     .map(|d| d.peer_disk_state.clone())
                     .unwrap_or_else(|| "Unknown".to_string()),
                 connection_state: conn.connection_state.clone(),
-                replication_state: conn.peer_devices.first()
+                replication_state: conn
+                    .peer_devices
+                    .first()
                     .map(|d| d.replication_state.clone())
                     .unwrap_or_else(|| "Unknown".to_string()),
-            }
-        }).collect();
+            })
+            .collect();
 
         let is_syncing = resource.is_syncing();
         let sync_progress_percent = resource.sync_progress();
@@ -169,7 +175,9 @@ impl SyncStatus {
         Self {
             resource_name: resource.name.clone(),
             local_role: resource.role.clone(),
-            local_disk_state: resource.devices.first()
+            local_disk_state: resource
+                .devices
+                .first()
                 .map(|d| d.disk_state.clone())
                 .unwrap_or_else(|| "Unknown".to_string()),
             is_fully_synced: resource.is_uptodate() && resource.is_connected() && !is_syncing,

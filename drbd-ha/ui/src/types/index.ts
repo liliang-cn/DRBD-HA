@@ -222,6 +222,7 @@ export interface CreateHaProfileRequest {
   lvm_volume_size_gb?: number;
   zfs_pool_id?: string;
   zfs_volume_size_gb?: number;
+  node_disks?: Record<string, string>;
   drbd_port?: number;
   drbd_minor?: number;
   migration?: {
@@ -267,7 +268,7 @@ export interface HaProfileStatus {
     promoter_config_path: string;
     reactor_running: boolean;
   };
-  reactor_status_raw?: string;
+  reactor_status_raw?: string; // Raw JSON output from drbd-reactorctl status --json
   drbd_config_raw?: string;
   promoter_config_raw?: string;
   configured_nodes: Array<{

@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react';
 import { haProfilesApi } from '@/api';
 import { useThemeStore } from '@/stores/theme';
 import { ACCENT_COLORS } from '@/theme/colors';
+import { formatJsonForDisplay } from '@/utils/json';
 
 const { Title, Text } = Typography;
 
@@ -95,7 +96,10 @@ export function DeploymentStatusStep({
     fetchStatus();
 
     return () => clearInterval(interval);
-  }, [profileId, shouldPoll]);
+  }, [
+    shouldPoll, // Initial fetch
+    fetchStatus,
+  ]);
 
   if (loading) {
     return (
@@ -558,7 +562,7 @@ export function DeploymentStatusStep({
             </Card>
           )}
 
-          {/* DRBD Reactor Status Raw */}
+          {/* DRBD Reactor Status JSON */}
           {statusData.reactor_status_raw && (
             <Card
               title={
@@ -574,7 +578,7 @@ export function DeploymentStatusStep({
                       style={{ color: ACCENT_COLORS.orange }}
                     />
                   </div>
-                  <span>DRBD Reactor Status</span>
+                  <span>DRBD Reactor Status JSON</span>
                 </div>
               }
               className="shadow-sm"
@@ -595,7 +599,7 @@ export function DeploymentStatusStep({
                   overflowY: 'auto',
                 }}
               >
-                {statusData.reactor_status_raw}
+                {formatJsonForDisplay(statusData.reactor_status_raw)}
               </pre>
             </Card>
           )}

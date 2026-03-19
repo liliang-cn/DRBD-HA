@@ -37,18 +37,24 @@ impl ParamEntry {
 
     /// Convert a Vec from config_gen
     pub fn vec_from_config_gen(entries: Vec<config_gen::ParamEntry>) -> Vec<Self> {
-        entries.into_iter().map(|e| ParamEntry {
-            key: e.key,
-            value: e.value,
-        }).collect()
+        entries
+            .into_iter()
+            .map(|e| ParamEntry {
+                key: e.key,
+                value: e.value,
+            })
+            .collect()
     }
 
     /// Convert a Vec to config_gen
     pub fn vec_to_config_gen(entries: &[Self]) -> Vec<config_gen::ParamEntry> {
-        entries.iter().map(|e| config_gen::ParamEntry {
-            key: e.key.clone(),
-            value: e.value.clone(),
-        }).collect()
+        entries
+            .iter()
+            .map(|e| config_gen::ParamEntry {
+                key: e.key.clone(),
+                value: e.value.clone(),
+            })
+            .collect()
     }
 }
 
@@ -66,7 +72,8 @@ pub struct OcfAgentConfig {
 impl OcfAgentConfig {
     /// Get a parameter value by key
     pub fn get_param(&self, key: &str) -> Option<&str> {
-        self.params.iter()
+        self.params
+            .iter()
             .find(|p| p.key == key)
             .map(|p| p.value.as_str())
     }
@@ -283,12 +290,21 @@ pub struct CreateHaProfileRequest {
     /// Optional: Desired size of the LVM volume in GB
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lvm_volume_size_gb: Option<u64>,
+    /// Optional: Name of the LVM thin pool to use/create
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lvm_thin_pool_name: Option<String>,
+    /// Optional: Size of the LVM thin pool metadata or total size
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lvm_thin_pool_size: Option<String>,
     /// Optional: ID of the ZFS storage pool to create the volume in
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zfs_pool_id: Option<String>,
     /// Optional: Desired size of the ZFS volume in GB
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zfs_volume_size_gb: Option<u64>,
+    /// Optional: Map of node ID to raw disk path for storage pool initialization
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_disks: Option<std::collections::HashMap<String, String>>,
     /// Optional: DRBD port (required for LVM auto-creation)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drbd_port: Option<u16>,

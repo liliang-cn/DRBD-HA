@@ -126,7 +126,11 @@ impl DrbdVerifier {
                         details,
                     })
                 } else {
-                    tracing::warn!("⚠ DRBD resource '{}' not ready: {}", resource_name, details.status_info);
+                    tracing::warn!(
+                        "⚠ DRBD resource '{}' not ready: {}",
+                        resource_name,
+                        details.status_info
+                    );
 
                     if !config.continue_on_failure {
                         return Err(crate::error::DrbdError::Validation(format!(
@@ -145,7 +149,11 @@ impl DrbdVerifier {
                 }
             }
             Err(e) => {
-                tracing::warn!("⚠ Failed to verify DRBD status for resource '{}': {}", resource_name, e);
+                tracing::warn!(
+                    "⚠ Failed to verify DRBD status for resource '{}': {}",
+                    resource_name,
+                    e
+                );
 
                 if !config.continue_on_failure {
                     return Err(crate::error::DrbdError::Validation(format!(
@@ -215,9 +223,12 @@ impl DrbdVerifier {
 
                 // Count connected peers - peer lines typically start with whitespace and have node name
                 for line in lines.iter().skip(1) {
-                    if !line.trim().is_empty() && (line.starts_with("  ") || line.contains("role:")) {
+                    if !line.trim().is_empty() && (line.starts_with("  ") || line.contains("role:"))
+                    {
                         // Check if this line represents a peer connection
-                        if line.contains("role:") && !line.contains(&format!("{} role:", resource_name)) {
+                        if line.contains("role:")
+                            && !line.contains(&format!("{} role:", resource_name))
+                        {
                             // This is a peer line (has role but is not the main resource line)
                             details.connected_peers += 1;
 
@@ -230,16 +241,16 @@ impl DrbdVerifier {
                 }
 
                 // Additional consistency checks
-                details.is_consistent = details.is_consistent &&
-                    (output.contains("disk:UpToDate") || output.contains("peer-disk:UpToDate"));
+                details.is_consistent = details.is_consistent
+                    && (output.contains("disk:UpToDate") || output.contains("peer-disk:UpToDate"));
 
                 details.status_info = format!(
                     "Resource configured, {} peers, consistent: {}",
-                    details.connected_peers,
-                    details.is_consistent
+                    details.connected_peers, details.is_consistent
                 );
             } else {
-                details.status_info = format!("Output doesn't contain resource '{}'", resource_name);
+                details.status_info =
+                    format!("Output doesn't contain resource '{}'", resource_name);
             }
         } else {
             details.status_info = "No status lines available".to_string();

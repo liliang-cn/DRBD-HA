@@ -8,7 +8,10 @@ use std::sync::Arc;
 use tracing::info;
 use utoipa::ToSchema;
 
-use crate::core::{get_vg_info, list_vg_info, validator, LvmProvider, SafetyChecker, StorageProvider, ZfsUtilsClient};
+use crate::core::{
+    get_vg_info, list_vg_info, validator, LvmProvider, SafetyChecker, StorageProvider,
+    ZfsUtilsClient,
+};
 use crate::error::{AppError, AppResult};
 use crate::models::storage::{
     CreateStoragePoolRequest, CreateStoragePoolResponse, CreateVolumeRequest, CreateVolumeResponse,
@@ -211,7 +214,10 @@ pub async fn create_volume(
 
     // Check if LV already exists in LVM
     let existing_lvs = crate::core::list_lvs().await.unwrap_or_default();
-    if existing_lvs.iter().any(|lv| lv.name == req.name && lv.vg_name == pool_id) {
+    if existing_lvs
+        .iter()
+        .any(|lv| lv.name == req.name && lv.vg_name == pool_id)
+    {
         return Err(AppError::AlreadyExists(format!(
             "Volume with name '{}' already exists in pool '{}'.",
             req.name, pool_id
@@ -342,10 +348,9 @@ pub async fn check_zpool_on_node(
         )
     };
 
-    let result = zfs_client
-        .check_zpool()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to check zpool on {}: {}", node.hostname, e)))?;
+    let result = zfs_client.check_zpool().await.map_err(|e| {
+        AppError::Internal(format!("Failed to check zpool on {}: {}", node.hostname, e))
+    })?;
 
     // Convert zfs-utils result to API response
     let pools = result

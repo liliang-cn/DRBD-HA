@@ -12,6 +12,9 @@ pub struct ResourceAgent {
     #[serde(rename = "version")]
     pub version_elem: Option<String>,
 
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub provider: String,
+
     #[serde(default)]
     pub longdesc: LocalizedText,
     #[serde(default)]

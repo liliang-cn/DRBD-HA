@@ -106,16 +106,22 @@ export function StorageConfigStep({
                   placeholder="Select disk or enter custom path (e.g., vg/lv1)"
                   options={diskOptions}
                   filterOption={(inputValue, option) =>
-                    option?.value?.toLowerCase().includes(inputValue.toLowerCase()) ||
-                    option?.label?.toLowerCase().includes(inputValue.toLowerCase())
+                    option?.value
+                      ?.toLowerCase()
+                      .includes(inputValue.toLowerCase()) ||
+                    option?.label
+                      ?.toLowerCase()
+                      .includes(inputValue.toLowerCase())
                   }
                   onChange={() => {
                     // When disk changes, check if all nodes use LV paths
-                    const allDiskValues = form.getFieldsValue().node_disks || {};
+                    const allDiskValues =
+                      form.getFieldsValue().node_disks || {};
                     const allValues = Object.values(allDiskValues);
-                    const anyHasLvPath = [...allValues, form.getFieldValue(['node_disks', node.id])].some(
-                      (v: string) => v && !v.startsWith('/dev/')
-                    );
+                    const anyHasLvPath = [
+                      ...allValues,
+                      form.getFieldValue(['node_disks', node.id]),
+                    ].some((v: string) => v && !v.startsWith('/dev/'));
                     // Store this state to conditionally show storage options
                     form.setFieldValue('_has_lv_paths', anyHasLvPath);
                   }}
@@ -134,21 +140,47 @@ export function StorageConfigStep({
               // Check if any node uses an LV path (not starting with /dev/)
               const nodeDisks = current.node_disks || {};
               const hasLvPath = Object.values(nodeDisks).some(
-                (v: unknown) => typeof v === 'string' && v && !v.startsWith('/dev/')
+                (v: unknown) =>
+                  typeof v === 'string' && v && !v.startsWith('/dev/'),
               );
               return prev._has_lv_paths !== hasLvPath;
             }}
           >
             {({ getFieldValue }) => {
               const nodeDisks = getFieldValue('node_disks') || {};
-              const hasLvPath = Object.values(nodeDisks).some(
-                (v: unknown) => typeof v === 'string' && v && !v.startsWith('/dev/')
+              const allPaths = Object.values(nodeDisks).filter(
+                (v: unknown): v is string => typeof v === 'string' && !!v,
               );
+
+              // Logic to detect if the user has entered an existing Logical Volume path
+              // We consider it an LV if:
+              // 1. It contains 'mapper' (e.g. /dev/mapper/vg-lv)
+              // 2. It matches typical LVM pattern: /dev/vgname/lvname
+              // 3. It matches short LVM pattern: vgname/lvname
+              // 4. It does NOT look like a raw disk (/dev/sdX, /dev/nvme..., /dev/vdX) unless it's a partition that might be an LV?
+              //    Actually, simple heuristic: if it contains a slash that isn't the root slash, it's likely a path.
+              //    If it doesn't start with /dev/, it's likely a short VG/LV path.
+
+              const looksLikeLv = (path: string) => {
+                if (!path) return false;
+                if (path.includes('/mapper/')) return true;
+                if (!path.startsWith('/dev/')) return true; // e.g. "myvg/mylv"
+
+                // Check for /dev/vgname/lvname (2 slashes after root)
+                const parts = path.split('/').filter((p) => p);
+                if (parts.length >= 3 && parts[0] === 'dev') return true;
+
+                return false;
+              };
+
+              const hasLvPath = allPaths.some(looksLikeLv);
 
               if (hasLvPath) {
                 return (
                   <div className="text-sm text-gray-500 mb-4">
-                    ℹ️ <strong>Using existing LVM volumes</strong> - Storage pool initialization is skipped when using existing LV paths.
+                    ℹ️ <strong>Using existing Logical Volume</strong> - Storage
+                    pool initialization is skipped when using existing volume
+                    paths (e.g. VG/LV).
                   </div>
                 );
               }
@@ -192,6 +224,22 @@ export function StorageConfigStep({
                 <>
                   {storageType === 'lvm' && (
                     <>
+                      <Form.Item
+                        name="lvm_allocation_policy"
+                        label="Allocation Policy"
+                        initialValue="thin"
+                        tooltip="Choose allocation strategy"
+                      >
+                        <Radio.Group>
+                          <Radio value="thin">
+                            Thin Provisioning (Snapshots/SSD)
+                          </Radio>
+                          <Radio value="thick">
+                            Standard/Thick (Performance/HDD)
+                          </Radio>
+                        </Radio.Group>
+                      </Form.Item>
+
                       <Row gutter={16}>
                         <Col span={8}>
                           <Form.Item
@@ -227,34 +275,59 @@ export function StorageConfigStep({
                           </Form.Item>
                         </Col>
                       </Row>
-                      <Row gutter={16}>
-                        <Col span={12}>
-                          <Form.Item
-                            name="lvm_thin_pool_name"
-                            label="Thin Pool Name"
-                            initialValue="thinpool"
-                            tooltip="LVM thin pool for efficient storage allocation"
-                          >
-                            <Input placeholder="thinpool" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={12}>
-                          <Form.Item
-                            name="lvm_thin_pool_size"
-                            label="Thin Pool Metadata Size"
-                            initialValue="1G"
-                            tooltip="Metadata size for thin pool (1G supports ~6400 volumes)"
-                          >
-                            <Input placeholder="1G" />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                      <div className="text-sm text-gray-500 mb-4">
-                        ℹ️ <strong>Thin provisioning enabled</strong>: Volumes
-                        will use only the space they actually need. Thin pool
-                        metadata size can be increased later if needed for more
-                        volumes.
-                      </div>
+
+                      <Form.Item
+                        noStyle
+                        shouldUpdate={(prev, current) =>
+                          prev.lvm_allocation_policy !==
+                          current.lvm_allocation_policy
+                        }
+                      >
+                        {({ getFieldValue }) => {
+                          const allocationPolicy = getFieldValue(
+                            'lvm_allocation_policy',
+                          );
+                          return allocationPolicy === 'thin' ? (
+                            <>
+                              <Row gutter={16}>
+                                <Col span={12}>
+                                  <Form.Item
+                                    name="lvm_thin_pool_name"
+                                    label="Thin Pool Name"
+                                    initialValue="thinpool"
+                                    tooltip="LVM thin pool for efficient storage allocation"
+                                  >
+                                    <Input placeholder="thinpool" />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={12}>
+                                  <Form.Item
+                                    name="lvm_thin_pool_size"
+                                    label="Thin Pool Metadata Size"
+                                    initialValue="1G"
+                                    tooltip="Metadata size for thin pool (1G supports ~6400 volumes)"
+                                  >
+                                    <Input placeholder="1G" />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                              <div className="text-sm text-gray-500 mb-4">
+                                ℹ️ <strong>Thin provisioning enabled</strong>:
+                                Volumes will use only the space they actually
+                                need. Thin pool metadata size can be increased
+                                later if needed for more volumes.
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-sm text-gray-500 mb-4">
+                              ℹ️ <strong>Standard (Thick) provisioning</strong>:
+                              Volume will allocate physical space immediately.
+                              Best for HDD performance and avoiding metadata
+                              overhead.
+                            </div>
+                          );
+                        }}
+                      </Form.Item>
                     </>
                   )}
 

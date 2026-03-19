@@ -51,7 +51,7 @@ pub struct HaProfileDetailResponse {
     pub profile: HaProfile,
     // Override status with live status
     pub status: HaProfileStatus,
-    /// Currently active node (from drbd-reactorctl)
+    /// Currently active node (from drbd-reactorctl status --json)
     pub active_node: Option<String>,
     /// Detected mount point from mount unit (if any)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,7 +65,7 @@ pub struct HaProfileDetailResponse {
     pub vip_active: Option<bool>,
     /// Configuration visibility info
     pub config: ConfigVisibility,
-    /// Raw output from drbd-reactorctl status
+    /// Raw JSON output from drbd-reactorctl status --json
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reactor_status_raw: Option<String>,
     /// Raw content of the DRBD resource configuration file

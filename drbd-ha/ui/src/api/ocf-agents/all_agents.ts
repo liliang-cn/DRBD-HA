@@ -1,0 +1,301 @@
+export interface Parameter {
+  name: string;
+  unique: boolean;
+  required: boolean;
+  shortdesc: string;
+  longdesc: string;
+  type: string;
+  default: string;
+}
+
+export interface Action {
+  name: string;
+  timeout: string;
+  interval: string;
+  depth: string;
+}
+
+export interface ResourceAgent {
+  name: string;
+  provider: string;
+  version: string;
+  shortdesc: string;
+  longdesc: string;
+  parameters: Parameter[];
+  actions: Action[];
+}
+
+export const ALL_AGENTS: ResourceAgent[] = [
+  {
+    name: 'drbd',
+    provider: 'linbit',
+    version: 'LINBIT 1.4',
+    shortdesc: 'Manages a DRBD device as a Master/Slave resource',
+    longdesc:
+      'This resource agent manages a DRBD resource as a master/slave resource.\nDRBD is a shared-nothing replicated storage device.\n\nNOTE:\nTo avoid data-divergence, you should enable either\nDRBD "quorum" and "on-no-quorum io-error" (recommended),\nor configure proper fencing policies in both DRBD\n*and* Pacemaker (fencing resource-and-stonith).\nThis cannot be done from this resource agent alone.\n\nSee the DRBD User\'s Guide for more information.\nhttps://docs.linbit.com/',
+    parameters: [
+      {
+        name: 'drbd_resource',
+        unique: true,
+        required: true,
+        shortdesc: 'drbd resource name',
+        longdesc: 'The name of the drbd resource from the drbd.conf file.',
+        type: 'string',
+        default: '',
+      },
+      {
+        name: 'drbdconf',
+        unique: false,
+        required: false,
+        shortdesc: 'Path to drbd.conf',
+        longdesc: 'Full path to the drbd.conf file.',
+        type: 'string',
+        default: '/etc/drbd.conf',
+      },
+      {
+        name: 'adjust_master_score',
+        unique: false,
+        required: false,
+        shortdesc: 'master score adjustments',
+        longdesc:
+          'Space separated list of four master score adjustments for different scenarios:\n - only access to \'consistent\' data\n - only remote access to \'uptodate\' data\n - currently Secondary, local access to \'uptodate\' data, but remote is unknown\n - local access to \'uptodate\' data, and currently Primary or remote is known\n\nNumeric values are expected to be non-decreasing.\n\nThe first value is 0 by default to prevent pacemaker from trying to promote\nwhile it is unclear whether the data is really the most recent copy.\n(DRBD knows it is "consistent", but is unsure about "uptodate"ness).\nPlease configure proper fencing methods both in DRBD\n(fencing resource-and-stonith; appropriate (un)fence-peer handlers)\nAND in Pacemaker to make this work reliably.\n\nAdvanced use: Adjust the other values to better fit into complex\ndependency score calculations.\n\nIntentionally diskless nodes ("Diskless Clients") with access to good data via\nsome (or all) their peers will use the 3rd or 4th value (minus one) when they\nare (Secondary, not all peers up-to-date) or (ALL peers are up-to-date, or they\nare Primary themselves). This may need to change if this should become a\nfrequent use case.\n\nSpecial considerations:\n\nIf a Secondary DRBD is connected to a peer in Primary role, but Pacemaker does\nnot know about any Primary (using crm_resource --locate), we conclude that\nthere likely is a cluster-split-brain, and may try to "help" Pacemaker by removing\nthe master-score.  Also see "remove_master_score_if_peer_primary".',
+        type: 'string',
+        default: '0 10 1000 10000',
+      },
+      {
+        name: 'stop_outdates_secondary',
+        unique: false,
+        required: false,
+        shortdesc: 'outdate a secondary on stop',
+        longdesc:
+          'Recommended setting: leave at default (disabled).\n\nNote that this feature depends on the passed in information in\nOCF_RESKEY_CRM_meta_notify_master_uname to be correct, which unfortunately is\nnot reliable for pacemaker versions up to at least 1.0.10 / 1.1.4.\n\nIf a Secondary is stopped (unconfigured), it may be marked as outdated in the\ndrbd meta data, if we know there is still a Primary running in the cluster.\nNote that this does not affect fencing policies set in drbd config,\nbut is an additional safety feature of this resource agent only.\nYou can enable this behaviour by setting the parameter to true.\n\nIf this feature seems to not do what you expect, make sure you have defined\nfencing policies in the drbd configuration as well.',
+        type: 'boolean',
+        default: 'false',
+      },
+      {
+        name: 'ignore_missing_notifications',
+        unique: false,
+        required: false,
+        shortdesc: 'ignore missing notify=true',
+        longdesc:
+          'Some setups do not benefit from notifications.\nAllow to disable notifications without patching this resource agent.',
+        type: 'boolean',
+        default: 'false',
+      },
+      {
+        name: 'wfc_timeout',
+        unique: false,
+        required: false,
+        shortdesc: 'wait for connections with timeout',
+        longdesc:
+          'Unless set to the empty string or any non-digits, wait (at most)\nthis many seconds for the connection(s) to be established\nafter bringing them up during "start".',
+        type: 'integer',
+        default: '5',
+      },
+      {
+        name: 'remove_master_score_if_peer_primary',
+        unique: false,
+        required: false,
+        shortdesc: 'remove master score if we are connected to a primary peer',
+        longdesc:
+          'See also "adjust_master_score" and "fail_promote_early_if_peer_primary".\n\nTo prevent a potentially failed promotion attempt in case of cluster split-brain\n(Pacemaker communication loss) while DRBD is still connected to a Primary,\nyou can request to remove any master score while DRBD is connected to a Primary\n(and that Primary peer looks like it has all disks up-to-date).\n\nThis may delay legitimate failovers after Primary crash by up to some TCP timeout\n(until DRBD realizes that the Primary is gone) plus one monitoring interval.\n\nThis parameter is interpreted almost as an "ocf boolean",\nwith the exception of a literal "unexpected", that is:\n- (yes|true|1) [actually, according to the OCF spec, also\n  (YES|TRUE|True|ja|ON), but please don\'t go there]: is "true":\n  remove (or never assign) master scores, if DRBD appears to see a (healthy) Primary\n- "unexpected":\n  assign master scores as described under "adjust_master_score",\n  while removing it if DRBD appears to see a (healthy) Primary\n  that Pacemaker does not know about (as determined by crm_resource --locate).\n- everything else is "false":\n  ignore the peer role while assigning master scores.',
+        type: 'string',
+        default: 'false',
+      },
+      {
+        name: 'fail_promote_early_if_peer_primary',
+        unique: false,
+        required: false,
+        shortdesc: 'try promote only once when connected to a primary peer',
+        longdesc:
+          'See also "adjust_master_score" and "remove_master_score_if_peer_primary".\n\nTo avoid a useless retry loop during promotion attempts in case of cluster\nsplit-brain (Pacemaker communication loss) while DRBD is still connected to a\nPrimary, you can chose to give up after the first try if this situation is detected.\n\nIf a Primary "vanishes", TCP may not immediately detect this, and an idle DRBD\nmay take some time until it does in-DRBD-protocol "pings". Pacemaker may well\ndetect Primary loss earlier than DRBD, and try to promote while DRBD thinks it\ncan still see a Primary. Which means, in general, trying to promote at least\nonce is necessary, as that implies an in-DRBD-protocol "peer alive" check.\n\nBut if that does not succeed, re-trying until we hit the operation timeout may\nnot be desired, so you can disable it.',
+        type: 'boolean',
+        default: 'false',
+      },
+      {
+        name: 'unfence_if_all_uptodate',
+        unique: false,
+        required: false,
+        shortdesc: 'call unfence hook once fully UpToDate',
+        longdesc:
+          'If all volumes of this resource report to be UpToDate,\ncall an unfence script hook, just in case some stale fencing constraint\nor similar is still around.\n\n- With DRBD utils version <= 8.9.4, this is hardcoded to\n  /usr/lib/drbd/crm-unfence-peer.sh -r $DRBD_RESOURCE\n- With DRBD utils version >= 8.9.5, this is dispatched to\n   $DRBDADM unfence-peer $DRBD_RESOURCE\n\nIn any case, the hook itself is responsible to fetch\n$OCF_RESKEY_unfence_extra_args from its environment.',
+        type: 'boolean',
+        default: 'false',
+      },
+      {
+        name: 'unfence_extra_args',
+        unique: false,
+        required: false,
+        shortdesc: 'Extra arguments for the unfence hook.',
+        longdesc:
+          'This may be used to pass extra hints to the unfence hook.\nSee description of unfence_if_all_uptodate.',
+        type: 'boolean',
+        default:
+          '--quiet --flock-required --flock-timeout 0 --unfence-only-if-owner-match',
+      },
+      {
+        name: 'require_drbd_module_version_ge',
+        unique: false,
+        required: false,
+        shortdesc: '',
+        longdesc:
+          'Use this you want to force failure of this resource agent\nif the detected DRBD kernel (module) driver version is lower than a required minimum.\n\nExample: use require_drbd_module_version_ge=9.0.16 to fail unless DRBD\nmodule version >= 9.0.16 is available (effectively requires DRBD 9).\n\nThe intention of this is to give a more useful failure message\nafter accidentally downgrading the DRBD version\nby installing/upgrading a new kernel.\n\nNote: "ge", "greater-or-equal", inclusive.  Required format: x.y.z\n\nSet empty to skip this check.',
+        type: 'string',
+        default: '8.0.0',
+      },
+      {
+        name: 'require_drbd_module_version_lt',
+        unique: false,
+        required: false,
+        shortdesc: '',
+        longdesc:
+          'Use this you want to force failure of this resource agent\nif the detected DRBD kernel (module) driver version is higher than a required maximum.\n\nExample: use require_drbd_module_version_lt=9.0.0 to fail unless DRBD\nmodule version < 9.0 is available (effectively requires DRBD 8.4).\n\nNote: "lt", "less-than", exclusive.  Required format: x.y.z\n\nSet empty to skip this check.',
+        type: 'string',
+        default: '10.0.0',
+      },
+      {
+        name: 'connect_only_after_promote',
+        unique: false,
+        required: false,
+        shortdesc: '',
+        longdesc:
+          'This may be useful for "stacked" setups without proper fencing on the lower\nlayer (which we obviously do not recommend), to avoid some of the ugly side\neffects that may arise after resolving a split-brain on the lower layer.\n\nKeep this DRBD instance disconnected until it is promoted.\nAfter promotion we issue an additional "adjust",\nwhich is supposed to initiate the connection attempts.\n\nThis causes a new data generation identifier ("current uuid")\nto be generated after the failover of a "healthy" DRBD.',
+        type: 'boolean',
+        default: 'false',
+      },
+    ],
+    actions: [
+      {
+        name: 'start',
+        timeout: '240',
+        interval: '',
+        depth: '',
+      },
+      {
+        name: 'reload',
+        timeout: '30',
+        interval: '',
+        depth: '',
+      },
+      {
+        name: 'promote',
+        timeout: '90',
+        interval: '',
+        depth: '',
+      },
+      {
+        name: 'demote',
+        timeout: '90',
+        interval: '',
+        depth: '',
+      },
+      {
+        name: 'notify',
+        timeout: '90',
+        interval: '',
+        depth: '',
+      },
+      {
+        name: 'stop',
+        timeout: '100',
+        interval: '',
+        depth: '',
+      },
+      {
+        name: 'monitor',
+        timeout: '20',
+        interval: '20',
+        depth: '',
+      },
+      {
+        name: 'monitor',
+        timeout: '20',
+        interval: '10',
+        depth: '',
+      },
+      {
+        name: 'meta-data',
+        timeout: '5',
+        interval: '',
+        depth: '',
+      },
+      {
+        name: 'validate-all',
+        timeout: '',
+        interval: '',
+        depth: '',
+      },
+    ],
+  },
+  {
+    name: 'drbd-attr',
+    provider: 'linbit',
+    version: '1.0',
+    shortdesc: 'import DRBD state change events as transient node attributes',
+    longdesc:
+      'This listens for DRBD state change events, and sets or deletes transient node\nattributes based on the "promotion_score" and "may_promote" values as presented\nby the DRBD events2 interface.\n\nOptionally using a dampening delay, see attrd_updater for details.\n\nTo be used as a clone on all DRBD nodes.  The idea is to start DRBD outside of\npacemaker, use DRBD auto-promote, and add location constraints for the\nFilesystem or other resource agents which are using DRBD.',
+    parameters: [
+      {
+        name: 'dampening_delay',
+        unique: false,
+        required: false,
+        shortdesc: 'attrd_updater --delay',
+        longdesc: 'To be used as dampening delay in attrd_updater.',
+        type: 'integer',
+        default: '5',
+      },
+      {
+        name: 'attr_name_prefix',
+        unique: false,
+        required: false,
+        shortdesc: 'attrd_updater --name *prefix*-drbd_resource_name',
+        longdesc:
+          'The attributes will be named "*prefix*-drbd_resource_name".\nYou can chose that prefix here.',
+        type: 'string',
+        default: 'drbd-promotion-score',
+      },
+      {
+        name: 'record_event_details',
+        unique: false,
+        required: false,
+        shortdesc: '',
+        longdesc:
+          'It may be convenient to know which event lead to the current score.\nThis setting toggles the recording of the event.\nThe attributes will be named "*prefix*:event-details-drbd_resource_name".',
+        type: 'boolean',
+        default: 'false',
+      },
+    ],
+    actions: [
+      {
+        name: 'start',
+        timeout: '20s',
+        interval: '',
+        depth: '',
+      },
+      {
+        name: 'stop',
+        timeout: '20s',
+        interval: '',
+        depth: '',
+      },
+      {
+        name: 'monitor',
+        timeout: '20s',
+        interval: '60s',
+        depth: '0',
+      },
+      {
+        name: 'validate-all',
+        timeout: '20s',
+        interval: '',
+        depth: '',
+      },
+      {
+        name: 'meta-data',
+        timeout: '5s',
+        interval: '',
+        depth: '',
+      },
+    ],
+  },
+];

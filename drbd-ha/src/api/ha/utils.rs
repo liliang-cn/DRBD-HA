@@ -1,4 +1,4 @@
-use crate::core::{run_shell_command, drbd_cmd::DrbdCmd};
+use crate::core::{drbd_cmd::DrbdCmd, run_shell_command};
 use crate::error::AppResult;
 use crate::models::{HaProfile, HaProfileStatus, HaType, Node, PromoterSettings, VipConfig};
 use crate::state::AppState;
@@ -49,10 +49,7 @@ pub(crate) fn parse_vip_from_config(content: &str) -> Option<VipConfig> {
             }
 
             if let (Some(address), Some(netmask)) = (ip_addr, netmask) {
-                return Some(VipConfig {
-                    address,
-                    netmask,
-                });
+                return Some(VipConfig { address, netmask });
             }
         }
     }
@@ -106,14 +103,14 @@ pub async fn find_next_free_drbd_minor(state: &AppState) -> AppResult<u32> {
                             let parts: Vec<&str> = line.split_whitespace().collect();
                             for (i, part) in parts.iter().enumerate() {
                                 if *part == "device" && i + 1 < parts.len() {
-                                    let dev = parts[i+1].trim_matches(';');
+                                    let dev = parts[i + 1].trim_matches(';');
                                     if let Some(num_str) = dev.strip_prefix("/dev/drbd") {
                                         if let Ok(n) = num_str.parse::<u32>() {
                                             used_minors.insert(n);
                                         }
                                     }
                                 } else if *part == "minor" && i + 1 < parts.len() {
-                                    let val = parts[i+1].trim_matches(';');
+                                    let val = parts[i + 1].trim_matches(';');
                                     if let Ok(n) = val.parse::<u32>() {
                                         used_minors.insert(n);
                                     }
@@ -264,8 +261,8 @@ pub fn create_profile_from_toml(name: &str, content: &str) -> Option<HaProfile> 
     let services = parse_services_from_config(content);
     let vip = parse_vip_from_config(content);
     let mount_point = parse_mount_point_from_config(content).unwrap_or_default();
-    let resource_name = parse_resource_name_from_config(content)
-        .unwrap_or_else(|| name.to_string()); // Fallback to profile name
+    let resource_name =
+        parse_resource_name_from_config(content).unwrap_or_else(|| name.to_string()); // Fallback to profile name
 
     // Use drbd-reactor-utils to detect if this is a built-in plugin
     let is_builtin_plugin = drbd_reactor_utils::parser::is_builtin_plugin(content, name);

@@ -53,12 +53,3 @@ pub struct ProfileDisabledStatus {
     pub node: String,
     pub disabled: bool,
 }
-
-/// Built-in plugin status (e.g., prometheus, events)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuiltinPluginStatus {
-    pub name: String,
-    pub plugin_type: String,
-    pub is_listening: bool,
-    pub address: Option<String>,
-}

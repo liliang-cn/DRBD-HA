@@ -61,12 +61,11 @@ impl ReactorDiscovery {
         }
 
         // Pre-compile regexes
-        let vip_regex = Regex::new(
-            r"ocf:heartbeat:IPaddr2\s+\S+\s+ip=([0-9\.]+)\s+cidr_netmask=(\d+)"
-        )
-        .unwrap();
+        let vip_regex =
+            Regex::new(r"ocf:heartbeat:IPaddr2\s+\S+\s+ip=([0-9\.]+)\s+cidr_netmask=(\d+)")
+                .unwrap();
         let fs_regex = Regex::new(
-            r"ocf:heartbeat:Filesystem\s+\S+\s+device=(\S+)\s+directory=(\S+)\s+fstype=(\S+)"
+            r"ocf:heartbeat:Filesystem\s+\S+\s+device=(\S+)\s+directory=(\S+)\s+fstype=(\S+)",
         )
         .unwrap();
         let agent_regex = Regex::new(r"^(\S+)\s+(\S+)(?:\s+(.*))?$").unwrap();
@@ -88,7 +87,11 @@ impl ReactorDiscovery {
                 let toml: ReactorToml = match toml::from_str(&content) {
                     Ok(t) => t,
                     Err(e) => {
-                        warn!("Failed to parse TOML structure in {}: {}", path.display(), e);
+                        warn!(
+                            "Failed to parse TOML structure in {}: {}",
+                            path.display(),
+                            e
+                        );
                         continue;
                     }
                 };
@@ -127,42 +130,51 @@ impl ReactorDiscovery {
                                 }
 
                                 // Check for other OCF agents
-                                if item.starts_with("ocf:") || item.starts_with("lsb:") || item.starts_with("service:") {
-                                     if let Some(caps) = agent_regex.captures(item) {
-                                         let name = caps[1].to_string();
-                                         let instance_name = caps[2].to_string();
-                                         let params_str = caps.get(3).map(|m| m.as_str()).unwrap_or("");
+                                if item.starts_with("ocf:")
+                                    || item.starts_with("lsb:")
+                                    || item.starts_with("service:")
+                                {
+                                    if let Some(caps) = agent_regex.captures(item) {
+                                        let name = caps[1].to_string();
+                                        let instance_name = caps[2].to_string();
+                                        let params_str =
+                                            caps.get(3).map(|m| m.as_str()).unwrap_or("");
 
-                                         let mut params = std::collections::HashMap::new();
-                                         for pair in params_str.split_whitespace() {
-                                             if let Some((k, v)) = pair.split_once('=') {
-                                                 params.insert(k.to_string(), v.to_string());
-                                             }
-                                         }
+                                        let mut params = std::collections::HashMap::new();
+                                        for pair in params_str.split_whitespace() {
+                                            if let Some((k, v)) = pair.split_once('=') {
+                                                params.insert(k.to_string(), v.to_string());
+                                            }
+                                        }
 
-                                         // Convert HashMap to Vec<ParamEntry> preserving order
-                                         let params_vec: Vec<crate::models::ha::ParamEntry> = params
-                                             .into_iter()
-                                             .map(|(k, v)| crate::models::ha::ParamEntry { key: k, value: v })
-                                             .collect();
+                                        // Convert HashMap to Vec<ParamEntry> preserving order
+                                        let params_vec: Vec<crate::models::ha::ParamEntry> = params
+                                            .into_iter()
+                                            .map(|(k, v)| crate::models::ha::ParamEntry {
+                                                key: k,
+                                                value: v,
+                                            })
+                                            .collect();
 
-                                         ocf_agents.push(OcfAgentConfig {
-                                             name,
-                                             instance_name,
-                                             params: params_vec,
-                                         });
-                                     }
-                                     continue;
+                                        ocf_agents.push(OcfAgentConfig {
+                                            name,
+                                            instance_name,
+                                            params: params_vec,
+                                        });
+                                    }
+                                    continue;
                                 }
-                                
+
                                 // Check for systemd mount unit
                                 if item.ends_with(".mount") {
                                     generated_mount_unit = Some(item.clone());
                                     // Try to guess mount point from unit name (e.g. var-lib-mysql.mount -> /var/lib/mysql)
                                     // This is loose, but mostly visual.
                                     if mount_point.is_empty() {
-                                        let path_str = item.trim_end_matches(".mount").replace('-', "/");
-                                         mount_point = format!("/{}", path_str.trim_start_matches('/'));
+                                        let path_str =
+                                            item.trim_end_matches(".mount").replace('-', "/");
+                                        mount_point =
+                                            format!("/{}", path_str.trim_start_matches('/'));
                                     }
                                     continue; // Treated as part of the "start" sequence but handled specially
                                 }
@@ -191,10 +203,13 @@ impl ReactorDiscovery {
                                 promoter: PromoterSettings {
                                     services,
                                     stop_on_demote: res_conf.stop_services_on_exit.unwrap_or(true),
-                                    on_demote_failure: res_conf.on_demote_failure.unwrap_or_else(|| "reboot".to_string()),
+                                    on_demote_failure: res_conf
+                                        .on_demote_failure
+                                        .unwrap_or_else(|| "reboot".to_string()),
                                     preferred_nodes: res_conf.preferred_nodes,
                                     preferred_nodes_policy: res_conf.preferred_nodes_policy,
-                                    sleep_before_promote_factor: res_conf.sleep_before_promote_factor,
+                                    sleep_before_promote_factor: res_conf
+                                        .sleep_before_promote_factor,
                                     dependencies_as: res_conf.dependencies_as,
                                     target_as: res_conf.target_as,
                                     on_quorum_loss: res_conf.on_quorum_loss,
@@ -225,12 +240,13 @@ impl ReactorDiscovery {
         if !path.exists() {
             return Ok(Vec::new());
         }
-        
+
         // Regex to find "on <hostname> { ... address <ip>:<port>"
         // This is a multi-line match, so we need to be careful or read the whole file.
         // Simplified regex for line-by-line or block parsing.
         // We'll read the whole file content.
-        let node_regex = Regex::new(r"on\s+([a-zA-Z0-9\-\.]+)\s+\{[^}]*address\s+([0-9\.]+):(\d+);" ).unwrap();
+        let node_regex =
+            Regex::new(r"on\s+([a-zA-Z0-9\-\.]+)\s+\{[^}]*address\s+([0-9\.]+):(\d+);").unwrap();
 
         for entry in fs::read_dir(path)? {
             let entry = entry?;
@@ -244,9 +260,10 @@ impl ReactorDiscovery {
                         continue;
                     }
                 };
-                
+
                 // remove comments
-                let cleaned_content = content.lines()
+                let cleaned_content = content
+                    .lines()
                     .filter(|l| !l.trim().starts_with('#'))
                     .collect::<Vec<_>>()
                     .join("\n");
@@ -260,16 +277,16 @@ impl ReactorDiscovery {
                         id: hostname.clone(),
                         hostname,
                         ip,
-                        ssh_port: 22, // Default assumption
+                        ssh_port: 22,                 // Default assumption
                         ssh_user: "root".to_string(), // Default assumption
-                        is_local: false, // Will be checked later
+                        is_local: false,              // Will be checked later
                         status: NodeStatus::Unknown,
                         last_seen: None,
                     });
                 }
             }
         }
-        
+
         Ok(nodes.into_values().collect())
     }
 

@@ -123,7 +123,8 @@ export function parseTomlContent(content: string): ParsedTomlSection | null {
         if (currentSection) {
           if (Array.isArray(result[currentSection])) {
             // Add to last item in array
-            const lastItem = result[currentSection][result[currentSection].length - 1] || {};
+            const lastItem =
+              result[currentSection][result[currentSection].length - 1] || {};
             lastItem[key] = parseTomlValue(value);
             if (result[currentSection].length === 0) {
               result[currentSection].push(lastItem);
@@ -151,8 +152,10 @@ function parseTomlValue(value: string): any {
   value = value.trim();
 
   // String literal
-  if ((value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))) {
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
     return value.slice(1, -1);
   }
 

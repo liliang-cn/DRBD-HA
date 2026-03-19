@@ -36,7 +36,10 @@ impl ClusterSync {
         node_store: NodeStore,
         _credentials: Arc<RwLock<HashMap<String, SshCredential>>>, // Kept for signature compatibility if needed, or remove
     ) -> Self {
-        Self { ssh_manager, node_store }
+        Self {
+            ssh_manager,
+            node_store,
+        }
     }
 
     /// Get credential for a node (Dummy)
@@ -169,13 +172,10 @@ impl ClusterSync {
             let node_user = node.ssh_user.clone();
             let ssh_manager = self.ssh_manager.clone();
             let ssh_executor = move |cmd: String| async move {
-                match ssh_manager.execute(
-                    &node_ip,
-                    node_port,
-                    &node_user,
-                    credential,
-                    &cmd,
-                ).await {
+                match ssh_manager
+                    .execute(&node_ip, node_port, &node_user, credential, &cmd)
+                    .await
+                {
                     Ok(output) => Ok(output.stdout),
                     Err(e) => Err(shell_cmd::error::ShellError::Execution(e.to_string())),
                 }
@@ -185,18 +185,31 @@ impl ClusterSync {
                 resource_name,
                 ssh_executor,
                 verification_config,
-            ).await {
+            )
+            .await
+            {
                 Ok(result) => {
                     if result.success {
-                        tracing::info!("✓ DRBD config verified on remote node {}: {} (attempts: {})",
-                            node.hostname, resource_name, result.attempts);
+                        tracing::info!(
+                            "✓ DRBD config verified on remote node {}: {} (attempts: {})",
+                            node.hostname,
+                            resource_name,
+                            result.attempts
+                        );
                     } else {
-                        tracing::warn!("⚠ DRBD verification failed on remote node {}: {}",
-                            node.hostname, result.details.status_info);
+                        tracing::warn!(
+                            "⚠ DRBD verification failed on remote node {}: {}",
+                            node.hostname,
+                            result.details.status_info
+                        );
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("⚠ Failed to verify DRBD status on remote node {}: {}", node.hostname, e);
+                    tracing::warn!(
+                        "⚠ Failed to verify DRBD status on remote node {}: {}",
+                        node.hostname,
+                        e
+                    );
                 }
             }
 
@@ -364,7 +377,10 @@ impl ClusterSync {
             // Escape single quotes in content
             let escaped_content = content.replace('\'', "'\\''");
             // Use sudo tee to write with root privileges
-            format!("echo '{}' | sudo tee '{}' > /dev/null", escaped_content, path)
+            format!(
+                "echo '{}' | sudo tee '{}' > /dev/null",
+                escaped_content, path
+            )
         } else {
             // For root user, use cat with heredoc for better handling of special characters
             format!("cat > '{}' << 'EOF'\n{}\nEOF", path, content)
@@ -372,13 +388,7 @@ impl ClusterSync {
 
         let result = self
             .ssh_manager
-            .execute(
-                &node.ip,
-                node.ssh_port,
-                &node.ssh_user,
-                credential,
-                &cmd,
-            )
+            .execute(&node.ip, node.ssh_port, &node.ssh_user, credential, &cmd)
             .await;
 
         match &result {
@@ -388,7 +398,9 @@ impl ClusterSync {
                 } else {
                     tracing::error!(
                         "Failed to write {} on {}: {}",
-                        path, node.hostname, output.stderr
+                        path,
+                        node.hostname,
+                        output.stderr
                     );
                     return Err(AppError::Ssh(format!(
                         "Failed to write {} on {}: {}",
@@ -505,7 +517,11 @@ impl ClusterSync {
     }
 
     /// Remove DRBD resource from all remote nodes
-    pub async fn remove_drbd_resource(&self, resource_name: &str, config_path: &str) -> AppResult<Vec<String>> {
+    pub async fn remove_drbd_resource(
+        &self,
+        resource_name: &str,
+        config_path: &str,
+    ) -> AppResult<Vec<String>> {
         let nodes = self.node_store.get_all()?;
         let mut synced_nodes = Vec::new();
 

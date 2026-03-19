@@ -6,6 +6,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
 };
+use drbd_reactor_utils::DrbdReactorClient;
 use std::sync::Arc;
 
 use crate::core::{
@@ -852,19 +853,16 @@ pub async fn delete_profile(
 
     // 2. Verify drbd-reactor profile is gone (check on local node)
     tracing::info!("Verifying drbd-reactor profile deletion...");
-    let verify_reactor_cmd = format!("drbd-reactorctl status {}", profile.name);
-    match run_shell_command(&verify_reactor_cmd, "Verify reactor profile deleted").await {
-        Ok(output) => {
-            if output.stdout.contains(&profile.name) {
-                let msg = format!("drbd-reactor profile {} still active", profile.name);
-                tracing::warn!("{}", msg);
-                verification_errors.push(msg);
-            } else {
-                tracing::info!("drbd-reactor profile {} successfully removed", profile.name);
-            }
+    match DrbdReactorClient::status(Some(&profile.name), None).await {
+        Ok((statuses, _)) if statuses.is_empty() => {
+            tracing::info!("drbd-reactor profile {} successfully removed", profile.name);
+        }
+        Ok(_) => {
+            let msg = format!("drbd-reactor profile {} still active", profile.name);
+            tracing::warn!("{}", msg);
+            verification_errors.push(msg);
         }
         Err(_e) => {
-            // Command failed likely means profile doesn't exist, which is good
             tracing::info!("drbd-reactor profile {} not found (expected)", profile.name);
         }
     }

@@ -235,7 +235,11 @@ pub async fn list_unmanaged_profiles(
     tracing::info!("Scanning for unmanaged HA profiles");
     let discovered = match ReactorDiscovery::scan_profiles() {
         Ok(profiles) => {
-            tracing::info!("Found {} profiles in {}", profiles.len(), state.reactor_config_dir());
+            tracing::info!(
+                "Found {} profiles in {}",
+                profiles.len(),
+                state.reactor_config_dir()
+            );
             profiles
         }
         Err(e) => {
@@ -280,7 +284,8 @@ pub async fn import_profiles(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ImportProfilesRequest>,
 ) -> AppResult<Json<ImportProfilesResponse>> {
-    let discovered = ReactorDiscovery::scan_profiles().map_err(|e| AppError::Internal(e.to_string()))?;
+    let discovered =
+        ReactorDiscovery::scan_profiles().map_err(|e| AppError::Internal(e.to_string()))?;
     let existing_profiles = super::utils::get_all_ha_profile_names(&state).await?;
 
     let mut imported = Vec::new();

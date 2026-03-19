@@ -64,7 +64,7 @@ export function OcfAgentModal({
     if (visible && step === 0) {
       loadAgents();
     }
-  }, [visible, step]);
+  }, [visible, step, loadAgents]);
 
   const providers = useMemo(() => {
     const unique = new Set(agents.map((a) => a.provider));

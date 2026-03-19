@@ -124,43 +124,11 @@ pub async fn evict_profile(
             ensure_node_in_store(&state, node_id)?
         }
     } else {
-        let status_cmd = format!("drbd-reactorctl status {} 2>/dev/null", profile.name);
-        let output = run_shell_command(
-            &status_cmd,
-            &format!("Get drbd-reactorctl status for profile {}", profile.name),
-        )
-        .await?;
-
-        let active_node_name = if output.success() && !output.stdout.is_empty() {
-            output
-                .stdout
-                .lines()
-                .find(|line| line.contains("Currently active"))
-                .and_then(|line| {
-                    if line.contains("Currently active on this node") {
-                        Some(gethostname::gethostname().to_string_lossy().to_string())
-                    } else if line.contains("Currently active on node") {
-                        let parts: Vec<&str> = line.split("Currently active on node").collect();
-                        if let Some(suffix) = parts.get(1) {
-                            let node = suffix
-                                .trim_start_matches([':', ' ', '\''])
-                                .trim_end_matches('\'')
-                                .trim();
-                            if !node.is_empty() {
-                                Some(node.to_string())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-        } else {
-            None
-        };
+        let active_node_name = DrbdReactorClient::status(Some(&profile.name), None)
+            .await
+            .ok()
+            .and_then(|(statuses, _)| statuses.into_iter().next())
+            .and_then(|status| status.active_node);
 
         if let Some(active_hostname) = active_node_name {
             // Auto-discover and add node if not in store

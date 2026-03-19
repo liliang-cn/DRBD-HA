@@ -29,11 +29,11 @@ pub struct ZpoolStatus {
 #[derive(Debug, Clone)]
 pub struct ZfsPoolInfo {
     pub name: String,
-    pub size: u64,         // Total size in bytes
-    pub allocated: u64,    // Allocated size in bytes
-    pub free: u64,         // Free size in bytes
-    pub capacity: f32,     // Capacity percentage (0.0-100.0)
-    pub health: String,    // Health status (ONLINE, DEGRADED, FAULTED, etc.)
+    pub size: u64,            // Total size in bytes
+    pub allocated: u64,       // Allocated size in bytes
+    pub free: u64,            // Free size in bytes
+    pub capacity: f32,        // Capacity percentage (0.0-100.0)
+    pub health: String,       // Health status (ONLINE, DEGRADED, FAULTED, etc.)
     pub devices: Vec<String>, // Underlying devices
 }
 
@@ -41,13 +41,13 @@ pub struct ZfsPoolInfo {
 #[derive(Debug, Clone)]
 pub struct ZfsDatasetInfo {
     pub name: String,
-    pub type_: String,     // filesystem, volume, snapshot, bookmark
-    pub used: u64,         // Used space in bytes
-    pub available: u64,    // Available space in bytes
-    pub referenced: u64,   // Referenced space in bytes
-    pub mountpoint: String, // Mount point
-    pub pool: String,      // Parent pool
-    pub origin: String,    // Origin snapshot (for clones)
+    pub type_: String,       // filesystem, volume, snapshot, bookmark
+    pub used: u64,           // Used space in bytes
+    pub available: u64,      // Available space in bytes
+    pub referenced: u64,     // Referenced space in bytes
+    pub mountpoint: String,  // Mount point
+    pub pool: String,        // Parent pool
+    pub origin: String,      // Origin snapshot (for clones)
     pub compression: String, // Compression algorithm
 }
 
@@ -56,13 +56,13 @@ pub struct ZfsDatasetInfo {
 pub struct ZfsThinVolumeInfo {
     pub name: String,
     pub pool: String,
-    pub size: u64,         // Volume size in bytes
-    pub used: u64,         // Actually used space in bytes
-    pub referenced: u64,   // Referenced space in bytes
-    pub logical_used: u64, // Logical space used by volume
+    pub size: u64,              // Volume size in bytes
+    pub used: u64,              // Actually used space in bytes
+    pub referenced: u64,        // Referenced space in bytes
+    pub logical_used: u64,      // Logical space used by volume
     pub compression_ratio: f32, // Compression ratio
-    pub sparse: bool,      // Whether volume is sparse
-    pub reservation: u64,  // Space reservation
+    pub sparse: bool,           // Whether volume is sparse
+    pub reservation: u64,       // Space reservation
 }
 
 /// Client for querying ZFS information (local or remote)
@@ -162,7 +162,8 @@ impl ZfsClient {
 
     /// List all ZFS Datasets
     pub async fn list_datasets(&self, pool_name: Option<&str>) -> ZfsResult<Vec<ZfsDatasetInfo>> {
-        let base_cmd = "zfs list -H -o name,type,used,avail,refer,mountpoint,pool,origin,compression";
+        let base_cmd =
+            "zfs list -H -o name,type,used,avail,refer,mountpoint,pool,origin,compression";
         let cmd = if let Some(pool) = pool_name {
             format!("{} -r {}", base_cmd, pool)
         } else {
@@ -218,10 +219,7 @@ impl ZfsClient {
         }
 
         let output = self
-            .execute(
-                &cmd,
-                &format!("Create ZFS dataset '{}'", full_name),
-            )
+            .execute(&cmd, &format!("Create ZFS dataset '{}'", full_name))
             .await?;
 
         if !output.success() {
@@ -253,10 +251,7 @@ impl ZfsClient {
         let output = self
             .execute(
                 &cmd,
-                &format!(
-                    "Create ZFS volume '{}' of {}GB",
-                    full_name, size_gb
-                ),
+                &format!("Create ZFS volume '{}' of {}GB", full_name, size_gb),
             )
             .await?;
 
@@ -279,10 +274,7 @@ impl ZfsClient {
         cmd.push_str(dataset_name);
 
         let output = self
-            .execute(
-                &cmd,
-                &format!("Delete ZFS dataset '{}'", dataset_name),
-            )
+            .execute(&cmd, &format!("Delete ZFS dataset '{}'", dataset_name))
             .await?;
 
         if !output.success() {
@@ -295,16 +287,18 @@ impl ZfsClient {
     }
 
     /// Resize ZFS Volume
-    pub async fn resize_volume(&self, pool_name: &str, volume_name: &str, new_size_gb: u64) -> ZfsResult<()> {
+    pub async fn resize_volume(
+        &self,
+        pool_name: &str,
+        volume_name: &str,
+        new_size_gb: u64,
+    ) -> ZfsResult<()> {
         let full_name = format!("{}/{}", pool_name, volume_name);
         let cmd = format!("zfs set volsize={}G {}", new_size_gb, full_name);
         let output = self
             .execute(
                 &cmd,
-                &format!(
-                    "Resize ZFS volume '{}' to {}GB",
-                    full_name, new_size_gb
-                ),
+                &format!("Resize ZFS volume '{}' to {}GB", full_name, new_size_gb),
             )
             .await?;
 
@@ -318,7 +312,12 @@ impl ZfsClient {
     }
 
     /// Set ZFS property
-    pub async fn set_property(&self, dataset_name: &str, property: &str, value: &str) -> ZfsResult<()> {
+    pub async fn set_property(
+        &self,
+        dataset_name: &str,
+        property: &str,
+        value: &str,
+    ) -> ZfsResult<()> {
         let cmd = format!("zfs set {}={} {}", property, value, dataset_name);
         let output = self
             .execute(
@@ -376,7 +375,10 @@ impl ZfsClient {
     }
 
     /// Get detailed information about ZFS volumes (including thin provisioning)
-    pub async fn list_thin_volumes(&self, pool_name: Option<&str>) -> ZfsResult<Vec<ZfsThinVolumeInfo>> {
+    pub async fn list_thin_volumes(
+        &self,
+        pool_name: Option<&str>,
+    ) -> ZfsResult<Vec<ZfsThinVolumeInfo>> {
         let base_cmd = "zfs list -H -o name,used,volsize,refer,logicalused,compressratio,sparse,volsize,reservation,pool -t volume";
         let cmd = if let Some(pool) = pool_name {
             format!("{} -r {}", base_cmd, pool)
@@ -394,7 +396,10 @@ impl ZfsClient {
     }
 
     /// Get thin provisioning information for a specific volume
-    pub async fn get_thin_volume_info(&self, volume_name: &str) -> ZfsResult<Option<ZfsThinVolumeInfo>> {
+    pub async fn get_thin_volume_info(
+        &self,
+        volume_name: &str,
+    ) -> ZfsResult<Option<ZfsThinVolumeInfo>> {
         let cmd = format!("zfs list -H -o name,used,volsize,refer,logicalused,compressratio,sparse,volsize,reservation,pool -t volume {}", volume_name);
         let output = self.execute(&cmd, "Get ZFS thin volume info").await?;
 
@@ -437,7 +442,10 @@ impl ZfsClient {
         volume_name: &str,
         refreservation_gb: u64,
     ) -> ZfsResult<()> {
-        let cmd = format!("zfs set refreservation={}G {}", refreservation_gb, volume_name);
+        let cmd = format!(
+            "zfs set refreservation={}G {}",
+            refreservation_gb, volume_name
+        );
         let output = self
             .execute(
                 &cmd,
@@ -675,7 +683,8 @@ fn parse_compression_ratio(ratio_str: &str) -> ZfsResult<f32> {
 
     // ZFS compression ratio is usually like "1.23x" or "-"
     let clean_ratio = ratio_str.trim_end_matches('x');
-    clean_ratio.parse::<f32>()
+    clean_ratio
+        .parse::<f32>()
         .map_err(|_| ZfsError::Execution(format!("Invalid compression ratio: {}", ratio_str)))
 }
 
@@ -706,14 +715,18 @@ pub async fn list_thin_volumes() -> ZfsResult<Vec<ZfsThinVolumeInfo>> {
 /// Get ZFS Thin Volume information by name (Local).
 /// Wraps `ZfsClient::new_local().get_thin_volume_info(volume_name)`
 pub async fn get_thin_volume_info(volume_name: &str) -> ZfsResult<Option<ZfsThinVolumeInfo>> {
-    ZfsClient::new_local().get_thin_volume_info(volume_name).await
+    ZfsClient::new_local()
+        .get_thin_volume_info(volume_name)
+        .await
 }
 
 impl ZfsClient {
     /// Check if zpool is installed and available
     pub async fn check_zpool(&self) -> ZfsResult<ZpoolCheckResult> {
         // First check if zpool command exists
-        let which_output = self.execute("which zpool", "Check if zpool is installed").await?;
+        let which_output = self
+            .execute("which zpool", "Check if zpool is installed")
+            .await?;
 
         let installed = which_output.exit_code == 0;
 
@@ -722,13 +735,16 @@ impl ZfsClient {
                 installed: false,
                 available: false,
                 version: None,
-                message: "zpool command not found. ZFS is not installed on this system.".to_string(),
+                message: "zpool command not found. ZFS is not installed on this system."
+                    .to_string(),
                 pools: vec![],
             });
         }
 
         // Check zpool version
-        let version_output = self.execute("zpool version 2>&1 | head -n 1", "Get zpool version").await?;
+        let version_output = self
+            .execute("zpool version 2>&1 | head -n 1", "Get zpool version")
+            .await?;
         let version = if version_output.exit_code == 0 && !version_output.stdout.trim().is_empty() {
             Some(version_output.stdout.trim().to_string())
         } else {
@@ -736,7 +752,12 @@ impl ZfsClient {
         };
 
         // Try to list pools to check if zpool is functional
-        let list_output = self.execute("zpool list -H -o name,size,capacity,health 2>/dev/null", "List zpools").await?;
+        let list_output = self
+            .execute(
+                "zpool list -H -o name,size,capacity,health 2>/dev/null",
+                "List zpools",
+            )
+            .await?;
 
         let available = list_output.exit_code == 0;
         let mut pools = vec![];
@@ -763,7 +784,8 @@ impl ZfsClient {
                 pools.len()
             )
         } else {
-            "ZFS is installed but zpool command failed. ZFS kernel module may not be loaded.".to_string()
+            "ZFS is installed but zpool command failed. ZFS kernel module may not be loaded."
+                .to_string()
         };
 
         Ok(ZpoolCheckResult {
@@ -894,7 +916,10 @@ mod tests {
         assert_eq!(parse_size("1K").unwrap(), 1024);
         assert_eq!(parse_size("1M").unwrap(), 1024 * 1024);
         assert_eq!(parse_size("1G").unwrap(), 1024 * 1024 * 1024);
-        assert_eq!(parse_size("2.5G").unwrap(), (2.5 * 1024.0 * 1024.0 * 1024.0) as u64);
+        assert_eq!(
+            parse_size("2.5G").unwrap(),
+            (2.5 * 1024.0 * 1024.0 * 1024.0) as u64
+        );
         assert_eq!(parse_size("-").unwrap(), 0);
         assert_eq!(parse_size("").unwrap(), 0);
     }
@@ -911,7 +936,9 @@ mod tests {
         });
 
         let client = ZfsClient::new_local();
-        let result = client.create_thin_volume("testpool", "thinvol", 50, None).await;
+        let result = client
+            .create_thin_volume("testpool", "thinvol", 50, None)
+            .await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "/dev/zvol/testpool/thinvol");

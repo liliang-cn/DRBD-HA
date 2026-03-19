@@ -1,4 +1,6 @@
-use crate::models::{BuiltinPluginStatus, ReactorProfileStatus, ReactorServiceDetail, ReactorServiceStatus};
+use crate::models::{ReactorProfileStatus, ReactorServiceDetail, ReactorServiceStatus};
+use serde_json::Value;
+use std::path::Path;
 
 /// Detect if a drbd-reactor config file is a built-in plugin (e.g., prometheus, events)
 /// rather than a promoter-based HA profile
@@ -20,138 +22,8 @@ pub fn is_builtin_plugin(toml_content: &str, profile_name: &str) -> bool {
     matches!(profile_name, "prometheus" | "events" | "grafana")
 }
 
-/// Parse status for built-in plugins from drbd-reactorctl output
-/// Expected format:
-///   /etc/drbd-reactor.d/prometheus.toml:
-///   Prometheus: listening on 0.0.0.0:9942
-///
-/// Returns Some(status) if this is a built-in plugin status line, None otherwise
-pub fn parse_builtin_plugin_status(line: &str, profile_name: &str) -> Option<BuiltinPluginStatus> {
-    let trimmed = line.trim();
-
-    // Built-in plugin status format: "PluginType: listening on address"
-    // e.g., "Prometheus: listening on 0.0.0.0:9942"
-    //       "Events: listening on /run/drbd-reactor/events.sock"
-
-    if !trimmed.contains(": listening on") {
-        return None;
-    }
-
-    // Extract plugin type and address
-    let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
-    if parts.len() != 2 {
-        return None;
-    }
-
-    let plugin_type = parts[0].trim();
-    let status_part = parts[1].trim();
-
-    // Check if this matches the profile we're looking for
-    // Map plugin type to profile name (case-insensitive)
-    let is_match = match plugin_type.to_lowercase().as_str() {
-        "prometheus" => profile_name.eq_ignore_ascii_case("prometheus"),
-        "events" => profile_name.eq_ignore_ascii_case("events"),
-        "grafana" => profile_name.eq_ignore_ascii_case("grafana"),
-        _ => false,
-    };
-
-    if !is_match {
-        return None;
-    }
-
-    // Parse "listening on address"
-    if !status_part.starts_with("listening on") {
-        return None;
-    }
-
-    let address = status_part["listening on".len()..].trim().to_string();
-
-    Some(BuiltinPluginStatus {
-        name: profile_name.to_string(),
-        plugin_type: plugin_type.to_string(),
-        is_listening: true,
-        address: Some(address),
-    })
-}
-
 pub fn parse_reactor_status(output: &str, profile_name: Option<&str>) -> Vec<ReactorProfileStatus> {
-    let mut statuses = Vec::new();
-    // Simplified parsing logic based on observation
-    // Expected format for `drbd-reactorctl status`:
-    // Promoter profiles:
-    //   /etc/drbd-reactor.d/profile.toml:
-    //   Promoter: Currently active on node 'node1'
-    // Built-in plugins:
-    //   /etc/drbd-reactor.d/prometheus.toml:
-    //   Prometheus: listening on 0.0.0.0:9942
-
-    let mut current_profile: Option<String> = None;
-    let mut current_active_node: Option<String> = None;
-    let mut builtin_plugin_active = false;
-
-    for line in output.lines() {
-        let trimmed = line.trim();
-        if trimmed.contains("/etc/drbd-reactor.d/") && trimmed.ends_with(':') {
-            // Save previous
-            if let Some(name) = current_profile.take() {
-                statuses.push(ReactorProfileStatus {
-                    name,
-                    // For builtin plugins, use local hostname as active node
-                    active_node: if builtin_plugin_active {
-                        Some(gethostname::gethostname().to_string_lossy().to_string())
-                    } else {
-                        current_active_node.clone()
-                    },
-                    is_active: builtin_plugin_active || current_active_node.is_some(),
-                });
-                current_active_node = None;
-                builtin_plugin_active = false;
-            }
-
-            // New profile
-            if let Some(filename) = trimmed.rsplit('/').next() {
-                if let Some(name) = filename.strip_suffix(".toml:") {
-                    current_profile = Some(name.to_string());
-                }
-            }
-        }
-
-        // Check for built-in plugin status (e.g., "Prometheus: listening on 0.0.0.0:9942")
-        if trimmed.contains(": listening on") {
-            builtin_plugin_active = true;
-        }
-        // Promoter status for regular profiles
-        else if trimmed.contains("Promoter: Currently active on node") {
-            if let Some(start) = trimmed.find('\x27') {
-                if let Some(end) = trimmed.rfind('\x27') {
-                    if end > start {
-                        let node_name = &trimmed[start + 1..end];
-                        current_active_node = Some(node_name.to_string());
-                    }
-                }
-            }
-        } else if trimmed.contains("Promoter: Currently active on this node") {
-            current_active_node = Some(gethostname::gethostname().to_string_lossy().to_string());
-        }
-    }
-
-    if let Some(name) = current_profile {
-        statuses.push(ReactorProfileStatus {
-            name,
-            active_node: if builtin_plugin_active {
-                Some(gethostname::gethostname().to_string_lossy().to_string())
-            } else {
-                current_active_node.clone()
-            },
-            is_active: builtin_plugin_active || current_active_node.is_some(),
-        });
-    }
-
-    if let Some(filter) = profile_name {
-        statuses.into_iter().filter(|s| s.name == filter).collect()
-    } else {
-        statuses
-    }
+    parse_reactor_status_json(output, profile_name).unwrap_or_default()
 }
 
 pub fn parse_service_details(output: &str) -> Vec<ReactorServiceDetail> {
@@ -171,63 +43,145 @@ pub fn parse_service_details(output: &str) -> Vec<ReactorServiceDetail> {
 }
 
 pub fn parse_reactor_services(output: &str) -> Vec<ReactorServiceStatus> {
-    let mut services = Vec::new();
-    for line in output.lines() {
-        let trimmed = line.trim();
-        // Skip empty lines and header lines
-        if trimmed.is_empty() || trimmed.contains("Promoter:") || trimmed.ends_with(".toml:") {
+    parse_reactor_services_json(output).unwrap_or_default()
+}
+
+fn parse_reactor_status_json(
+    output: &str,
+    profile_name: Option<&str>,
+) -> Option<Vec<ReactorProfileStatus>> {
+    let root: Value = serde_json::from_str(output).ok()?;
+    let obj = root.as_object()?;
+    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+    let mut statuses = Vec::new();
+
+    if let Some(promoters) = obj.get("promoter").and_then(Value::as_array) {
+        for promoter in promoters {
+            let Some(path) = promoter.get("path").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(name) = profile_name_from_path(path) else {
+                continue;
+            };
+
+            if let Some(filter) = profile_name {
+                if name != filter {
+                    continue;
+                }
+            }
+
+            let active_node = promoter
+                .get("primary_on")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|node| !node.is_empty())
+                .map(ToOwned::to_owned);
+
+            statuses.push(ReactorProfileStatus {
+                name,
+                active_node: active_node.clone(),
+                is_active: active_node.is_some(),
+            });
+        }
+    }
+
+    for (plugin_type, entries) in obj {
+        if plugin_type == "promoter" {
             continue;
         }
 
-        let is_running = trimmed.starts_with('●') || trimmed.starts_with("●");
-        let is_dead = trimmed.starts_with('○') || trimmed.starts_with("○");
-        let is_failed = trimmed.starts_with('×') || trimmed.starts_with("×");
-
-        if !is_running && !is_dead && !is_failed {
+        let Some(items) = entries.as_array() else {
             continue;
-        }
-
-        let is_active = is_running;
-
-        let without_symbol = if is_running {
-            trimmed.strip_prefix('●').or(trimmed.strip_prefix("●"))
-        } else if is_dead {
-            trimmed.strip_prefix('○').or(trimmed.strip_prefix("○"))
-        } else {
-            trimmed.strip_prefix('×').or(trimmed.strip_prefix("×"))
-        }
-        .unwrap_or(trimmed);
-
-        let name = without_symbol
-            .trim_start_matches([' ', '├', '└', '─', '│'])
-            .split_whitespace()
-            .next()
-            .unwrap_or("");
-
-        if name.is_empty()
-            || name.starts_with("drbd-services@")
-            || name.starts_with("drbd-promote@")
-        {
-            continue;
-        }
-
-        let clean_name = name.replace("\\x2d", "-");
-
-        let state_str = if is_active {
-            "active".to_string()
-        } else if is_failed {
-            "failed".to_string()
-        } else {
-            "inactive".to_string()
         };
 
-        services.push(ReactorServiceStatus {
-            name: clean_name,
-            active: is_active,
-            state: state_str,
-        });
+        for item in items {
+            let Some(path) = item.get("path").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(name) = profile_name_from_path(path) else {
+                continue;
+            };
+
+            if let Some(filter) = profile_name {
+                if name != filter {
+                    continue;
+                }
+            }
+
+            let is_active = item
+                .get("status")
+                .and_then(Value::as_str)
+                .map(|status| status.eq_ignore_ascii_case("active"))
+                .unwrap_or(false);
+
+            statuses.push(ReactorProfileStatus {
+                name,
+                active_node: is_active.then(|| local_hostname.clone()),
+                is_active,
+            });
+        }
     }
-    services
+
+    Some(statuses)
+}
+
+fn parse_reactor_services_json(output: &str) -> Option<Vec<ReactorServiceStatus>> {
+    let root: Value = serde_json::from_str(output).ok()?;
+    let promoters = root.get("promoter")?.as_array()?;
+    let mut services = Vec::new();
+
+    for promoter in promoters {
+        let Some(dependencies) = promoter.get("dependencies").and_then(Value::as_array) else {
+            continue;
+        };
+
+        for dependency in dependencies {
+            push_json_service(dependency, &mut services);
+        }
+    }
+
+    Some(services)
+}
+
+fn push_json_service(entry: &Value, services: &mut Vec<ReactorServiceStatus>) {
+    let Some(name) = entry.get("name").and_then(Value::as_str).map(str::trim) else {
+        return;
+    };
+
+    if name.is_empty() || name.starts_with("drbd-services@") || name.starts_with("drbd-promote@") {
+        return;
+    }
+
+    let status = entry
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|status| !status.is_empty())
+        .unwrap_or("inactive");
+
+    let active = status.eq_ignore_ascii_case("active");
+    let state = if status.eq_ignore_ascii_case("failed") {
+        "failed".to_string()
+    } else if active {
+        "active".to_string()
+    } else {
+        status.to_string()
+    };
+
+    services.push(ReactorServiceStatus {
+        name: name.to_string(),
+        active,
+        state,
+    });
+}
+
+fn profile_name_from_path(path: &str) -> Option<String> {
+    let file_name = Path::new(path).file_name()?.to_str()?;
+    let profile_name = file_name
+        .strip_suffix(".toml.disabled")
+        .or_else(|| file_name.strip_suffix(".toml"))?;
+
+    Some(profile_name.to_string())
 }
 
 #[cfg(test)]
@@ -243,80 +197,42 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_reactor_status_single_active_local() {
-        let output = r#"/etc/drbd-reactor.d/test-profile.toml:
-Promoter: Currently active on this node"#;
+    fn test_parse_reactor_status_invalid_json() {
+        let output = "not-json";
         let statuses = parse_reactor_status(output, None);
-        assert_eq!(statuses.len(), 1);
-        let status = &statuses[0];
-        assert_eq!(status.name, "test-profile");
-        assert!(status.is_active);
-        assert_eq!(
-            status.active_node,
-            Some(gethostname().to_string_lossy().to_string())
-        );
-    }
-
-    #[test]
-    fn test_parse_reactor_status_single_active_remote() {
-        let output = r#"/etc/drbd-reactor.d/test-profile.toml:
-Promoter: Currently active on node 'remote-node-1'"#;
-        let statuses = parse_reactor_status(output, None);
-        assert_eq!(statuses.len(), 1);
-        let status = &statuses[0];
-        assert_eq!(status.name, "test-profile");
-        assert!(status.is_active);
-        assert_eq!(status.active_node, Some("remote-node-1".to_string()));
-    }
-
-    #[test]
-    fn test_parse_reactor_status_single_standby() {
-        let output = r#"/etc/drbd-reactor.d/test-profile.toml:
-Promoter: currently standby"#;
-        let statuses = parse_reactor_status(output, None);
-        assert_eq!(statuses.len(), 1);
-        let status = &statuses[0];
-        assert_eq!(status.name, "test-profile");
-        assert!(!status.is_active);
-        assert_eq!(status.active_node, None);
-    }
-
-    #[test]
-    fn test_parse_reactor_status_multiple_profiles() {
-        let output = r#"/etc/drbd-reactor.d/profile-one.toml:
-Promoter: Currently active on node 'node-a'
-/etc/drbd-reactor.d/profile-two.toml:
-Promoter: currently standby
-/etc/drbd-reactor.d/profile-three.toml:
-Promoter: Currently active on this node"#;
-        let statuses = parse_reactor_status(output, None);
-        assert_eq!(statuses.len(), 3);
-
-        let status1 = &statuses[0];
-        assert_eq!(status1.name, "profile-one");
-        assert!(status1.is_active);
-        assert_eq!(status1.active_node, Some("node-a".to_string()));
-
-        let status2 = &statuses[1];
-        assert_eq!(status2.name, "profile-two");
-        assert!(!status2.is_active);
-        assert_eq!(status2.active_node, None);
-
-        let status3 = &statuses[2];
-        assert_eq!(status3.name, "profile-three");
-        assert!(status3.is_active);
-        assert_eq!(
-            status3.active_node,
-            Some(gethostname().to_string_lossy().to_string())
-        );
+        assert!(statuses.is_empty());
     }
 
     #[test]
     fn test_parse_reactor_status_filtered() {
-        let output = r#"/etc/drbd-reactor.d/profile-one.toml:
-Promoter: Currently active on node 'node-a'
-/etc/drbd-reactor.d/profile-two.toml:
-Promoter: currently standby"#;
+        let output = r#"{
+  "promoter": [
+    {
+      "drbd_resource": "r1",
+      "path": "/etc/drbd-reactor.d/profile-one.toml",
+      "primary_on": "node-a",
+      "target": {
+        "name": "drbd-services@r1.target",
+        "status": "active",
+        "freezer": "running"
+      },
+      "dependencies": [],
+      "status": "active"
+    },
+    {
+      "drbd_resource": "r2",
+      "path": "/etc/drbd-reactor.d/profile-two.toml",
+      "primary_on": "node-b",
+      "target": {
+        "name": "drbd-services@r2.target",
+        "status": "active",
+        "freezer": "running"
+      },
+      "dependencies": [],
+      "status": "active"
+    }
+  ]
+}"#;
         let statuses = parse_reactor_status(output, Some("profile-one"));
         assert_eq!(statuses.len(), 1);
         let status = &statuses[0];
@@ -327,10 +243,33 @@ Promoter: currently standby"#;
 
     #[test]
     fn test_parse_service_details() {
-        let output = r#"/etc/drbd-reactor.d/profile-one.toml:
-Promoter: Currently active on node 'node-a'
-/etc/drbd-reactor.d/profile-two.toml:
-Promoter: currently standby"#;
+        let output = r#"{
+  "promoter": [
+    {
+      "drbd_resource": "r1",
+      "path": "/etc/drbd-reactor.d/profile-one.toml",
+      "primary_on": "node-a",
+      "target": {
+        "name": "drbd-services@r1.target",
+        "status": "active",
+        "freezer": "running"
+      },
+      "dependencies": [],
+      "status": "active"
+    },
+    {
+      "drbd_resource": "r2",
+      "path": "/etc/drbd-reactor.d/profile-two.toml",
+      "target": {
+        "name": "drbd-services@r2.target",
+        "status": "inactive",
+        "freezer": "running"
+      },
+      "dependencies": [],
+      "status": "inactive"
+    }
+  ]
+}"#;
         let details = parse_service_details(output);
         assert_eq!(details.len(), 2);
         assert_eq!(details[0].name, "profile-one");
@@ -342,46 +281,145 @@ Promoter: currently standby"#;
     }
 
     #[test]
-    fn test_parse_reactor_services() {
-        let output = r#"/etc/drbd-reactor.d/mysql_ha.toml:
-Promoter: Currently active on this node
-● drbd-services@mysql_data.target
-● ├─ drbd-promote@mysql_data.service
-● ├─ var-lib-mysql.mount 
-● ├─ ocf.rs@mysql_data_vip_mysql_data.service 
-● └─ mysql.service 
-○ └─ inactive.service
-× └─ failed.service"#;
+    fn test_parse_reactor_services_invalid_json() {
+        let output = "not-json";
         let services = parse_reactor_services(output);
-        // Corrected expected length to 5
-        assert_eq!(services.len(), 5);
+        assert!(services.is_empty());
+    }
 
-        let mount = services
+    #[test]
+    fn test_parse_reactor_status_json() {
+        let output = r#"{
+  "promoter": [
+    {
+      "drbd_resource": "ha_mysql",
+      "path": "/etc/drbd-reactor.d/mysql_config.toml",
+      "primary_on": "gui01",
+      "target": {
+        "name": "drbd-services@ha_mysql.target",
+        "status": "active",
+        "freezer": "running"
+      },
+      "dependencies": [
+        {
+          "name": "drbd-promote@ha_mysql.service",
+          "status": "active",
+          "freezer": "running"
+        },
+        {
+          "name": "ocf.rs@Dummy_new_ha_mysql.service",
+          "status": "active",
+          "freezer": "running"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "drbd_resource": "linstor_db",
+      "path": "/etc/drbd-reactor.d/linstor_controller.toml",
+      "primary_on": "gui03",
+      "target": {
+        "name": "drbd-services@linstor_db.target",
+        "status": "inactive",
+        "freezer": "running"
+      },
+      "dependencies": [],
+      "status": "inactive"
+    }
+  ],
+  "prometheus": [
+    {
+      "path": "/etc/drbd-reactor.d/prometheus.toml",
+      "address": "0.0.0.0:9942",
+      "status": "active"
+    }
+  ]
+}"#;
+
+        let statuses = parse_reactor_status(output, None);
+        assert_eq!(statuses.len(), 3);
+
+        let mysql = statuses.iter().find(|s| s.name == "mysql_config").unwrap();
+        assert!(mysql.is_active);
+        assert_eq!(mysql.active_node, Some("gui01".to_string()));
+
+        let linstor = statuses
             .iter()
-            .find(|s| s.name == "var-lib-mysql.mount")
+            .find(|s| s.name == "linstor_controller")
             .unwrap();
-        assert!(mount.active);
-        assert_eq!(mount.state, "active");
+        assert!(linstor.is_active);
+        assert_eq!(linstor.active_node, Some("gui03".to_string()));
 
-        let ocf = services.iter().find(|s| s.name.contains("ocf.rs")).unwrap();
-        assert!(ocf.active);
+        let prometheus = statuses.iter().find(|s| s.name == "prometheus").unwrap();
+        assert!(prometheus.is_active);
+        assert_eq!(
+            prometheus.active_node,
+            Some(gethostname().to_string_lossy().to_string())
+        );
+    }
 
-        let mysql = services.iter().find(|s| s.name == "mysql.service").unwrap();
-        assert!(mysql.active);
-        assert_eq!(mysql.state, "active");
+    #[test]
+    fn test_parse_reactor_services_json() {
+        let output = r#"{
+  "promoter": [
+    {
+      "drbd_resource": "nfs3",
+      "path": "/etc/drbd-reactor.d/linstor-gateway-nfs-nfs3.toml",
+      "primary_on": "gui02",
+      "target": {
+        "name": "drbd-services@nfs3.target",
+        "status": "inactive",
+        "freezer": "running"
+      },
+      "dependencies": [
+        {
+          "name": "drbd-promote@nfs3.service",
+          "status": "inactive",
+          "freezer": "running"
+        },
+        {
+          "name": "ocf.rs@nfsserver_nfs3.service",
+          "status": "failed",
+          "freezer": "running"
+        },
+        {
+          "name": "service_ip_nfs3.service",
+          "status": "active",
+          "freezer": "running"
+        },
+        {
+          "name": "fs_1_nfs3.service",
+          "status": "inactive",
+          "freezer": "running"
+        }
+      ],
+      "status": "inactive"
+    }
+  ]
+}"#;
 
-        let inactive = services
+        let services = parse_reactor_services(output);
+        assert_eq!(services.len(), 3);
+
+        let active = services
             .iter()
-            .find(|s| s.name == "inactive.service")
+            .find(|s| s.name == "service_ip_nfs3.service")
             .unwrap();
-        assert!(!inactive.active);
-        assert_eq!(inactive.state, "inactive");
+        assert!(active.active);
+        assert_eq!(active.state, "active");
 
         let failed = services
             .iter()
-            .find(|s| s.name == "failed.service")
+            .find(|s| s.name == "ocf.rs@nfsserver_nfs3.service")
             .unwrap();
         assert!(!failed.active);
         assert_eq!(failed.state, "failed");
+
+        let inactive = services
+            .iter()
+            .find(|s| s.name == "fs_1_nfs3.service")
+            .unwrap();
+        assert!(!inactive.active);
+        assert_eq!(inactive.state, "inactive");
     }
 }

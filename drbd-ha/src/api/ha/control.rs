@@ -4,10 +4,11 @@ use axum::{
 };
 use std::sync::Arc;
 
+use crate::api::ha::utils::create_profile_from_toml;
 use crate::core::{run_shell_command, systemd_ctrl::SystemdController};
 use crate::error::{AppError, AppResult};
 use crate::state::{AppState, NotificationLevel};
-use crate::api::ha::utils::create_profile_from_toml;
+use drbd_reactor_utils::DrbdReactorClient;
 
 use super::list::get_profile_status;
 use super::reactor::reload_reactor;
@@ -372,7 +373,10 @@ pub async fn activate_profile(
         let status_cmd = format!("drbdadm status {}", profile.resource_name);
         let status_output = run_shell_command(
             &status_cmd,
-            &format!("Check DRBD status for validation (attempt {})", validation_attempts),
+            &format!(
+                "Check DRBD status for validation (attempt {})",
+                validation_attempts
+            ),
         )
         .await?;
 
@@ -389,13 +393,13 @@ pub async fn activate_profile(
         let is_primary = status_str.contains("role:Primary");
 
         // Check 2: Disk should be UpToDate
-        let is_disk_uptodate = status_str.contains("disk:UpToDate") ||
-                              status_str.contains("disk:Consistent") ||
-                              status_str.contains("disk:Inconsistent"); // Allow for initial sync
+        let is_disk_uptodate = status_str.contains("disk:UpToDate")
+            || status_str.contains("disk:Consistent")
+            || status_str.contains("disk:Inconsistent"); // Allow for initial sync
 
         // Check 3: At least one peer connection should be established (if peers exist)
-        let has_connection = !status_str.contains("connection:StandAlone") ||
-                            !status_str.lines().any(|line| line.contains("connection:"));
+        let has_connection = !status_str.contains("connection:StandAlone")
+            || !status_str.lines().any(|line| line.contains("connection:"));
 
         // Check 4: Should not be in Diskless state
         let is_not_diskless = !status_str.contains("disk:Diskless");
@@ -408,11 +412,16 @@ pub async fn activate_profile(
         // Consider DRBD ready if basic conditions are met
         if is_primary && is_disk_uptodate && is_not_diskless {
             drbd_validated = true;
-            tracing::info!("activate_profile: DRBD status validated successfully on attempt {}", validation_attempts);
+            tracing::info!(
+                "activate_profile: DRBD status validated successfully on attempt {}",
+                validation_attempts
+            );
 
             // If we're in StandAlone but there are no peers, that's OK for single-node setup
             if status_str.contains("connection:StandAlone") {
-                tracing::info!("activate_profile: StandAlone mode detected (likely single-node setup)");
+                tracing::info!(
+                    "activate_profile: StandAlone mode detected (likely single-node setup)"
+                );
             }
         } else {
             tracing::warn!(
@@ -424,7 +433,10 @@ pub async fn activate_profile(
     }
 
     if !drbd_validated {
-        tracing::error!("activate_profile: DRBD status validation failed after {} attempts", MAX_VALIDATION_ATTEMPTS);
+        tracing::error!(
+            "activate_profile: DRBD status validation failed after {} attempts",
+            MAX_VALIDATION_ATTEMPTS
+        );
         state.send_progress(
             &operation_id,
             "activate_profile",
@@ -437,7 +449,10 @@ pub async fn activate_profile(
         state.send_notification(
             NotificationLevel::Error,
             "Activation Failed",
-            &format!("DRBD resource '{}' failed to reach proper status within timeout", profile.resource_name),
+            &format!(
+                "DRBD resource '{}' failed to reach proper status within timeout",
+                profile.resource_name
+            ),
         );
         return Err(AppError::Drbd(format!(
             "DRBD resource '{}' failed to reach proper status within {} seconds",
@@ -452,7 +467,9 @@ pub async fn activate_profile(
 
     // Look for sync progress indicators
     if sync_status_str.contains("sync:") {
-        tracing::info!("activate_profile: DRBD synchronization in progress, waiting for completion...");
+        tracing::info!(
+            "activate_profile: DRBD synchronization in progress, waiting for completion..."
+        );
         state.send_progress(
             &operation_id,
             "activate_profile",
@@ -471,19 +488,31 @@ pub async fn activate_profile(
             sync_wait_attempts += 1;
 
             let sync_check_cmd = format!("drbdadm status {}", profile.resource_name);
-            let sync_check_output = run_shell_command(&sync_check_cmd, "Check sync progress").await?;
+            let sync_check_output =
+                run_shell_command(&sync_check_cmd, "Check sync progress").await?;
 
             if !sync_check_output.stdout.contains("sync:") {
-                tracing::info!("activate_profile: DRBD synchronization completed after {} attempts", sync_wait_attempts);
+                tracing::info!(
+                    "activate_profile: DRBD synchronization completed after {} attempts",
+                    sync_wait_attempts
+                );
                 break;
             }
 
             // Extract sync progress if available
-            if let Some(sync_line) = sync_check_output.stdout.lines().find(|line| line.contains("sync:")) {
+            if let Some(sync_line) = sync_check_output
+                .stdout
+                .lines()
+                .find(|line| line.contains("sync:"))
+            {
                 tracing::info!("activate_profile: Sync progress: {}", sync_line.trim());
 
                 // Parse sync percentage (DRBD 9.x format)
-                if let Some(percent_str) = sync_line.split("sync'").nth(1).and_then(|s| s.split('%').next()) {
+                if let Some(percent_str) = sync_line
+                    .split("sync'")
+                    .nth(1)
+                    .and_then(|s| s.split('%').next())
+                {
                     if let Ok(percent) = percent_str.trim().parse::<f32>() {
                         let progress_percent = 18 + (percent * 0.07).round() as u8; // Scale between 18-25%
                         state.send_progress(
@@ -579,14 +608,18 @@ pub async fn activate_profile(
         // For a newly created HA profile, we need to determine which node should be the active one
         // Check if this node should be the primary by examining DRBD role and connections
         let current_drbd_status_cmd = format!("drbdadm status {}", profile.resource_name);
-        let current_status_output = run_shell_command(&current_drbd_status_cmd, "Check current DRBD role").await?;
+        let current_status_output =
+            run_shell_command(&current_drbd_status_cmd, "Check current DRBD role").await?;
 
         let hostname_str = gethostname::gethostname().to_string_lossy().to_string();
 
         // Determine if this node should be the active one based on DRBD status
         let should_be_active = if current_status_output.stdout.contains("role:Primary") {
             // This node is already Primary, so it should handle activation
-            tracing::info!("activate_profile: This node is Primary, will handle activation for profile '{}'", profile.name);
+            tracing::info!(
+                "activate_profile: This node is Primary, will handle activation for profile '{}'",
+                profile.name
+            );
             true
         } else if current_status_output.stdout.contains("role:Secondary") {
             // This node is Secondary, let the Primary node handle activation
@@ -633,12 +666,12 @@ pub async fn activate_profile(
             // Return success since drbd-reactor will handle the actual activation
             return get_profile_status(State(state), Path(id)).await;
         }
-        
+
         // Check if this is a fresh setup (no previous activation)
         let activation_marker = format!("/var/lib/drbd-ha/{}.activated", profile.resource_name);
         let marker_check = run_shell_command(
             &format!("test -f {} && echo exists", activation_marker),
-            "Check activation marker"
+            "Check activation marker",
         )
         .await;
 
@@ -771,11 +804,16 @@ pub async fn activate_profile(
     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
 
     // Check drbd-reactor status to ensure it's managing this profile
-    let reactor_check_cmd = format!("drbd-reactorctl status {} 2>/dev/null", profile.name);
-    let reactor_check_output = run_shell_command(&reactor_check_cmd, "Check drbd-reactor status").await;
+    let reactor_managed = DrbdReactorClient::status(Some(&profile.name), None)
+        .await
+        .map(|(statuses, _)| !statuses.is_empty())
+        .unwrap_or(false);
 
-    if reactor_check_output.is_ok() && reactor_check_output.as_ref().unwrap().stdout.contains("active") {
-        tracing::info!("activate_profile: drbd-reactor is managing profile '{}'", profile.name);
+    if reactor_managed {
+        tracing::info!(
+            "activate_profile: drbd-reactor is managing profile '{}'",
+            profile.name
+        );
 
         // Let drbd-reactor handle the services automatically
         // We just need to ensure the services are enabled
@@ -783,7 +821,11 @@ pub async fn activate_profile(
         for service in &profile.promoter.services {
             tracing::info!("activate_profile: Enabling service '{}'", service);
             if let Err(e) = systemd.enable(service).await {
-                tracing::warn!("activate_profile: Failed to enable service '{}': {}", service, e);
+                tracing::warn!(
+                    "activate_profile: Failed to enable service '{}': {}",
+                    service,
+                    e
+                );
             } else {
                 tracing::info!("activate_profile: Service '{}' enabled", service);
             }
@@ -802,7 +844,10 @@ pub async fn activate_profile(
                         service, service_status.active_state, service_status.sub_state);
                 }
             } else {
-                tracing::warn!("activate_profile: Failed to check status of service '{}'", service);
+                tracing::warn!(
+                    "activate_profile: Failed to check status of service '{}'",
+                    service
+                );
             }
         }
     } else {
@@ -848,7 +893,7 @@ pub async fn activate_profile(
         false,
         None,
     );
-    
+
     // Only reload drbd-reactor after all operations are complete
     // This ensures the reactor doesn't interfere with the activation process
     let _ = reload_reactor(

@@ -4,7 +4,7 @@ use tracing::{info, warn};
 use zfs_utils::ZfsCmd;
 
 #[allow(unused_imports)]
-use crate::core::{run_shell_command, SshCredential, CommandOutput};
+use crate::core::{run_shell_command, CommandOutput, SshCredential};
 use std::sync::Arc;
 
 use super::provider::StorageProvider;
@@ -73,7 +73,10 @@ impl ZfsProvider {
     /// Check if ZFS pool exists
     async fn pool_exists(&self) -> Result<bool> {
         let command = format!("zpool list -H -o name {}", self.pool_name);
-        match self.execute_command(&command, "Check if ZFS pool exists").await {
+        match self
+            .execute_command(&command, "Check if ZFS pool exists")
+            .await
+        {
             Ok(output) => Ok(output.stdout.trim() == self.pool_name),
             Err(_) => Ok(false),
         }
@@ -82,7 +85,10 @@ impl ZfsProvider {
     /// Check if ZFS dataset/volume exists
     async fn dataset_exists(&self, dataset_name: &str) -> Result<bool> {
         let command = ZfsCmd::zfs_list_cmd(dataset_name);
-        match self.execute_command(&command, "Check if ZFS dataset exists").await {
+        match self
+            .execute_command(&command, "Check if ZFS dataset exists")
+            .await
+        {
             Ok(output) => Ok(output.stdout.trim() == dataset_name),
             Err(_) => Ok(false),
         }
@@ -93,11 +99,14 @@ impl ZfsProvider {
         let dataset_name = format!("{}/{}", self.pool_name, volume_name);
         let command = format!("zfs get -H -o value volmode {}", dataset_name);
 
-        let volmode = self.execute_command(&command, "Get ZFS volume mode").await?;
+        let volmode = self
+            .execute_command(&command, "Get ZFS volume mode")
+            .await?;
         if volmode.stdout.trim() != "full" {
             // Set volmode to full if not already set
             let set_command = format!("zfs set volmode=full {}", dataset_name);
-            self.execute_command(&set_command, "Set ZFS volume mode to full").await?;
+            self.execute_command(&set_command, "Set ZFS volume mode to full")
+                .await?;
         }
 
         // ZFS volume device path is typically /dev/zvol/<pool>/<volume>
@@ -110,7 +119,10 @@ impl StorageProvider for ZfsProvider {
     async fn init_pool(&self, _disk: &str) -> Result<()> {
         // ZFS pool initialization is typically done outside of this provider
         // as it requires entire disks and is a destructive operation
-        warn!("ZFS pool initialization should be done manually. Pool '{}' should already exist.", self.pool_name);
+        warn!(
+            "ZFS pool initialization should be done manually. Pool '{}' should already exist.",
+            self.pool_name
+        );
         Ok(())
     }
 
@@ -122,7 +134,10 @@ impl StorageProvider for ZfsProvider {
 
         // Check if pool exists
         if !self.pool_exists().await? {
-            return Err(anyhow::anyhow!("ZFS pool '{}' does not exist", self.pool_name));
+            return Err(anyhow::anyhow!(
+                "ZFS pool '{}' does not exist",
+                self.pool_name
+            ));
         }
 
         let dataset_name = format!("{}/{}", self.pool_name, vol_name);
@@ -138,7 +153,8 @@ impl StorageProvider for ZfsProvider {
 
         // Create ZFS volume
         // -V specifies volume size, -b specifies block size (default 128K is good for most workloads)
-        let command = ZfsCmd::zfs_create_volume_cmd(&self.pool_name, vol_name, &format!("{}", size_gb));
+        let command =
+            ZfsCmd::zfs_create_volume_cmd(&self.pool_name, vol_name, &format!("{}", size_gb));
 
         self.execute_command(&command, "Create ZFS volume").await?;
 
@@ -190,7 +206,8 @@ impl StorageProvider for ZfsProvider {
         if !self.dataset_exists(&dataset_name).await? {
             return Err(anyhow::anyhow!(
                 "ZFS volume '{}' does not exist in pool '{}'",
-                vol_name, self.pool_name
+                vol_name,
+                self.pool_name
             ));
         }
 
@@ -198,7 +215,10 @@ impl StorageProvider for ZfsProvider {
         let command = format!("zfs set volsize={}G {}", new_size_gb, dataset_name);
         self.execute_command(&command, "Resize ZFS volume").await?;
 
-        info!("Successfully resized ZFS volume '{}' to {}GB", vol_name, new_size_gb);
+        info!(
+            "Successfully resized ZFS volume '{}' to {}GB",
+            vol_name, new_size_gb
+        );
         Ok(())
     }
 }

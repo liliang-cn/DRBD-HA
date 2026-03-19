@@ -3,8 +3,8 @@ import { MainLayout } from '@/components/layout/MainLayout';
 // import { Nodes } from '@/pages/Nodes';
 // import { Resources } from '@/pages/Resources';
 import { HaProfiles } from '@/pages/HaProfiles';
-import { ServiceHaWizard } from '@/pages/ServiceHaWizard';
 import { OcfAgentEditorPage } from '@/pages/OcfAgentEditorPage';
+import { ServiceHaWizard } from '@/pages/ServiceHaWizard';
 
 export const router = createBrowserRouter([
   {

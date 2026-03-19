@@ -1,7 +1,4 @@
-use axum::{
-    extract::Path,
-    Json,
-};
+use axum::{extract::Path, Json};
 use ra_params::{get_agent_metadata, list_agents};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -163,17 +160,14 @@ pub async fn get_resource_agent_metadata(
         )));
     }
 
-        let (meta, _) = get_agent_metadata(&agent_path).map_err(|e| AppError::Internal(e.to_string()))?;
+    let (meta, _) =
+        get_agent_metadata(&agent_path).map_err(|e| AppError::Internal(e.to_string()))?;
 
-    
+    Ok(Json(meta.into()))
+}
 
-        Ok(Json(meta.into()))
-
-    }
-
-    
 // Re-export flattened types from toml_parse module
-pub use crate::api::ha::toml_parse::{ResourceAgent, Parameter, Action};
+pub use crate::api::ha::toml_parse::{Action, Parameter, ResourceAgent};
 
 /// All resource agents grouped by provider
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -210,14 +204,12 @@ pub async fn list_all_resource_agents() -> AppResult<Json<ResourceAgentsByProvid
     let mut providers_map: HashMap<String, Vec<ResourceAgent>> = HashMap::new();
 
     // Read all provider directories
-    let providers = fs::read_dir(&resource_d).map_err(|e| {
-        AppError::Internal(format!("Failed to read resource.d directory: {}", e))
-    })?;
+    let providers = fs::read_dir(&resource_d)
+        .map_err(|e| AppError::Internal(format!("Failed to read resource.d directory: {}", e)))?;
 
     for provider_entry in providers {
-        let provider_entry = provider_entry.map_err(|e| {
-            AppError::Internal(format!("Failed to read provider entry: {}", e))
-        })?;
+        let provider_entry = provider_entry
+            .map_err(|e| AppError::Internal(format!("Failed to read provider entry: {}", e)))?;
 
         let provider_path = provider_entry.path();
 
@@ -303,23 +295,22 @@ mod tests {
     #[test]
     fn test_resource_agents_by_provider_serialization() {
         let mut providers = HashMap::new();
-        
+
         // Add a sample agent
-        providers.insert("heartbeat".to_string(), vec![
-            ResourceAgent {
+        providers.insert(
+            "heartbeat".to_string(),
+            vec![ResourceAgent {
                 name: "IPaddr2".to_string(),
                 version: "1.0".to_string(),
                 shortdesc: "Manages virtual IPv4 addresses".to_string(),
                 longdesc: "Long description".to_string(),
                 parameters: vec![],
                 actions: vec![],
-            }
-        ]);
-        
-        let response = ResourceAgentsByProvider {
-            providers,
-        };
-        
+            }],
+        );
+
+        let response = ResourceAgentsByProvider { providers };
+
         // Test serialization
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("heartbeat"));

@@ -14,9 +14,14 @@ static RESOURCE_NAME_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$").unwrap());
 
 static BLOCK_DEVICE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    // Support: /dev/sdX, /dev/nvmeXnY, /dev/vdX, /dev/drbdN, /dev/loopN, /dev/mapper/*, /dev/vg/lv
-    // Also support LVM short form: vg/lv
-    Regex::new(r"^(/dev/(sd[a-z]+\d*|nvme\d+n\d+(p\d+)?|vd[a-z]+\d*|drbd\d+|loop\d+|mapper/[a-zA-Z0-9_:-]+)|[a-zA-Z0-9_]+/[a-zA-Z0-9_-]+)$").unwrap()
+    // Support:
+    // - Standard disks: /dev/sdX, /dev/vdX, /dev/nvmeXnY
+    // - DRBD: /dev/drbdN
+    // - Loop: /dev/loopN
+    // - Mapper: /dev/mapper/name
+    // - LVM LVs: /dev/vgname/lvname (and other similar paths)
+    // Basically anything starting with /dev/ and containing valid path chars
+    Regex::new(r"^/dev/[a-zA-Z0-9_/-]+$").unwrap()
 });
 
 static IP_ADDRESS_RE: LazyLock<Regex> =
@@ -28,14 +33,13 @@ static HOSTNAME_RE: LazyLock<Regex> =
 static MOUNT_POINT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^/[a-zA-Z0-9/_-]+$").unwrap());
 
-static SERVICE_NAME_RE: LazyLock<Regex> =
-    LazyLock::new(|| {
-        // Support all systemd unit types: service, target, socket, device, mount, automount,
-        // swap, timer, path, slice, scope
-        // Note: systemd unit names can contain letters, digits, :, -, _, ., and @
-        // They can also contain * for device units (for glob patterns)
-        Regex::new(r"^[a-zA-Z0-9_:.@*\-]+\.(service|target|socket|device|mount|automount|swap|timer|path|slice|scope)$").unwrap()
-    });
+static SERVICE_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
+    // Support all systemd unit types: service, target, socket, device, mount, automount,
+    // swap, timer, path, slice, scope
+    // Note: systemd unit names can contain letters, digits, :, -, _, ., and @
+    // They can also contain * for device units (for glob patterns)
+    Regex::new(r"^[a-zA-Z0-9_:.@*\-]+\.(service|target|socket|device|mount|automount|swap|timer|path|slice|scope)$").unwrap()
+});
 
 /// Validate DRBD resource name
 pub fn validate_resource_name(name: &str) -> AppResult<()> {
@@ -202,14 +206,14 @@ pub async fn validate_device_unique(device_name: &str, config_dir: &str) -> AppR
                             let trimmed_line = line.trim();
                             // Look for device lines like: device /dev/drbd1234;
                             if trimmed_line.starts_with("device ") {
-                                let device_part = trimmed_line.strip_prefix("device ")
+                                let device_part = trimmed_line
+                                    .strip_prefix("device ")
                                     .unwrap_or("")
                                     .trim_end_matches(';');
 
                                 if device_part == device_name {
-                                    let resource_name = file_name
-                                        .strip_suffix(".res")
-                                        .unwrap_or("unknown");
+                                    let resource_name =
+                                        file_name.strip_suffix(".res").unwrap_or("unknown");
 
                                     return Err(AppError::Validation(format!(
                                         "DRBD device '{}' is already used by resource '{}'",
@@ -226,7 +230,11 @@ pub async fn validate_device_unique(device_name: &str, config_dir: &str) -> AppR
             }
         }
         Err(e) => {
-            tracing::warn!("Failed to read DRBD config directory '{}': {}", config_dir, e);
+            tracing::warn!(
+                "Failed to read DRBD config directory '{}': {}",
+                config_dir,
+                e
+            );
         }
     }
 
@@ -364,10 +372,7 @@ pub fn validate_ocf_agents(agents: &[OcfAgentConfig]) -> AppResult<()> {
         let provider = parts[1];
         let agent_name = parts[2];
 
-        let agent_path = ocf_root
-            .join("resource.d")
-            .join(provider)
-            .join(agent_name);
+        let agent_path = ocf_root.join("resource.d").join(provider).join(agent_name);
         if !agent_path.exists() {
             return Err(AppError::Validation(format!(
                 "OCF agent '{}' not found at {:?}",

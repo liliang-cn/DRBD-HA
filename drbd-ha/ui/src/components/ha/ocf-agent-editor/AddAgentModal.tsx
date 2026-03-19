@@ -77,10 +77,12 @@ export function AddAgentModal({
                 onChange={onProviderChange}
                 options={
                   allAgents
-                    ? Object.keys(allAgents.providers).sort().map((p) => ({
-                        label: p,
-                        value: p,
-                      }))
+                    ? Object.keys(allAgents.providers)
+                        .sort()
+                        .map((p) => ({
+                          label: p,
+                          value: p,
+                        }))
                     : []
                 }
               />
@@ -102,7 +104,9 @@ export function AddAgentModal({
                 }
                 showSearch
                 filterOption={(input, option) =>
-                  (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  (option?.label ?? '')
+                    .toLowerCase()
+                    .includes(input.toLowerCase())
                 }
               />
             </Form.Item>
@@ -117,11 +121,9 @@ export function AddAgentModal({
                     fontSize: '13px',
                   }}
                 >
-                  {
-                    allAgents.providers[selectedProvider]?.find(
-                      (a) => a.name === selectedAgent
-                    )?.longdesc || 'No description available'
-                  }
+                  {allAgents.providers[selectedProvider]?.find(
+                    (a) => a.name === selectedAgent,
+                  )?.longdesc || 'No description available'}
                 </div>
               </Form.Item>
             )}

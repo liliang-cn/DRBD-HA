@@ -157,11 +157,7 @@ impl IntoResponse for AppError {
                 "migration_error",
                 msg.clone(),
             ),
-            AppError::Timeout(msg) => (
-                StatusCode::REQUEST_TIMEOUT,
-                "timeout_error",
-                msg.clone(),
-            ),
+            AppError::Timeout(msg) => (StatusCode::REQUEST_TIMEOUT, "timeout_error", msg.clone()),
         };
 
         let body = ErrorResponse {

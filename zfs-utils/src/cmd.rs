@@ -19,13 +19,23 @@ impl ZfsCmd {
     }
 
     /// Create ZFS volume (sparse/thin)
-    pub fn zfs_create_sparse_volume_cmd(pool_name: &str, volume_name: &str, size_gb: &str) -> String {
-        format!("zfs create -s -V {}G -b 128K {}/{}", size_gb, pool_name, volume_name)
+    pub fn zfs_create_sparse_volume_cmd(
+        pool_name: &str,
+        volume_name: &str,
+        size_gb: &str,
+    ) -> String {
+        format!(
+            "zfs create -s -V {}G -b 128K {}/{}",
+            size_gb, pool_name, volume_name
+        )
     }
 
     /// Create ZFS volume (regular/thick)
     pub fn zfs_create_volume_cmd(pool_name: &str, volume_name: &str, size_gb: &str) -> String {
-        format!("zfs create -V {}G -b 128K {}/{}", size_gb, pool_name, volume_name)
+        format!(
+            "zfs create -V {}G -b 128K {}/{}",
+            size_gb, pool_name, volume_name
+        )
     }
 
     /// Destroy ZFS dataset recursively
@@ -53,9 +63,8 @@ impl ZfsCmd {
 pub async fn run_local_command(command: &str, description: &str) -> ZfsResult<CommandOutput> {
     tracing::info!("Executing: {} ({})", command, description);
 
-    let parts = shlex::split(command).ok_or_else(|| {
-        ZfsError::Execution(format!("Failed to parse command: {}", command))
-    })?;
+    let parts = shlex::split(command)
+        .ok_or_else(|| ZfsError::Execution(format!("Failed to parse command: {}", command)))?;
 
     let mut cmd = Command::new(&parts[0]);
     if parts.len() > 1 {

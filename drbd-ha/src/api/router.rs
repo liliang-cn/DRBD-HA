@@ -6,9 +6,9 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tower_http::compression::CompressionLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -66,7 +66,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/pools/{pool_id}/volumes", post(storage::create_volume))
         // Zpool check
         .route("/storage/zpool/check", get(storage::check_zpool))
-        .route("/storage/zpool/check/{node_id}", get(storage::check_zpool_on_node))
+        .route(
+            "/storage/zpool/check/{node_id}",
+            get(storage::check_zpool_on_node),
+        )
         // HA Profile management
         .route("/ha/profiles", get(ha::list_profiles))
         .route("/ha/profiles", post(ha::create_profile))
@@ -77,15 +80,27 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ha/profiles/{id}/deactivate", post(ha::deactivate_profile))
         .route("/ha/profiles/{id}/enable", post(ha::enable_profile))
         .route("/ha/profiles/{id}/evict", post(ha::evict_profile))
-        .route("/ha/profiles/{id}/{node}/disable", post(ha::disable_profile_on_node))
-        .route("/ha/profiles/{id}/{node}/enable", post(ha::enable_profile_on_node))
+        .route(
+            "/ha/profiles/{id}/{node}/disable",
+            post(ha::disable_profile_on_node),
+        )
+        .route(
+            "/ha/profiles/{id}/{node}/enable",
+            post(ha::enable_profile_on_node),
+        )
         .route("/ha/profiles/{id}/vip", post(ha::add_vip))
         .route("/ha/profiles/{id}/vip", delete(ha::remove_vip))
         .route("/ha/profiles/{id}/toml", get(ha::get_profile_toml))
-        .route("/ha/profiles/{id}/toml", axum::routing::put(ha::update_profile_toml))
+        .route(
+            "/ha/profiles/{id}/toml",
+            axum::routing::put(ha::update_profile_toml),
+        )
         .route("/ha/profiles/{id}/toml/sync", post(ha::sync_profile_toml))
         .route("/ha/profiles/{id}/toml/parse", get(ha::parse_profile_toml))
-        .route("/ha/profiles/{id}/start-array", axum::routing::put(ha::update_start_array))
+        .route(
+            "/ha/profiles/{id}/start-array",
+            axum::routing::put(ha::update_start_array),
+        )
         // Discovery and Import
         .route("/ha/unmanaged", get(ha::list_unmanaged_profiles))
         .route("/ha/import", post(ha::import_profiles))

@@ -6,8 +6,7 @@ use std::sync::Arc;
 
 use crate::core::{
     cluster_sync::{ClusterSync, HaSyncConfig},
-    validator,
-    ReactorConfigGenerator, ReactorConfigPaths,
+    validator, ReactorConfigGenerator, ReactorConfigPaths,
 };
 use crate::error::{AppError, AppResult};
 use crate::models::{HaProfileStatus, VipConfig};
@@ -71,11 +70,15 @@ pub async fn add_vip(
             address: vip.address.clone(),
             netmask: vip.netmask,
         }),
-        ocf_agents: profile.ocf_agents.iter().map(|a| drbd_reactor_utils::OcfAgentConfig {
-            name: a.name.clone(),
-            instance_name: a.instance_name.clone(),
-            params: crate::models::ha::ParamEntry::vec_to_config_gen(&a.params),
-        }).collect(),
+        ocf_agents: profile
+            .ocf_agents
+            .iter()
+            .map(|a| drbd_reactor_utils::OcfAgentConfig {
+                name: a.name.clone(),
+                instance_name: a.instance_name.clone(),
+                params: crate::models::ha::ParamEntry::vec_to_config_gen(&a.params),
+            })
+            .collect(),
         mount_strategy: Some(format!("{:?}", profile.mount_strategy).to_lowercase()),
         mount_point: Some(profile.mount_point.clone()),
         fs_type: Some(profile.fs_type.clone()),
@@ -160,7 +163,8 @@ pub async fn remove_vip(
         // VIP is managed by drbd-reactor, nothing to do here
         tracing::info!(
             "remove_vip: VIP {}/{} was managed by drbd-reactor",
-            old_vip.address, old_vip.netmask
+            old_vip.address,
+            old_vip.netmask
         );
     }
 
@@ -174,11 +178,15 @@ pub async fn remove_vip(
         stop_services_on_exit: profile.promoter.stop_on_demote,
         on_drbd_demote_failure: profile.promoter.on_demote_failure.clone(),
         vip: None,
-        ocf_agents: profile.ocf_agents.iter().map(|a| drbd_reactor_utils::OcfAgentConfig {
-            name: a.name.clone(),
-            instance_name: a.instance_name.clone(),
-            params: crate::models::ha::ParamEntry::vec_to_config_gen(&a.params),
-        }).collect(),
+        ocf_agents: profile
+            .ocf_agents
+            .iter()
+            .map(|a| drbd_reactor_utils::OcfAgentConfig {
+                name: a.name.clone(),
+                instance_name: a.instance_name.clone(),
+                params: crate::models::ha::ParamEntry::vec_to_config_gen(&a.params),
+            })
+            .collect(),
         mount_strategy: Some(format!("{:?}", profile.mount_strategy).to_lowercase()),
         mount_point: Some(profile.mount_point.clone()),
         fs_type: Some(profile.fs_type.clone()),

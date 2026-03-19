@@ -27,4 +27,4 @@ pub use types::*;
 pub use vip::*;
 
 // Re-export flattened resource agent types
-pub use resource_agent::{ResourceAgent, Parameter, Action, ResourceAgentsByProvider};
+pub use resource_agent::{Action, Parameter, ResourceAgent, ResourceAgentsByProvider};

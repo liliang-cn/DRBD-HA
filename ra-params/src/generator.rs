@@ -10,6 +10,7 @@ pub fn generate_ts(ra: &ResourceAgent, agent_name: &str) -> String {
 
     ts.push_str(&format!("export interface {} {{\n", safe_agent_name));
     ts.push_str("  name: string;\n");
+    ts.push_str("  provider: string;\n");
     ts.push_str("  version: string;\n");
     ts.push_str("  shortdesc: string;\n");
     ts.push_str("  longdesc: string;\n");
@@ -39,6 +40,7 @@ pub fn generate_ts(ra: &ResourceAgent, agent_name: &str) -> String {
         safe_agent_name, safe_agent_name,
     ));
     ts.push_str(&format!("  name: \"{}\" ,\n", ra.name));
+    ts.push_str(&format!("  provider: \"{}\" ,\n", ra.provider));
     ts.push_str(&format!("  version: \"{}\" ,\n", ra.version()));
     ts.push_str(&format!("  shortdesc: {:?} ,\n", ra.shortdesc.text.trim()));
     ts.push_str(&format!("  longdesc: {:?} ,\n", ra.longdesc.text.trim()));
@@ -110,6 +112,7 @@ pub fn generate_combined_files(agents: &[ResourceAgent], output_dir: &Path) -> R
 
     ts.push_str("export interface ResourceAgent {\n");
     ts.push_str("  name: string;\n");
+    ts.push_str("  provider: string;\n");
     ts.push_str("  version: string;\n");
     ts.push_str("  shortdesc: string;\n");
     ts.push_str("  longdesc: string;\n");
@@ -122,6 +125,7 @@ pub fn generate_combined_files(agents: &[ResourceAgent], output_dir: &Path) -> R
     for ra in agents {
         ts.push_str("  {\n");
         ts.push_str(&format!("    name: \"{}\" ,\n", ra.name));
+        ts.push_str(&format!("    provider: \"{}\" ,\n", ra.provider));
         ts.push_str(&format!("    version: \"{}\" ,\n", ra.version()));
         ts.push_str(&format!(
             "    shortdesc: {:?} ,\n",

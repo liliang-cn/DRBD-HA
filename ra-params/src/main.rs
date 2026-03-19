@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use ra_params::{generate_combined_files, generate_ts, get_agent_metadata, list_agents, models::ResourceAgent};
+use ra_params::{
+    generate_combined_files, generate_ts, get_agent_metadata_with_provider, list_agents,
+    models::ResourceAgent,
+};
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -124,15 +127,18 @@ fn scan_and_process(
     let mut failures: Vec<(String, String)> = Vec::new();
 
     let agents = list_agents(ocf_root)?;
-    
+
     for (provider, agent_name) in agents {
         let provider_output_dir = output_dir.join(&provider);
         fs::create_dir_all(&provider_output_dir)?;
-        
-        // Reconstruct path (a bit redundant but fits the loop)
-        let agent_path = ocf_root.join("resource.d").join(&provider).join(&agent_name);
 
-        match process_agent(&agent_path, &provider_output_dir, save_xml) {
+        // Reconstruct path (a bit redundant but fits the loop)
+        let agent_path = ocf_root
+            .join("resource.d")
+            .join(&provider)
+            .join(&agent_name);
+
+        match process_agent(&agent_path, &provider_output_dir, save_xml, &provider) {
             Ok(agent) => {
                 success_count += 1;
                 if combine {
@@ -142,11 +148,7 @@ fn scan_and_process(
             Err(e) => {
                 fail_count += 1;
                 failures.push((agent_name.clone(), e.to_string()));
-                eprintln!(
-                    "Failed to process agent {}: {}",
-                    agent_path.display(),
-                    e
-                );
+                eprintln!("Failed to process agent {}: {}", agent_path.display(), e);
             }
         }
     }
@@ -170,11 +172,16 @@ fn scan_and_process(
     Ok(())
 }
 
-fn process_agent(agent_path: &Path, output_dir: &Path, save_xml: bool) -> Result<ResourceAgent> {
+fn process_agent(
+    agent_path: &Path,
+    output_dir: &Path,
+    save_xml: bool,
+    provider: &str,
+) -> Result<ResourceAgent> {
     let agent_name = agent_path.file_name().unwrap().to_string_lossy();
-    println!("Processing Agent: {}", agent_name);
+    println!("Processing Agent: {} (provider: {})", agent_name, provider);
 
-    let (ra, xml_content) = get_agent_metadata(agent_path)?;
+    let (ra, xml_content) = get_agent_metadata_with_provider(agent_path, provider)?;
 
     // Optional: Save XML
     if save_xml {

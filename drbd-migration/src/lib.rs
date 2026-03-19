@@ -125,7 +125,10 @@ impl DataMigration {
             report_progress(MigrationStage::Finalizing, "Demoting DRBD resource");
             Self::demote_drbd(&config.resource_name).await?;
         } else {
-            report_progress(MigrationStage::Finalizing, "Keeping DRBD resource as Primary");
+            report_progress(
+                MigrationStage::Finalizing,
+                "Keeping DRBD resource as Primary",
+            );
         }
 
         // Step 8: Restart services if they were stopped

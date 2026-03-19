@@ -21,10 +21,8 @@ pub use parser::{
     parse_res_file_for_minors, parse_res_file_for_nodes,
 };
 pub use remote::{resolve_hostname_to_ip, CommandOutput, RemoteDrbdQuery, RemoteExecutor};
-pub use sync::{check_drbd_sync_complete, get_drbd_sync_status, SyncStatus, PeerSyncStatus};
-pub use verification::{
-    DrbdVerifier, VerificationConfig, VerificationResult, VerificationDetails,
-};
+pub use sync::{check_drbd_sync_complete, get_drbd_sync_status, PeerSyncStatus, SyncStatus};
+pub use verification::{DrbdVerifier, VerificationConfig, VerificationDetails, VerificationResult};
 
 #[cfg(test)]
 mod tests {

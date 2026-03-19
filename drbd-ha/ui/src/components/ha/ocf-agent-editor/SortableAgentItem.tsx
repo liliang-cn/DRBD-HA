@@ -1,11 +1,13 @@
 import {
+  CaretRightOutlined,
   DeleteOutlined,
   HolderOutlined,
-  CaretRightOutlined,
-  PlusOutlined,
   MinusCircleOutlined,
+  PlusOutlined,
   QuestionCircleOutlined,
 } from '@ant-design/icons';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   Button,
   Card,
@@ -19,20 +21,25 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import { useSortable } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import type { OcfAgentWithMetadata, ResourceAgent, ParamEntry } from '@/api/ha-profiles';
+import type {
+  OcfAgentWithMetadata,
+  ParamEntry,
+  ResourceAgent,
+} from '@/api/ha-profiles';
 
 const { Text } = Typography;
 
 // Helper to get param value from ParamEntry[]
-function getParamValue(params: ParamEntry[] | undefined, key: string): string | undefined {
-  return params?.find(p => p.key === key)?.value;
+function getParamValue(
+  params: ParamEntry[] | undefined,
+  key: string,
+): string | undefined {
+  return params?.find((p) => p.key === key)?.value;
 }
 
 // Helper to check if param exists
 function hasParam(params: ParamEntry[] | undefined, key: string): boolean {
-  return params?.some(p => p.key === key) || false;
+  return params?.some((p) => p.key === key) || false;
 }
 
 export interface SortableItemProps {
@@ -124,8 +131,16 @@ export function SortableAgentItem({
       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
         <span style={{ fontSize: '13px', color: '#333' }}>{param.name}</span>
         {(param.longdesc || param.shortdesc) && (
-          <Tooltip title={<div style={{ whiteSpace: 'pre-wrap', maxWidth: '400px' }}>{param.longdesc || param.shortdesc}</div>}>
-            <QuestionCircleOutlined style={{ color: '#999', fontSize: '12px' }} />
+          <Tooltip
+            title={
+              <div style={{ whiteSpace: 'pre-wrap', maxWidth: '400px' }}>
+                {param.longdesc || param.shortdesc}
+              </div>
+            }
+          >
+            <QuestionCircleOutlined
+              style={{ color: '#999', fontSize: '12px' }}
+            />
           </Tooltip>
         )}
       </div>
@@ -157,13 +172,19 @@ export function SortableAgentItem({
             name={fieldName}
             label={label}
             valuePropName="checked"
-            getValueFrom={(value: boolean) => value ? 'true' : 'false'}
+            getValueFrom={(value: boolean) => (value ? 'true' : 'false')}
             getValueProps={(value: string) => ({
-              checked: value === 'true' || value === '1' || value === 'yes' || value === true
+              checked:
+                value === 'true' ||
+                value === '1' ||
+                value === 'yes' ||
+                value === true,
             })}
             initialValue={
               typeof currentValue === 'boolean'
-                ? (currentValue ? 'true' : 'false')
+                ? currentValue
+                  ? 'true'
+                  : 'false'
                 : currentValue
             }
             rules={[
@@ -274,10 +295,22 @@ export function SortableAgentItem({
             <Tag color="blue">#{index + 1}</Tag>
             {isOcf && <Tag color="cyan">OCF</Tag>}
             <Tag color={displayInfo.typeColor}>{displayInfo.typeLabel}</Tag>
-            {isOcf && ocfAgent && <Tag color={displayInfo.instanceColor}>{displayInfo.instanceLabel}</Tag>}
-            {!isOcf && <Tag color={displayInfo.instanceColor}>{displayInfo.instanceLabel}</Tag>}
-            {isOcf && isLoadingMetadata && <Tag color="processing">Loading metadata...</Tag>}
-            {isOcf && !metadata && !isLoadingMetadata && <Tag color="warning">Metadata not found</Tag>}
+            {isOcf && ocfAgent && (
+              <Tag color={displayInfo.instanceColor}>
+                {displayInfo.instanceLabel}
+              </Tag>
+            )}
+            {!isOcf && (
+              <Tag color={displayInfo.instanceColor}>
+                {displayInfo.instanceLabel}
+              </Tag>
+            )}
+            {isOcf && isLoadingMetadata && (
+              <Tag color="processing">Loading metadata...</Tag>
+            )}
+            {isOcf && !metadata && !isLoadingMetadata && (
+              <Tag color="warning">Metadata not found</Tag>
+            )}
           </Space>
 
           {/* Delete button */}
@@ -342,7 +375,9 @@ export function SortableAgentItem({
                 {metadata.name}
               </Text>
               {metadata.shortdesc && (
-                <div style={{ color: '#666', fontSize: '12px', marginTop: '4px' }}>
+                <div
+                  style={{ color: '#666', fontSize: '12px', marginTop: '4px' }}
+                >
                   {metadata.shortdesc}
                 </div>
               )}
@@ -352,12 +387,19 @@ export function SortableAgentItem({
           {/* Form fields with metadata */}
           {isOcf && metadata && (
             <div style={{ marginBottom: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '12px',
+                }}
+              >
                 <Text strong>Parameters</Text>
                 <Button
                   size="small"
                   icon={<PlusOutlined />}
-                  onClick={() => onAddParam && onAddParam(stableKey)}
+                  onClick={() => onAddParam?.(stableKey)}
                 >
                   Add Parameter
                 </Button>
@@ -365,11 +407,16 @@ export function SortableAgentItem({
 
               {/* Only show parameters that exist in TOML or were added by user */}
               {(ocfAgent?.params || []).map((paramEntry) => {
-                const param = metadata.parameters.find(p => p.name === paramEntry.key);
+                const param = metadata.parameters.find(
+                  (p) => p.name === paramEntry.key,
+                );
                 if (!param) return null;
 
                 return (
-                  <div key={paramEntry.key} style={{ position: 'relative', paddingRight: '40px' }}>
+                  <div
+                    key={paramEntry.key}
+                    style={{ position: 'relative', paddingRight: '40px' }}
+                  >
                     {renderFormField(param)}
                     <Button
                       type="text"
@@ -389,11 +436,17 @@ export function SortableAgentItem({
 
               {/* Show manually added parameters */}
               {Array.from(addedParams.get(stableKey) || []).map((paramName) => {
-                const param = metadata.parameters.find(p => p.name === paramName);
-                if (!param || hasParam(ocfAgent?.params, paramName)) return null;
+                const param = metadata.parameters.find(
+                  (p) => p.name === paramName,
+                );
+                if (!param || hasParam(ocfAgent?.params, paramName))
+                  return null;
 
                 return (
-                  <div key={paramName} style={{ position: 'relative', paddingRight: '40px' }}>
+                  <div
+                    key={paramName}
+                    style={{ position: 'relative', paddingRight: '40px' }}
+                  >
                     {renderFormField(param)}
                     <Button
                       type="text"

@@ -2,20 +2,23 @@
 //!
 //! Handles listing profiles, fetching profile details, and status queries.
 
-use axum::{extract::{Path, State}, Json};
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 use drbd_reactor_utils::DrbdReactorClient;
 use std::sync::Arc;
 
 use crate::core::{
-    run_shell_command,
-    systemd_ctrl::SystemdController,
+    drbd_cmd::DrbdCmd, run_shell_command, systemd_ctrl::SystemdController,
     ReactorConfigPaths as ConfigPaths,
-    drbd_cmd::DrbdCmd,
 };
 use crate::error::AppResult;
 use crate::state::AppState;
 
-use super::types::{ConfigVisibility, HaProfileDetailResponse, HaProfileListResponse, ServiceStatusInfo};
+use super::types::{
+    ConfigVisibility, HaProfileDetailResponse, HaProfileListResponse, ServiceStatusInfo,
+};
 use super::utils::{create_profile_from_toml, get_all_ha_profile_names};
 
 use gethostname;
@@ -33,7 +36,8 @@ impl drbd_utils::RemoteExecutor for SshExecutor {
         port: u16,
         user: &str,
         command: &str,
-    ) -> impl std::future::Future<Output = drbd_utils::DrbdResult<drbd_utils::CommandOutput>> + Send {
+    ) -> impl std::future::Future<Output = drbd_utils::DrbdResult<drbd_utils::CommandOutput>> + Send
+    {
         let ssh_manager = self.ssh_manager.clone();
         let credential = self.credential.clone();
         let ip = ip.to_string();
@@ -70,7 +74,9 @@ fn resolve_hostname_to_ip(hostname: &str) -> Option<String> {
         (status = 200, description = "List of HA profiles", body = HaProfileListResponse)
     )
 )]
-pub async fn list_profiles(State(state): State<Arc<AppState>>) -> AppResult<Json<HaProfileListResponse>> {
+pub async fn list_profiles(
+    State(state): State<Arc<AppState>>,
+) -> AppResult<Json<HaProfileListResponse>> {
     let profile_names = get_all_ha_profile_names(&state).await?;
     let mut profiles = Vec::new();
     let reactor_dir = ConfigPaths::REACTOR_CONF_DIR;
@@ -78,15 +84,17 @@ pub async fn list_profiles(State(state): State<Arc<AppState>>) -> AppResult<Json
     for name in &profile_names {
         // Try to read from .toml (enabled) or .toml.disabled (disabled)
         let config_path = ConfigPaths::promoter_path(name);
-        let disabled_path = std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", name));
+        let disabled_path =
+            std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", name));
 
-        let (content, is_locally_disabled) = if let Ok(content) = tokio::fs::read_to_string(&config_path).await {
-            (Some(content), false)
-        } else if let Ok(content) = tokio::fs::read_to_string(&disabled_path).await {
-            (Some(content), true)
-        } else {
-            (None, false)
-        };
+        let (content, is_locally_disabled) =
+            if let Ok(content) = tokio::fs::read_to_string(&config_path).await {
+                (Some(content), false)
+            } else if let Ok(content) = tokio::fs::read_to_string(&disabled_path).await {
+                (Some(content), true)
+            } else {
+                (None, false)
+            };
 
         if let Some(content_str) = content {
             if let Some(mut profile) = create_profile_from_toml(name, &content_str) {
@@ -147,7 +155,11 @@ pub async fn list_profiles(State(state): State<Arc<AppState>>) -> AppResult<Json
 
 /// Helper function to check if a profile is enabled on any other node
 /// Returns (is_enabled_on_any_node, active_node_from_remote)
-async fn check_if_enabled_on_other_nodes(state: &Arc<AppState>, profile_name: &str, _local_content: &str) -> (bool, Option<String>) {
+async fn check_if_enabled_on_other_nodes(
+    state: &Arc<AppState>,
+    profile_name: &str,
+    _local_content: &str,
+) -> (bool, Option<String>) {
     use crate::core::SshCredential;
 
     // Get all nodes
@@ -167,37 +179,53 @@ async fn check_if_enabled_on_other_nodes(state: &Arc<AppState>, profile_name: &s
         let reactor_dir = config_gen::ConfigPaths::REACTOR_CONF_DIR;
 
         // Check if .toml file exists on remote node (not .toml.disabled)
-        let check_cmd = format!("test -f {}/{}.toml && echo exists", reactor_dir, profile_name);
+        let check_cmd = format!(
+            "test -f {}/{}.toml && echo exists",
+            reactor_dir, profile_name
+        );
         let credential = SshCredential::Password("ignored".to_string());
 
-        let has_toml = match state.ssh_manager.execute(
-            &node.ip,
-            node.ssh_port,
-            &node.ssh_user,
-            &credential,
-            &check_cmd,
-        ).await {
+        let has_toml = match state
+            .ssh_manager
+            .execute(
+                &node.ip,
+                node.ssh_port,
+                &node.ssh_user,
+                &credential,
+                &check_cmd,
+            )
+            .await
+        {
             Ok(output) => output.stdout.contains("exists"),
             Err(_) => false,
         };
 
         if has_toml {
-            // Check if profile is active on this node
-            let status_cmd = format!("sudo drbd-reactorctl status {} 2>/dev/null | grep -q 'Currently active on this node' && echo active || echo not_active", profile_name);
+            let status_cmd = format!(
+                "sudo drbd-reactorctl status --json {} 2>/dev/null",
+                profile_name
+            );
 
-            match state.ssh_manager.execute(
-                &node.ip,
-                node.ssh_port,
-                &node.ssh_user,
-                &credential,
-                &status_cmd,
-            ).await {
+            match state
+                .ssh_manager
+                .execute(
+                    &node.ip,
+                    node.ssh_port,
+                    &node.ssh_user,
+                    &credential,
+                    &status_cmd,
+                )
+                .await
+            {
                 Ok(output) => {
-                    if output.stdout.contains("active") {
-                        return (true, Some(node.hostname.clone()));
-                    } else {
-                        return (true, None);
+                    let statuses = drbd_reactor_utils::parser::parse_reactor_status(
+                        &output.stdout,
+                        Some(profile_name),
+                    );
+                    if let Some(status) = statuses.first() {
+                        return (true, status.active_node.clone());
                     }
+                    return (true, None);
                 }
                 Err(_) => return (true, None),
             }
@@ -232,43 +260,44 @@ pub async fn fetch_profile_details(
     state: Arc<AppState>,
     id_or_name: String,
 ) -> AppResult<Json<HaProfileDetailResponse>> {
-    use crate::models::HaProfileStatus;
     use crate::core::SshCredential;
+    use crate::models::HaProfileStatus;
 
     // Load profile from toml file (try both .toml and .toml.disabled)
     let config_path = ConfigPaths::promoter_path(&id_or_name);
     let reactor_dir = ConfigPaths::REACTOR_CONF_DIR;
-    let disabled_path = std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", &id_or_name));
+    let disabled_path =
+        std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", &id_or_name));
 
-    let (content, is_disabled) = if let Ok(content) = tokio::fs::read_to_string(&config_path).await {
+    let (content, is_disabled) = if let Ok(content) = tokio::fs::read_to_string(&config_path).await
+    {
         (content, false)
     } else if let Ok(content) = tokio::fs::read_to_string(&disabled_path).await {
         (content, true)
     } else {
-        return Err(crate::error::AppError::NotFound(format!("HA profile {} not found", id_or_name)));
+        return Err(crate::error::AppError::NotFound(format!(
+            "HA profile {} not found",
+            id_or_name
+        )));
     };
 
-    let mut profile = create_profile_from_toml(&id_or_name, &content)
-        .ok_or_else(|| crate::error::AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
+    let mut profile = create_profile_from_toml(&id_or_name, &content).ok_or_else(|| {
+        crate::error::AppError::NotFound(format!("HA profile {} not found", id_or_name))
+    })?;
 
-    // Check if profile is truly disabled by trying drbd-reactorctl status
+    // Check if profile is truly disabled by trying drbd-reactorctl status --json
     // First check locally, then remote nodes if local is disabled
     let is_truly_disabled = match DrbdReactorClient::status(Some(&id_or_name), None).await {
-        Ok((statuses, raw_output)) => {
-            // Reactor returned status - check if it contains actual status info or just errors
-            // If output contains "Error:" or "Could not read config snippets", it's truly disabled
-            let has_error = raw_output.contains("Error:") ||
-                           raw_output.contains("Could not read config snippets") ||
-                           raw_output.contains("No such file or directory");
-
-            if has_error || statuses.is_empty() {
+        Ok((statuses, _)) => {
+            if statuses.is_empty() {
                 // No valid status locally - check if local is disabled
                 if is_disabled {
                     // Local is disabled, check remote nodes via SSH
                     // Check if any node has .toml file (not .toml.disabled)
                     match state.node_store.get_all() {
                         Ok(nodes) => {
-                            let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+                            let local_hostname =
+                                gethostname::gethostname().to_string_lossy().to_string();
                             let reactor_dir = config_gen::ConfigPaths::REACTOR_CONF_DIR;
 
                             let mut enabled_on_remote = false;
@@ -279,32 +308,48 @@ pub async fn fetch_profile_details(
                                 }
 
                                 // Check if this node has .toml file (not .toml.disabled)
-                                let check_cmd = format!("sudo test -f {}/{}.toml && echo enabled", reactor_dir, id_or_name);
-                                let credential = crate::core::SshCredential::Password("ignored".to_string());
+                                let check_cmd = format!(
+                                    "sudo test -f {}/{}.toml && echo enabled",
+                                    reactor_dir, id_or_name
+                                );
+                                let credential =
+                                    crate::core::SshCredential::Password("ignored".to_string());
 
-                                match state.ssh_manager.execute(
-                                    &node.ip,
-                                    node.ssh_port,
-                                    &node.ssh_user,
-                                    &credential,
-                                    &check_cmd,
-                                ).await {
+                                match state
+                                    .ssh_manager
+                                    .execute(
+                                        &node.ip,
+                                        node.ssh_port,
+                                        &node.ssh_user,
+                                        &credential,
+                                        &check_cmd,
+                                    )
+                                    .await
+                                {
                                     Ok(output) => {
                                         if output.stdout.trim() == "enabled" {
-                                            tracing::debug!("Profile {} is enabled on remote node {}", id_or_name, node.hostname);
+                                            tracing::debug!(
+                                                "Profile {} is enabled on remote node {}",
+                                                id_or_name,
+                                                node.hostname
+                                            );
                                             enabled_on_remote = true;
                                             break;
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::warn!("Failed to check remote node {}: {}", node.hostname, e);
+                                        tracing::warn!(
+                                            "Failed to check remote node {}: {}",
+                                            node.hostname,
+                                            e
+                                        );
                                     }
                                 }
                             }
 
                             !enabled_on_remote // If no remote node has it enabled, it's truly disabled
                         }
-                        Err(_) => is_disabled // If we can't check remote nodes, use local status
+                        Err(_) => is_disabled, // If we can't check remote nodes, use local status
                     }
                 } else {
                     // Local is not disabled
@@ -331,21 +376,37 @@ pub async fn fetch_profile_details(
         let res_file_nodes = match tokio::fs::read_to_string(&res_file_path).await {
             Ok(content) => {
                 let parsed = drbd_utils::parse_res_file_for_nodes(&content);
-                tracing::debug!("Parsed res file {}: {} nodes found", res_file_path, parsed.len());
+                tracing::debug!(
+                    "Parsed res file {}: {} nodes found",
+                    res_file_path,
+                    parsed.len()
+                );
                 Some(parsed)
             }
             Err(e) => {
-                tracing::warn!("Failed to read res file {}: {}, trying LINSTOR path", res_file_path, e);
+                tracing::warn!(
+                    "Failed to read res file {}: {}, trying LINSTOR path",
+                    res_file_path,
+                    e
+                );
                 // Try LINSTOR path
                 let linstor_path = format!("/var/lib/linstor.d/{}.res", profile.resource_name);
                 match tokio::fs::read_to_string(&linstor_path).await {
                     Ok(content) => {
                         let parsed = drbd_utils::parse_res_file_for_nodes(&content);
-                        tracing::debug!("Parsed LINSTOR res file {}: {} nodes found", linstor_path, parsed.len());
+                        tracing::debug!(
+                            "Parsed LINSTOR res file {}: {} nodes found",
+                            linstor_path,
+                            parsed.len()
+                        );
                         Some(parsed)
                     }
                     Err(linstor_err) => {
-                        tracing::warn!("Failed to read LINSTOR res file {}: {}", linstor_path, linstor_err);
+                        tracing::warn!(
+                            "Failed to read LINSTOR res file {}: {}",
+                            linstor_path,
+                            linstor_err
+                        );
                         None
                     }
                 }
@@ -353,25 +414,27 @@ pub async fn fetch_profile_details(
         };
 
         let node_infos = if let Some(nodes) = res_file_nodes {
-            nodes.into_iter().map(|(hostname, ip)| {
-                super::types::NodeConfigInfo {
+            nodes
+                .into_iter()
+                .map(|(hostname, ip)| super::types::NodeConfigInfo {
                     hostname,
                     ip,
                     peer_role: None,
                     disabled: None,
-                }
-            }).collect()
+                })
+                .collect()
         } else {
             // Fallback: get from node_store
             match state.node_store.get_all() {
-                Ok(ns) => ns.into_iter().map(|n| {
-                    super::types::NodeConfigInfo {
+                Ok(ns) => ns
+                    .into_iter()
+                    .map(|n| super::types::NodeConfigInfo {
                         hostname: n.hostname,
                         ip: n.ip,
                         peer_role: None,
                         disabled: None,
-                    }
-                }).collect(),
+                    })
+                    .collect(),
                 Err(_) => Vec::new(),
             }
         };
@@ -418,26 +481,40 @@ pub async fn fetch_profile_details(
     // Step 1: Get DRBD status to determine which node is Primary (active)
     // Use drbdsetup status --json for complete status including connection state
     let local_drbd_status = {
-        let cmd = format!("{} 2>/dev/null", DrbdCmd::resource_status_cmd(&profile.resource_name)?);
+        let cmd = format!(
+            "{} 2>/dev/null",
+            DrbdCmd::resource_status_cmd(&profile.resource_name)?
+        );
         let output = run_shell_command(
             &cmd,
             &format!("Get local DRBD status for {}", profile.resource_name),
         )
         .await?;
 
-        tracing::debug!("drbdsetup status --json exit_code: {}, stdout: {}",
+        tracing::debug!(
+            "drbdsetup status --json exit_code: {}, stdout: {}",
             output.exit_code,
-            if output.stdout.is_empty() { "(empty)".to_string() } else { output.stdout.clone() });
+            if output.stdout.is_empty() {
+                "(empty)".to_string()
+            } else {
+                output.stdout.clone()
+            }
+        );
 
         if output.success() && !output.stdout.is_empty() {
             // Parse JSON output from drbdsetup
             match drbd_utils::parse_drbd_status(&output.stdout) {
                 Ok(resources) => {
                     // Find our resource
-                    if let Some(resource) = resources.iter().find(|r| r.name == profile.resource_name) {
+                    if let Some(resource) =
+                        resources.iter().find(|r| r.name == profile.resource_name)
+                    {
                         Some(drbd_utils::convert_resource_status(resource))
                     } else {
-                        tracing::warn!("Resource '{}' not found in drbdsetup status output", profile.resource_name);
+                        tracing::warn!(
+                            "Resource '{}' not found in drbdsetup status output",
+                            profile.resource_name
+                        );
                         None
                     }
                 }
@@ -447,8 +524,11 @@ pub async fn fetch_profile_details(
                 }
             }
         } else {
-            tracing::warn!("drbdsetup status failed or empty for resource '{}', exit_code: {}",
-                profile.resource_name, output.exit_code);
+            tracing::warn!(
+                "drbdsetup status failed or empty for resource '{}', exit_code: {}",
+                profile.resource_name,
+                output.exit_code
+            );
             None
         }
     };
@@ -461,21 +541,37 @@ pub async fn fetch_profile_details(
     let res_file_nodes = match tokio::fs::read_to_string(&res_file_path).await {
         Ok(content) => {
             let parsed = drbd_utils::parse_res_file_for_nodes(&content);
-            tracing::debug!("Parsed res file {}: {} nodes found", res_file_path, parsed.len());
+            tracing::debug!(
+                "Parsed res file {}: {} nodes found",
+                res_file_path,
+                parsed.len()
+            );
             parsed
         }
         Err(e) => {
-            tracing::warn!("Failed to read res file {}: {}, trying LINSTOR path", res_file_path, e);
+            tracing::warn!(
+                "Failed to read res file {}: {}, trying LINSTOR path",
+                res_file_path,
+                e
+            );
             // Try LINSTOR path
             let linstor_path = format!("/var/lib/linstor.d/{}.res", profile.resource_name);
             match tokio::fs::read_to_string(&linstor_path).await {
                 Ok(content) => {
                     let parsed = drbd_utils::parse_res_file_for_nodes(&content);
-                    tracing::debug!("Parsed LINSTOR res file {}: {} nodes found", linstor_path, parsed.len());
+                    tracing::debug!(
+                        "Parsed LINSTOR res file {}: {} nodes found",
+                        linstor_path,
+                        parsed.len()
+                    );
                     parsed
                 }
                 Err(linstor_err) => {
-                    tracing::warn!("Failed to read LINSTOR res file {}: {}", linstor_path, linstor_err);
+                    tracing::warn!(
+                        "Failed to read LINSTOR res file {}: {}",
+                        linstor_path,
+                        linstor_err
+                    );
                     std::collections::HashMap::new()
                 }
             }
@@ -489,7 +585,9 @@ pub async fn fetch_profile_details(
             Some(local_hostname.clone())
         } else {
             // Local is Secondary, find Primary in peers
-            status.peers.iter()
+            status
+                .peers
+                .iter()
                 .find(|p| p.role == "Primary")
                 .map(|p| p.name.clone())
         }
@@ -511,130 +609,159 @@ pub async fn fetch_profile_details(
     // Get local hostname
     let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
 
-    // Step 2: Execute drbdadm status AND drbd-reactorctl status on the ACTIVE node
+    // Step 2: Execute drbdadm status and drbd-reactorctl status --json on the active node
     // Track whether DRBD status is from local or remote node
-    let (drbd, active_node, reactor_status_raw, drbd_from_local) = if let Some(ref active_hostname) = active_node_from_drbd {
-        // Check if active node is local by comparing hostname
-        if active_hostname == &local_hostname {
-            // Active node is local, execute locally
-            tracing::info!("Active node is local, getting status locally for {}", profile.resource_name);
+    let (drbd, active_node, reactor_status_raw, drbd_from_local) =
+        if let Some(ref active_hostname) = active_node_from_drbd {
+            // Check if active node is local by comparing hostname
+            if active_hostname == &local_hostname {
+                // Active node is local, execute locally
+                tracing::info!(
+                    "Active node is local, getting status locally for {}",
+                    profile.resource_name
+                );
 
-            let reactor_status = DrbdReactorClient::status(Some(&profile.name), None).await;
-            let reactor_raw = reactor_status.as_ref().map(|(_, raw)| raw.clone()).ok();
-            let active_from_reactor = reactor_status.as_ref()
-                .ok()
-                .and_then(|(statuses, _)| statuses.first())
-                .and_then(|s| s.active_node.clone());
-
-            (local_drbd_status, active_from_reactor.or_else(|| Some(active_hostname.clone())), reactor_raw, true)
-        } else {
-            // Active node is remote - SSH to execute commands there
-            tracing::info!("Active node is remote {}, getting status via SSH for {}", active_hostname, profile.resource_name);
-
-            // Get IP from res file
-            let remote_ip = if let Some(ip) = res_file_nodes.get(active_hostname) {
-                ip.clone()
-            } else {
-                // Fallback: try DNS resolution
-                tracing::warn!("IP not found in res file for {}, trying DNS", active_hostname);
-                resolve_hostname_to_ip(active_hostname)
-                    .unwrap_or_else(|| {
-                        tracing::error!("Cannot resolve IP for {}", active_hostname);
-                        local_hostname.clone()
-                    })
-            };
-
-            // If IP resolution failed and we're using local hostname, skip SSH
-            if remote_ip == local_hostname || remote_ip == "127.0.0.1" {
                 let reactor_status = DrbdReactorClient::status(Some(&profile.name), None).await;
                 let reactor_raw = reactor_status.as_ref().map(|(_, raw)| raw.clone()).ok();
-                let active_from_reactor = reactor_status.as_ref()
+                let active_from_reactor = reactor_status
+                    .as_ref()
                     .ok()
                     .and_then(|(statuses, _)| statuses.first())
                     .and_then(|s| s.active_node.clone());
-                (local_drbd_status, active_from_reactor.or_else(|| Some(active_hostname.clone())), reactor_raw, true)
+
+                (
+                    local_drbd_status,
+                    active_from_reactor.or_else(|| Some(active_hostname.clone())),
+                    reactor_raw,
+                    true,
+                )
             } else {
-                // Use RemoteDrbdQuery to get DRBD and reactor status from remote node
-                let remote_drbd = remote_query.get_resource_status(&remote_ip, &profile.resource_name).await
-                    .unwrap_or_else(|e| {
-                        tracing::warn!("Failed to get DRBD status from {} via SSH: {}", active_hostname, e);
-                        None
-                    });
+                // Active node is remote - SSH to execute commands there
+                tracing::info!(
+                    "Active node is remote {}, getting status via SSH for {}",
+                    active_hostname,
+                    profile.resource_name
+                );
 
-                let reactor_result = remote_query.get_reactor_status(&remote_ip, &profile.name).await;
-
-                // If remote reactor status fails, try to get it locally
-                let reactor_raw = match reactor_result {
-                    Ok(Some(output)) if !output.is_empty() => {
-                        Some(output)
-                    }
-                    _ => {
-                        // Remote failed or returned empty, try local reactor status
-                        tracing::warn!("Remote reactor status failed or empty, trying local reactor status");
-                        match DrbdReactorClient::status(Some(&profile.name), None).await {
-                            Ok((_, raw_output)) => Some(raw_output),
-                            Err(e) => {
-                                tracing::warn!("Local reactor status also failed: {}", e);
-                                None
-                            }
-                        }
-                    }
+                // Get IP from res file
+                let remote_ip = if let Some(ip) = res_file_nodes.get(active_hostname) {
+                    ip.clone()
+                } else {
+                    // Fallback: try DNS resolution
+                    tracing::warn!(
+                        "IP not found in res file for {}, trying DNS",
+                        active_hostname
+                    );
+                    resolve_hostname_to_ip(active_hostname).unwrap_or_else(|| {
+                        tracing::error!("Cannot resolve IP for {}", active_hostname);
+                        local_hostname.clone()
+                    })
                 };
 
-                // Try to get active node from reactor output
-                let active_from_reactor = reactor_raw.as_ref().and_then(|raw| {
-                    // Try to parse active node from raw output
-                    // Format: "Promoter: Currently active on node 'orange2'"
-                    raw.lines()
-                        .find(|line| line.contains("Currently active on node"))
-                        .and_then(|line| {
-                            line.split("'")
-                                .nth(1)
-                                .map(|s| s.to_string())
+                // If IP resolution failed and we're using local hostname, skip SSH
+                if remote_ip == local_hostname || remote_ip == "127.0.0.1" {
+                    let reactor_status = DrbdReactorClient::status(Some(&profile.name), None).await;
+                    let reactor_raw = reactor_status.as_ref().map(|(_, raw)| raw.clone()).ok();
+                    let active_from_reactor = reactor_status
+                        .as_ref()
+                        .ok()
+                        .and_then(|(statuses, _)| statuses.first())
+                        .and_then(|s| s.active_node.clone());
+                    (
+                        local_drbd_status,
+                        active_from_reactor.or_else(|| Some(active_hostname.clone())),
+                        reactor_raw,
+                        true,
+                    )
+                } else {
+                    // Use RemoteDrbdQuery to get DRBD and reactor status from remote node
+                    let remote_drbd = remote_query
+                        .get_resource_status(&remote_ip, &profile.resource_name)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::warn!(
+                                "Failed to get DRBD status from {} via SSH: {}",
+                                active_hostname,
+                                e
+                            );
+                            None
+                        });
+
+                    let reactor_result = remote_query
+                        .get_reactor_status(&remote_ip, &profile.name)
+                        .await;
+
+                    // If remote reactor status fails, try to get it locally
+                    let reactor_raw = match reactor_result {
+                        Ok(Some(output)) if !output.is_empty() => Some(output),
+                        _ => {
+                            // Remote failed or returned empty, try local reactor status
+                            tracing::warn!(
+                            "Remote reactor status failed or empty, trying local reactor status"
+                        );
+                            match DrbdReactorClient::status(Some(&profile.name), None).await {
+                                Ok((_, raw_output)) => Some(raw_output),
+                                Err(e) => {
+                                    tracing::warn!("Local reactor status also failed: {}", e);
+                                    None
+                                }
+                            }
+                        }
+                    };
+
+                    // Try to get active node from reactor output
+                    let active_from_reactor = reactor_raw
+                        .as_ref()
+                        .and_then(|raw| {
+                            drbd_reactor_utils::parser::parse_reactor_status(
+                                raw,
+                                Some(&profile.name),
+                            )
+                            .into_iter()
+                            .next()
+                            .and_then(|status| status.active_node)
                         })
-                }).or_else(|| Some(active_hostname.clone()));
+                        .or_else(|| Some(active_hostname.clone()));
 
-                (remote_drbd, active_from_reactor, reactor_raw, false)
-            }
-        }
-    } else {
-        // No active node from DRBD, use local status
-        tracing::info!("No active node determined from DRBD, using local status");
-        let reactor_status = DrbdReactorClient::status(Some(&profile.name), None).await;
-
-        // Extract raw output and active node from reactor status
-        // Always try to get raw output, even if parsing fails
-        let reactor_raw = match &reactor_status {
-            Ok((_, raw)) => Some(raw.clone()),
-            Err(_) => {
-                // Fallback: try to get raw output directly from command
-                let cmd = format!("sudo drbd-reactorctl status {} 2>/dev/null", profile.name);
-                match crate::core::run_shell_command(&cmd, "Get drbd-reactor status").await {
-                    Ok(output) => Some(output.stdout),
-                    Err(_) => None,
+                    (remote_drbd, active_from_reactor, reactor_raw, false)
                 }
             }
-        };
-
-        // Try to extract active node from raw output if statuses parsing failed
-        let active_from_reactor = if let Ok((statuses, _)) = &reactor_status {
-            statuses.first().and_then(|s| s.active_node.clone())
         } else {
-            // Try to parse active node from raw output
-            // Format: "Promoter: Currently active on node 'orange2'"
-            reactor_raw.as_ref().and_then(|raw| {
-                raw.lines()
-                    .find(|line| line.contains("Currently active on node"))
-                    .and_then(|line| {
-                        line.split("'")
-                            .nth(1)
-                            .map(|s| s.to_string())
-                    })
-            })
-        };
+            // No active node from DRBD, use local status
+            tracing::info!("No active node determined from DRBD, using local status");
+            let reactor_status = DrbdReactorClient::status(Some(&profile.name), None).await;
 
-        (local_drbd_status, active_from_reactor, reactor_raw, true)
-    };
+            // Extract raw output and active node from reactor status
+            // Always try to get raw output, even if parsing fails
+            let reactor_raw = match &reactor_status {
+                Ok((_, raw)) => Some(raw.clone()),
+                Err(_) => {
+                    // Fallback: try to get raw output directly from command
+                    let cmd = format!(
+                        "sudo drbd-reactorctl status --json {} 2>/dev/null",
+                        profile.name
+                    );
+                    match crate::core::run_shell_command(&cmd, "Get drbd-reactor status").await {
+                        Ok(output) => Some(output.stdout),
+                        Err(_) => None,
+                    }
+                }
+            };
+
+            // Try to extract active node from raw JSON output if statuses parsing failed
+            let active_from_reactor = if let Ok((statuses, _)) = &reactor_status {
+                statuses.first().and_then(|s| s.active_node.clone())
+            } else {
+                reactor_raw.as_ref().and_then(|raw| {
+                    drbd_reactor_utils::parser::parse_reactor_status(raw, Some(&profile.name))
+                        .into_iter()
+                        .next()
+                        .and_then(|status| status.active_node)
+                })
+            };
+
+            (local_drbd_status, active_from_reactor, reactor_raw, true)
+        };
 
     let drbd_role = drbd.as_ref().map(|d| d.role.as_str());
 
@@ -692,12 +819,14 @@ pub async fn fetch_profile_details(
                     ip.clone()
                 } else {
                     // Fallback: try DNS resolution
-                    tracing::warn!("IP not found in res file for {}, trying DNS", active_node_name);
-                    resolve_hostname_to_ip(active_node_name)
-                        .unwrap_or_else(|| {
-                            tracing::error!("Cannot resolve IP for {}", active_node_name);
-                            local_hostname.clone()
-                        })
+                    tracing::warn!(
+                        "IP not found in res file for {}, trying DNS",
+                        active_node_name
+                    );
+                    resolve_hostname_to_ip(active_node_name).unwrap_or_else(|| {
+                        tracing::error!("Cannot resolve IP for {}", active_node_name);
+                        local_hostname.clone()
+                    })
                 };
 
                 // Only query if we have a valid remote IP
@@ -707,7 +836,10 @@ pub async fn fetch_profile_details(
                             continue;
                         }
                         // Use RemoteDrbdQuery to check if service is enabled on remote node
-                        match remote_query.is_service_enabled(&remote_ip, &service_info.name).await {
+                        match remote_query
+                            .is_service_enabled(&remote_ip, &service_info.name)
+                            .await
+                        {
                             Ok(enabled) => {
                                 service_info.enabled = enabled;
                             }
@@ -763,11 +895,8 @@ pub async fn fetch_profile_details(
         if !active {
             // Check if VIP is active on any interface
             let cmd = format!("ip addr show | grep -q '{}/'", vip.address);
-            let output = run_shell_command(
-                &cmd,
-                &format!("Check if VIP {} is active", vip.address),
-            )
-            .await?;
+            let output =
+                run_shell_command(&cmd, &format!("Check if VIP {} is active", vip.address)).await?;
             active = output.success();
         }
 
@@ -838,21 +967,37 @@ pub async fn fetch_profile_details(
         let res_file_nodes = match tokio::fs::read_to_string(&res_file_path).await {
             Ok(content) => {
                 let parsed = drbd_utils::parse_res_file_for_nodes(&content);
-                tracing::debug!("Parsed res file {}: {} nodes found", res_file_path, parsed.len());
+                tracing::debug!(
+                    "Parsed res file {}: {} nodes found",
+                    res_file_path,
+                    parsed.len()
+                );
                 Some(parsed)
             }
             Err(e) => {
-                tracing::warn!("Failed to read res file {}: {}, trying LINSTOR path", res_file_path, e);
+                tracing::warn!(
+                    "Failed to read res file {}: {}, trying LINSTOR path",
+                    res_file_path,
+                    e
+                );
                 // Try LINSTOR path
                 let linstor_path = format!("/var/lib/linstor.d/{}.res", profile.resource_name);
                 match tokio::fs::read_to_string(&linstor_path).await {
                     Ok(content) => {
                         let parsed = drbd_utils::parse_res_file_for_nodes(&content);
-                        tracing::debug!("Parsed LINSTOR res file {}: {} nodes found", linstor_path, parsed.len());
+                        tracing::debug!(
+                            "Parsed LINSTOR res file {}: {} nodes found",
+                            linstor_path,
+                            parsed.len()
+                        );
                         Some(parsed)
                     }
                     Err(linstor_err) => {
-                        tracing::warn!("Failed to read LINSTOR res file {}: {}", linstor_path, linstor_err);
+                        tracing::warn!(
+                            "Failed to read LINSTOR res file {}: {}",
+                            linstor_path,
+                            linstor_err
+                        );
                         None
                     }
                 }
@@ -863,7 +1008,8 @@ pub async fn fetch_profile_details(
             if drbd_from_local {
                 // DRBD status from local node: add local + peers
                 // Add local node (res file might not have local entry if we're parsing from active node)
-                let local_ip = res_file_nodes.as_ref()
+                let local_ip = res_file_nodes
+                    .as_ref()
                     .and_then(|map| map.get(&local_hostname).cloned())
                     .or_else(|| {
                         // Fallback: try DNS resolution
@@ -883,7 +1029,8 @@ pub async fn fetch_profile_details(
 
                 // Add peer nodes from DRBD
                 for peer in &drbd_status.peers {
-                    let peer_ip = res_file_nodes.as_ref()
+                    let peer_ip = res_file_nodes
+                        .as_ref()
                         .and_then(|map| map.get(&peer.name).cloned())
                         .or_else(|| {
                             // Fallback: try DNS resolution
@@ -911,7 +1058,8 @@ pub async fn fetch_profile_details(
 
                 // Add the remote node (active node) first
                 if let Some(active_hostname) = active_node.as_deref() {
-                    let active_ip = res_file_nodes.as_ref()
+                    let active_ip = res_file_nodes
+                        .as_ref()
                         .and_then(|map| map.get(active_hostname).cloned())
                         .or_else(|| {
                             // Fallback: try DNS resolution
@@ -935,7 +1083,8 @@ pub async fn fetch_profile_details(
 
                     // Add all peers from DRBD (this includes the local node and other peers)
                     for peer in &drbd_status.peers {
-                        let peer_ip = res_file_nodes.as_ref()
+                        let peer_ip = res_file_nodes
+                            .as_ref()
                             .and_then(|map| map.get(&peer.name).cloned())
                             .or_else(|| {
                                 // Fallback: try DNS resolution
@@ -1046,35 +1195,58 @@ async fn check_nodes_disabled_status(
 
     for node in nodes {
         // Check if this node is local
-        let is_local = node.hostname == local_hostname || node.hostname == local_hostname.replace(&format!(".{}", std::env::var("DOMAIN").unwrap_or_default()), "");
+        let is_local = node.hostname == local_hostname
+            || node.hostname
+                == local_hostname.replace(
+                    &format!(".{}", std::env::var("DOMAIN").unwrap_or_default()),
+                    "",
+                );
 
         let disabled = if is_local {
             // Check local file system
-            let disabled_path = std::path::Path::new(reactor_dir)
-                .join(format!("{}.toml.disabled", profile_name));
+            let disabled_path =
+                std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", profile_name));
             disabled_path.exists()
         } else {
             // Find full node info for SSH credentials
-            let full_node = all_nodes.iter().find(|n| n.hostname == node.hostname || n.ip == node.ip);
+            let full_node = all_nodes
+                .iter()
+                .find(|n| n.hostname == node.hostname || n.ip == node.ip);
 
             if let Some(target_node) = full_node {
-                let check_cmd = format!("sudo test -f {}/{}.toml.disabled && echo disabled", reactor_dir, profile_name);
+                let check_cmd = format!(
+                    "sudo test -f {}/{}.toml.disabled && echo disabled",
+                    reactor_dir, profile_name
+                );
                 let credential = SshCredential::Password("ignored".to_string());
 
-                match state.ssh_manager.execute(
-                    &target_node.ip,
-                    target_node.ssh_port,
-                    &target_node.ssh_user,
-                    &credential,
-                    &check_cmd,
-                ).await {
+                match state
+                    .ssh_manager
+                    .execute(
+                        &target_node.ip,
+                        target_node.ssh_port,
+                        &target_node.ssh_user,
+                        &credential,
+                        &check_cmd,
+                    )
+                    .await
+                {
                     Ok(output) => {
                         let result = output.stdout.trim() == "disabled";
-                        tracing::debug!("Checked disabled status for {} ({}): {}", node.hostname, node.ip, result);
+                        tracing::debug!(
+                            "Checked disabled status for {} ({}): {}",
+                            node.hostname,
+                            node.ip,
+                            result
+                        );
                         result
-                    },
+                    }
                     Err(e) => {
-                        tracing::warn!("Failed to check disabled status for {}: {}", node.hostname, e);
+                        tracing::warn!(
+                            "Failed to check disabled status for {}: {}",
+                            node.hostname,
+                            e
+                        );
                         false
                     }
                 }

@@ -1,8 +1,8 @@
 pub mod generator;
 pub mod models;
 
-pub use generator::{generate_combined_files, generate_ts};
 use anyhow::{Context, Result};
+pub use generator::{generate_combined_files, generate_ts};
 use models::ResourceAgent;
 use quick_xml::de::from_str;
 use std::fs;
@@ -26,6 +26,15 @@ pub fn get_agent_metadata(agent_path: &Path) -> Result<(ResourceAgent, String)> 
     let xml_content = String::from_utf8(output.stdout).context("Invalid UTF-8 output")?;
     let ra: ResourceAgent = from_str(&xml_content).context("Failed to parse XML")?;
 
+    Ok((ra, xml_content))
+}
+
+pub fn get_agent_metadata_with_provider(
+    agent_path: &Path,
+    provider: &str,
+) -> Result<(ResourceAgent, String)> {
+    let (mut ra, xml_content) = get_agent_metadata(agent_path)?;
+    ra.provider = provider.to_string();
     Ok((ra, xml_content))
 }
 

@@ -15,18 +15,18 @@ use crate::core::{
     run_shell_command,
     safety::SafetyChecker,
     transaction::NodeTarget,
-    validator,
-    DrbdConfigGenerator as ConfigGenerator, DrbdConfigPaths as ConfigPaths, NodeConfig, ResourceConfig,
+    validator, DrbdConfigGenerator as ConfigGenerator, DrbdConfigPaths as ConfigPaths, NodeConfig,
+    ResourceConfig,
 };
-use drbd_utils::allocate_minor;
-use lvm_utils::LvmCmd;
-use zfs_utils::ZfsCmd;
 use crate::error::{AppError, AppResult};
 use crate::models::{
     CreateFilesystemRequest, CreateResourceRequest, MountRequest, ResourceAction,
     ResourceActionRequest,
 };
 use crate::state::{AppState, NotificationLevel};
+use drbd_utils::allocate_minor;
+use lvm_utils::LvmCmd;
+use zfs_utils::ZfsCmd;
 
 /// Response for resource list
 #[derive(Serialize, ToSchema)]
@@ -188,34 +188,50 @@ pub async fn create_resource(
         let lv_size = req.lvm_lv_size.as_deref().unwrap_or("100%FREE"); // Default to full size
 
         let path = format!("/dev/{}/{}", vg_name, lv_name);
-        (Some(path), Some(vg_name.clone()), Some(lv_name.clone()), Some(lv_size.to_string()))
+        (
+            Some(path),
+            Some(vg_name.clone()),
+            Some(lv_name.clone()),
+            Some(lv_size.to_string()),
+        )
     } else {
         (None, None, None, None)
     };
 
     // Prepare ZFS parameters if requested
-    let (zfs_path, zfs_pool_name, zfs_volume_name, zfs_volume_size_gb) = if let Some(storage_type) = &req.storage_type {
-        if storage_type == "zfs" {
-            let pool_name = req.zfs_pool_name.as_ref().ok_or_else(|| {
-                AppError::Validation("zfs_pool_name is required when storage_type is 'zfs'".to_string())
-            })?;
-            let volume_name = req.zfs_volume_name.as_ref().unwrap_or(&req.name);
-            let volume_size_gb = req.zfs_volume_size_gb.ok_or_else(|| {
-                AppError::Validation("zfs_volume_size_gb is required when storage_type is 'zfs'".to_string())
-            })?;
+    let (zfs_path, zfs_pool_name, zfs_volume_name, zfs_volume_size_gb) =
+        if let Some(storage_type) = &req.storage_type {
+            if storage_type == "zfs" {
+                let pool_name = req.zfs_pool_name.as_ref().ok_or_else(|| {
+                    AppError::Validation(
+                        "zfs_pool_name is required when storage_type is 'zfs'".to_string(),
+                    )
+                })?;
+                let volume_name = req.zfs_volume_name.as_ref().unwrap_or(&req.name);
+                let volume_size_gb = req.zfs_volume_size_gb.ok_or_else(|| {
+                    AppError::Validation(
+                        "zfs_volume_size_gb is required when storage_type is 'zfs'".to_string(),
+                    )
+                })?;
 
-            let path = format!("/dev/zvol/{}/{}", pool_name, volume_name);
-            (Some(path), Some(pool_name.clone()), Some(volume_name.clone()), Some(volume_size_gb))
+                let path = format!("/dev/zvol/{}/{}", pool_name, volume_name);
+                (
+                    Some(path),
+                    Some(pool_name.clone()),
+                    Some(volume_name.clone()),
+                    Some(volume_size_gb),
+                )
+            } else {
+                (None, None, None, None)
+            }
         } else {
             (None, None, None, None)
-        }
-    } else {
-        (None, None, None, None)
-    };
+        };
 
     // Check if the generated device name conflicts with existing resources
     // Generate a temporary config just to get the device name
-    let temp_nodes: Vec<NodeConfig> = req.node_disks
+    let temp_nodes: Vec<NodeConfig> = req
+        .node_disks
         .iter()
         .enumerate()
         .map(|(i, (_node_id, disk))| {
@@ -252,15 +268,23 @@ pub async fn create_resource(
 
     validator::validate_device_unique(&temp_config.device, state.drbd_config_dir()).await?;
 
-    tracing::info!("Device name '{}' is available for resource '{}'", temp_config.device, req.name);
+    tracing::info!(
+        "Device name '{}' is available for resource '{}'",
+        temp_config.device,
+        req.name
+    );
 
     if req.init_lvm || req.storage_type.as_ref().is_some_and(|t| t == "zfs") {
-         state.send_progress(
+        state.send_progress(
             &operation_id,
             "create_resource",
             Some(&req.name),
             5,
-            if req.init_lvm { "Initializing LVM on all nodes..." } else { "Initializing ZFS on all nodes..." },
+            if req.init_lvm {
+                "Initializing LVM on all nodes..."
+            } else {
+                "Initializing ZFS on all nodes..."
+            },
             false,
             None,
         );
@@ -273,7 +297,9 @@ pub async fn create_resource(
             .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node_id)))?;
 
         // Initialize LVM if requested
-        if let (Some(vg_name), Some(lv_name), Some(lv_size)) = (&lvm_vg_name, &lvm_lv_name, &lvm_lv_size) {
+        if let (Some(vg_name), Some(lv_name), Some(lv_size)) =
+            (&lvm_vg_name, &lvm_lv_name, &lvm_lv_size)
+        {
             // Thin pool configuration (default to thin pool)
             let thin_pool_name = req.lvm_thin_pool_name.as_deref().unwrap_or("thinpool");
             let thin_pool_size = req.lvm_thin_pool_size.as_deref().unwrap_or("1G");
@@ -291,28 +317,54 @@ pub async fn create_resource(
             ];
             let cmd_str = cmds.join(" && ");
 
-            info!("Initializing LVM with thin pool on {}: {}", node.hostname, cmd_str);
+            info!(
+                "Initializing LVM with thin pool on {}: {}",
+                node.hostname, cmd_str
+            );
 
             if node.is_local {
-                let output = run_shell_command(&cmd_str, "Initialize local LVM with thin pool").await?;
+                let output =
+                    run_shell_command(&cmd_str, "Initialize local LVM with thin pool").await?;
                 if !output.success() {
-                    return Err(AppError::Internal(format!("Failed to init LVM with thin pool on local node: {}", output.stderr)));
+                    return Err(AppError::Internal(format!(
+                        "Failed to init LVM with thin pool on local node: {}",
+                        output.stderr
+                    )));
                 }
             } else {
                 let cred = crate::core::SshCredential::Password("ignored".to_string());
                 // Prepend sudo for remote commands
                 let sudo_cmd_str = format!("sudo bash -c '{}'", cmd_str);
-                let output = state.ssh_manager.execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, &sudo_cmd_str).await
-                    .map_err(|e| AppError::Internal(format!("Failed to connect to remote node {}: {}", node.hostname, e)))?;
+                let output = state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &cred,
+                        &sudo_cmd_str,
+                    )
+                    .await
+                    .map_err(|e| {
+                        AppError::Internal(format!(
+                            "Failed to connect to remote node {}: {}",
+                            node.hostname, e
+                        ))
+                    })?;
 
                 if !output.success() {
-                    return Err(AppError::Internal(format!("Failed to init LVM with thin pool on remote node {}: {}", node.hostname, output.stderr)));
+                    return Err(AppError::Internal(format!(
+                        "Failed to init LVM with thin pool on remote node {}: {}",
+                        node.hostname, output.stderr
+                    )));
                 }
             }
         }
 
         // Initialize ZFS if requested
-        if let (Some(pool_name), Some(volume_name), Some(volume_size_gb)) = (&zfs_pool_name, &zfs_volume_name, &zfs_volume_size_gb) {
+        if let (Some(pool_name), Some(volume_name), Some(volume_size_gb)) =
+            (&zfs_pool_name, &zfs_volume_name, &zfs_volume_size_gb)
+        {
             // ZFS thin provisioning (sparse volume) by default
             let use_thin = req.zfs_thin_volume;
 
@@ -324,7 +376,11 @@ pub async fn create_resource(
             // Create ZFS volume with thin provisioning (sparse) or pre-allocated
             let volume_cmd = if use_thin {
                 // Sparse volume: -s flag creates a sparse (thin) volume
-                ZfsCmd::zfs_create_sparse_volume_cmd(pool_name, volume_name, &volume_size_gb.to_string())
+                ZfsCmd::zfs_create_sparse_volume_cmd(
+                    pool_name,
+                    volume_name,
+                    &volume_size_gb.to_string(),
+                )
             } else {
                 // Pre-allocated volume (thick)
                 ZfsCmd::zfs_create_volume_cmd(pool_name, volume_name, &volume_size_gb.to_string())
@@ -333,22 +389,45 @@ pub async fn create_resource(
             let cmds = [pool_cmd, volume_cmd];
             let cmd_str = cmds.join(" && ");
 
-            info!("Initializing ZFS with thin provisioning={} on {}: {}", use_thin, node.hostname, cmd_str);
+            info!(
+                "Initializing ZFS with thin provisioning={} on {}: {}",
+                use_thin, node.hostname, cmd_str
+            );
 
             if node.is_local {
                 let output = run_shell_command(&cmd_str, "Initialize local ZFS").await?;
                 if !output.success() {
-                    return Err(AppError::Internal(format!("Failed to init ZFS on local node: {}", output.stderr)));
+                    return Err(AppError::Internal(format!(
+                        "Failed to init ZFS on local node: {}",
+                        output.stderr
+                    )));
                 }
             } else {
                 let cred = crate::core::SshCredential::Password("ignored".to_string());
                 // Prepend sudo for remote commands
                 let sudo_cmd_str = format!("sudo bash -c '{}'", cmd_str);
-                let output = state.ssh_manager.execute(&node.ip, node.ssh_port, &node.ssh_user, &cred, &sudo_cmd_str).await
-                    .map_err(|e| AppError::Internal(format!("Failed to connect to remote node {}: {}", node.hostname, e)))?;
+                let output = state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &cred,
+                        &sudo_cmd_str,
+                    )
+                    .await
+                    .map_err(|e| {
+                        AppError::Internal(format!(
+                            "Failed to connect to remote node {}: {}",
+                            node.hostname, e
+                        ))
+                    })?;
 
                 if !output.success() {
-                    return Err(AppError::Internal(format!("Failed to init ZFS on remote node {}: {}", node.hostname, output.stderr)));
+                    return Err(AppError::Internal(format!(
+                        "Failed to init ZFS on remote node {}: {}",
+                        node.hostname, output.stderr
+                    )));
                 }
             }
         }
@@ -906,10 +985,7 @@ pub async fn init_resource(
 
     // Get all remote nodes
     let nodes = state.node_store.get_all()?;
-    info!(
-        "init_resource: Found {} total nodes in store",
-        nodes.len()
-    );
+    info!("init_resource: Found {} total nodes in store", nodes.len());
 
     let remote_nodes: Vec<_> = nodes.iter().filter(|n| !n.is_local).collect();
     info!(

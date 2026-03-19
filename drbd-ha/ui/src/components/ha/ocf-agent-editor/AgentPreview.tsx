@@ -1,10 +1,17 @@
 import { Card, Spin, Typography } from 'antd';
-import type { OcfAgentWithMetadata, ParsedOcfAgent, ParamEntry } from '@/api/ha-profiles';
+import type {
+  OcfAgentWithMetadata,
+  ParamEntry,
+  ParsedOcfAgent,
+} from '@/api/ha-profiles';
 
 const { Text } = Typography;
 
 // Helper function to generate OCF string from agent data
-function generateOcfString(agent: ParsedOcfAgent, params?: ParamEntry[]): string {
+function generateOcfString(
+  agent: ParsedOcfAgent,
+  params?: ParamEntry[],
+): string {
   const { provider, agent_type, instance_name } = agent;
   const finalParams = params || agent.params;
 
@@ -13,7 +20,11 @@ function generateOcfString(agent: ParsedOcfAgent, params?: ParamEntry[]): string
     .map(({ key, value }) => {
       if (value === undefined || value === null) return '';
       // Quote values if they contain spaces or special characters
-      if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
+      if (
+        String(value).includes(' ') ||
+        String(value).includes(',') ||
+        String(value) === ''
+      ) {
         return `${key}='${value}'`;
       }
       return `${key}=${value}`;
@@ -21,7 +32,7 @@ function generateOcfString(agent: ParsedOcfAgent, params?: ParamEntry[]): string
     .filter(Boolean)
     .join(' ');
 
-  return `ocf:${provider}:${agent_type} ${instance_name}${paramStr ? ' ' + paramStr : ''}`;
+  return `ocf:${provider}:${agent_type} ${instance_name}${paramStr ? ` ${paramStr}` : ''}`;
 }
 
 interface AgentPreviewProps {
@@ -30,7 +41,11 @@ interface AgentPreviewProps {
   currentTheme: string;
 }
 
-export function AgentPreview({ parsedAgents, loading, currentTheme }: AgentPreviewProps) {
+export function AgentPreview({
+  parsedAgents,
+  loading,
+  currentTheme,
+}: AgentPreviewProps) {
   // Generate OCF string from agent data
   const generateAgentString = (itemWithMeta: OcfAgentWithMetadata): string => {
     if (itemWithMeta.item.is_ocf && itemWithMeta.item.ocf_agent) {
@@ -55,12 +70,31 @@ export function AgentPreview({ parsedAgents, loading, currentTheme }: AgentPrevi
   };
 
   return (
-    <div style={{ flex: 0.6, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{
+        flex: 0.6,
+        overflow: 'hidden',
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
       <Card
         title={<Text strong>Live Preview (TOML)</Text>}
         bordered={false}
-        style={{ height: '100%', display: 'flex', flexDirection: 'column', boxShadow: 'none' }}
-        bodyStyle={{ padding: '16px', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+        style={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: 'none',
+        }}
+        bodyStyle={{
+          padding: '16px',
+          flex: 1,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
       >
         <Spin spinning={loading} tip="Generating preview...">
           <div

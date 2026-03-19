@@ -37,6 +37,22 @@ pub async fn health_check() -> Json<HealthResponse> {
     })
 }
 
+/// Helper to get a node by ID, resolving "local" to the actual local node
+fn get_node_by_id_resolved(state: &AppState, id: &str) -> AppResult<Node> {
+    if id == "local" {
+        let nodes = state.node_store.get_all()?;
+        return nodes
+            .into_iter()
+            .find(|n| n.is_local)
+            .ok_or_else(|| AppError::NotFound("Local node not found".to_string()));
+    }
+
+    state
+        .node_store
+        .get(id)?
+        .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))
+}
+
 /// Parse node information from DRBD .res configuration files
 /// Extracts hostname and IP from "on <hostname> { address ... }" blocks
 async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<Node>> {
@@ -117,27 +133,38 @@ async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<
                     let is_local = hostname == local_hostname;
 
                     // Use existing SSH settings if node already exists
-                    let (ssh_port, ssh_user, status, last_seen) = if let Ok(Some(existing)) = state.node_store.get(&hostname) {
-                        (existing.ssh_port, existing.ssh_user, existing.status, existing.last_seen)
-                    } else {
-                        let ssh_port = state.config.ssh.default_port;
-                        let ssh_user = state.config.ssh.default_user.clone();
+                    let (ssh_port, ssh_user, status, last_seen) =
+                        if let Ok(Some(existing)) = state.node_store.get(&hostname) {
+                            (
+                                existing.ssh_port,
+                                existing.ssh_user,
+                                existing.status,
+                                existing.last_seen,
+                            )
+                        } else {
+                            let ssh_port = state.config.ssh.default_port;
+                            let ssh_user = state.config.ssh.default_user.clone();
 
-                        // Try to check connectivity
-                        let (status, last_seen) = match state
-                            .ssh_manager
-                            .execute(&ip, ssh_port, &ssh_user, &SshCredential::Password("ignored".to_string()), "echo ok")
-                            .await
-                        {
-                            Ok(output) if output.success() => (
-                                NodeStatus::Online,
-                                Some(chrono::Utc::now())
-                            ),
-                            _ => (NodeStatus::Unknown, None),
+                            // Try to check connectivity
+                            let (status, last_seen) = match state
+                                .ssh_manager
+                                .execute(
+                                    &ip,
+                                    ssh_port,
+                                    &ssh_user,
+                                    &SshCredential::Password("ignored".to_string()),
+                                    "echo ok",
+                                )
+                                .await
+                            {
+                                Ok(output) if output.success() => {
+                                    (NodeStatus::Online, Some(chrono::Utc::now()))
+                                }
+                                _ => (NodeStatus::Unknown, None),
+                            };
+
+                            (ssh_port, ssh_user, status, last_seen)
                         };
-
-                        (ssh_port, ssh_user, status, last_seen)
-                    };
 
                     let node = Node {
                         id: hostname.clone(),
@@ -172,7 +199,8 @@ pub async fn sync_nodes_from_drbd(state: &Arc<AppState>) -> AppResult<Vec<Node>>
 
     // Merge: nodes from .res files + existing nodes that aren't in .res files
     use std::collections::HashSet;
-    let discovered_hostnames: HashSet<String> = discovered.iter().map(|n| n.hostname.clone()).collect();
+    let discovered_hostnames: HashSet<String> =
+        discovered.iter().map(|n| n.hostname.clone()).collect();
 
     let mut all_nodes = discovered;
     for node in existing {
@@ -299,11 +327,8 @@ pub async fn get_node(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Node>> {
-    state
-        .node_store
-        .get(&id)?
-        .map(Json)
-        .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))
+    let node = get_node_by_id_resolved(&state, &id)?;
+    Ok(Json(node))
 }
 
 /// PUT /api/v1/nodes/:id
@@ -335,7 +360,11 @@ pub async fn update_node(
     // Check if new ip/hostname conflicts with another node
     // Exclude: (1) the node itself by id, (2) nodes with same hostname (may be same node from DRBD import)
     let existing_nodes = state.node_store.get_all()?;
-    if existing_nodes.iter().any(|n| n.id != id && n.hostname != existing.hostname && (n.ip == req.ip || n.hostname == req.hostname)) {
+    if existing_nodes.iter().any(|n| {
+        n.id != id
+            && n.hostname != existing.hostname
+            && (n.ip == req.ip || n.hostname == req.hostname)
+    }) {
         return Err(AppError::AlreadyExists(format!(
             "Node with ip {} or hostname {} already exists",
             req.ip, req.hostname
@@ -407,10 +436,7 @@ pub async fn list_node_disks(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Vec<BlockDevice>>> {
-    let node = state
-        .node_store
-        .get(&id)?
-        .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
+    let node = get_node_by_id_resolved(&state, &id)?;
 
     // Get block devices using lsblk (add sudo for non-root users)
     let lsblk_cmd = if node.ssh_user != "root" && !node.is_local {
@@ -495,10 +521,7 @@ pub async fn list_available_disks(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Vec<BlockDevice>>> {
-    let node = state
-        .node_store
-        .get(&id)?
-        .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
+    let node = get_node_by_id_resolved(&state, &id)?;
 
     let all_disks_res = list_node_disks(State(state.clone()), Path(id.clone())).await?;
 
@@ -525,32 +548,26 @@ pub async fn list_available_disks(
     };
 
     // Add unused LVs
-    if let Ok(lvs) = lvm_client.list_lvs().await {
+    if let Ok(lvs) = lvm_client.list_available_lvs().await {
         for lv in lvs {
-            // Check if LV is unused (not open)
-            // attr index 5 is Open status ('o' means open)
-            let is_open = lv.attr.len() > 5 && lv.attr.chars().nth(5) == Some('o');
-            
-            if !is_open {
-                 let path = format!("/dev/{}/{}", lv.vg_name, lv.name);
-                 
-                 // Check if it's already in the list
-                 if !available.iter().any(|d| d.path.as_ref() == Some(&path)) {
-                     let mut bd = BlockDevice {
-                         name: lv.name,
-                         path: Some(path),
-                         size: lv.size,
-                         size_human: None,
-                         device_type: "lvm".to_string(),
-                         mountpoint: None,
-                         fstype: None,
-                         ro: lv.attr.chars().nth(1) == Some('r'),
-                         model: None,
-                         children: vec![],
-                     };
-                     bd.size_human = Some(bd.size_human());
-                     available.push(bd);
-                 }
+            let path = format!("/dev/{}/{}", lv.vg_name, lv.name);
+
+            // Check if it's already in the list
+            if !available.iter().any(|d| d.path.as_ref() == Some(&path)) {
+                let mut bd = BlockDevice {
+                    name: lv.name,
+                    path: Some(path),
+                    size: lv.size,
+                    size_human: None,
+                    device_type: "lvm".to_string(),
+                    mountpoint: None,
+                    fstype: None,
+                    ro: lv.attr.chars().nth(1) == Some('r'),
+                    model: None,
+                    children: vec![],
+                };
+                bd.size_human = Some(bd.size_human());
+                available.push(bd);
             }
         }
     }
@@ -583,16 +600,13 @@ pub async fn check_node_status(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> AppResult<Json<NodeStatusResponse>> {
-    let mut node = state
-        .node_store
-        .get(&id)?
-        .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
+    let mut node = get_node_by_id_resolved(&state, &id)?;
 
     if node.is_local {
         node.status = NodeStatus::Online;
         node.last_seen = Some(chrono::Utc::now());
         state.node_store.insert(&node)?;
-        
+
         return Ok(Json(NodeStatusResponse {
             id: node.id.clone(),
             hostname: node.hostname.clone(),
@@ -628,7 +642,7 @@ pub async fn check_node_status(
     } else {
         None
     };
-    
+
     node.status = status.clone();
     if last_seen.is_some() {
         node.last_seen = last_seen;

@@ -90,7 +90,9 @@ impl BlockDevice {
             && self.mountpoint.is_none()
             && self.children.is_empty()
             && !self.ro
-            && (self.device_type == "disk" || self.device_type == "part" || self.device_type == "lvm")
+            && (self.device_type == "disk"
+                || self.device_type == "part"
+                || self.device_type == "lvm")
     }
 
     /// Get human-readable size

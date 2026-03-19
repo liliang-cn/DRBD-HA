@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
 import type { FormInstance } from 'antd';
+import { useEffect, useRef } from 'react';
 
 interface PersistOptions {
   form: FormInstance;
@@ -108,7 +108,7 @@ export function useWizardPersist({
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [form.getFieldsValue(), enabled]); // Watch form values
+  }, [enabled, saveState]); // Watch form values
 
   // Cleanup on unmount
   useEffect(() => {
@@ -125,4 +125,3 @@ export function useWizardPersist({
     clearState,
   };
 }
-

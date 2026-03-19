@@ -3,8 +3,8 @@
 use axum::{extract::State, Json};
 use std::sync::Arc;
 
-use crate::core::{run_shell_command, ReactorDiscovery};
 use crate::core::drbd_cmd::DrbdCmd;
+use crate::core::{run_shell_command, ReactorDiscovery};
 use crate::error::AppResult;
 use crate::models::{
     ClusterHealth, DashboardSummary, HaProfile, HaProfileStatus, HaServiceDetail, HaServiceStats,
@@ -99,9 +99,7 @@ pub async fn get_summary(State(state): State<Arc<AppState>>) -> AppResult<Json<D
     };
 
     // 4.5 Get HA Service Details from drbd-reactorctl
-    let ha_service_details = get_ha_service_details(&profiles)
-        .await
-        .unwrap_or_default();
+    let ha_service_details = get_ha_service_details(&profiles).await.unwrap_or_default();
 
     // 5. Determine Cluster Health
     let health = if offline_nodes > 0 || error > 0 || degraded_res > 0 {
@@ -203,7 +201,7 @@ fn parse_drbd_summary(output: &str) -> (usize, usize, usize) {
     (total, healthy, degraded)
 }
 
-// Parse drbd-reactorctl status to extract HA service details
+// Parse drbd-reactorctl status --json to extract HA service details
 async fn get_ha_service_details(profiles: &[HaProfile]) -> AppResult<Vec<HaServiceDetail>> {
     let (statuses, _) = match DrbdReactorClient::status(None, None).await {
         Ok(res) => res,

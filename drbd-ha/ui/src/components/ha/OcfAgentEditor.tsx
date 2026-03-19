@@ -1,32 +1,18 @@
 import {
-  SaveOutlined,
-  ReloadOutlined,
-  PlusOutlined,
-  EyeOutlined,
   EyeInvisibleOutlined,
+  EyeOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SaveOutlined,
 } from '@ant-design/icons';
 import {
-  Button,
-  Card,
-  message,
-  Space,
-  Tag,
-  Typography,
-  Spin,
-  Form,
-  Row,
-  Col,
-  Empty,
-} from 'antd';
-import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import {
-  DndContext,
   closestCenter,
+  DndContext,
+  type DragEndEvent,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
-  DragEndEvent,
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -34,20 +20,33 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
+import type { FormInstance } from 'antd';
+import {
+  Button,
+  Card,
+  Col,
+  Empty,
+  Form,
+  message,
+  Row,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+} from 'antd';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { haProfilesApi } from '@/api';
 import type {
   OcfAgentWithMetadata,
-  ResourceAgentsByProvider,
-  ParsedOcfAgent,
-  ResourceAgent,
   ParamEntry,
+  ParsedOcfAgent,
+  ResourceAgentsByProvider,
 } from '@/api/ha-profiles';
 import { useThemeStore } from '@/stores/theme';
-import type { FormInstance } from 'antd';
-import { SortableAgentItem } from './ocf-agent-editor/SortableAgentItem';
 import { AddAgentModal } from './ocf-agent-editor/AddAgentModal';
 import { AddParameterModal } from './ocf-agent-editor/AddParameterModal';
 import { AgentPreview } from './ocf-agent-editor/AgentPreview';
+import { SortableAgentItem } from './ocf-agent-editor/SortableAgentItem';
 
 const { Title, Text } = Typography;
 
@@ -60,12 +59,15 @@ function paramsToRecord(params: ParamEntry[]): Record<string, string> {
   return record;
 }
 
-function recordToParams(record: Record<string, string>): ParamEntry[] {
+function _recordToParams(record: Record<string, string>): ParamEntry[] {
   return Object.entries(record).map(([key, value]) => ({ key, value }));
 }
 
 // Helper function to generate OCF string from agent data
-function generateOcfString(agent: ParsedOcfAgent, params?: ParamEntry[]): string {
+function _generateOcfString(
+  agent: ParsedOcfAgent,
+  params?: ParamEntry[],
+): string {
   const { provider, agent_type, instance_name } = agent;
   const finalParams = params || agent.params;
 
@@ -74,7 +76,11 @@ function generateOcfString(agent: ParsedOcfAgent, params?: ParamEntry[]): string
     .map(({ key, value }) => {
       if (value === undefined || value === null) return '';
       // Quote values if they contain spaces or special characters
-      if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
+      if (
+        String(value).includes(' ') ||
+        String(value).includes(',') ||
+        String(value) === ''
+      ) {
         return `${key}='${value}'`;
       }
       return `${key}=${value}`;
@@ -82,7 +88,7 @@ function generateOcfString(agent: ParsedOcfAgent, params?: ParamEntry[]): string
     .filter(Boolean)
     .join(' ');
 
-  return `ocf:${provider}:${agent_type} ${instance_name}${paramStr ? ' ' + paramStr : ''}`;
+  return `ocf:${provider}:${agent_type} ${instance_name}${paramStr ? ` ${paramStr}` : ''}`;
 }
 
 interface OcfAgentEditorProps {
@@ -93,17 +99,15 @@ interface OcfAgentEditorProps {
 
   // For create/wizard mode
   mode?: 'edit' | 'create';
-  externalForm?: FormInstance;  // External form for create mode
-  resources?: { name: string }[];  // Available resources for create mode
-  services?: string[];  // Available services for create mode
-  onAgentsChange?: (agents: any[]) => void;  // Callback when agents change
+  externalForm?: FormInstance; // External form for create mode
+  resources?: { name: string }[]; // Available resources for create mode
+  services?: string[]; // Available services for create mode
+  onAgentsChange?: (agents: any[]) => void; // Callback when agents change
 
   // Preview control
-  showPreview?: boolean;  // Controlled from outside
-  onPreviewChange?: (show: boolean) => void;  // Callback when preview toggle changes
+  showPreview?: boolean; // Controlled from outside
+  onPreviewChange?: (show: boolean) => void; // Callback when preview toggle changes
 }
-
-
 
 export function OcfAgentEditor({
   profile,
@@ -150,14 +154,16 @@ export function OcfAgentEditor({
   const [parsedAgents, setParsedAgents] = useState<OcfAgentWithMetadata[]>([]);
 
   // Original TOML content and resource name
-  const [originalToml, setOriginalToml] = useState<string>('');
-  const [resourceName, setResourceName] = useState<string>('');
+  const [_originalToml, setOriginalToml] = useState<string>('');
+  const [_resourceName, setResourceName] = useState<string>('');
 
   // Form values for live preview
   const [, forceUpdate] = useState({});
 
   // 所有可用的 resource agents（按 provider 分组）
-  const [allAgents, setAllAgents] = useState<ResourceAgentsByProvider | null>(null);
+  const [allAgents, setAllAgents] = useState<ResourceAgentsByProvider | null>(
+    null,
+  );
 
   // 展开的 agent keys
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
@@ -171,7 +177,7 @@ export function OcfAgentEditor({
 
   // Split pane state for resizable panels
   const [leftPanelWidth, setLeftPanelWidth] = useState(50); // percentage
-  const [isDragging, setIsDragging] = useState(false);
+  const [_isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
   const startWidthRef = useRef(50);
@@ -211,14 +217,18 @@ export function OcfAgentEditor({
 
   // Track manually added parameters for each agent
   // Key is a unique instance ID that never changes
-  const [addedParams, setAddedParams] = useState<Map<number, Set<string>>>(new Map());
+  const [addedParams, setAddedParams] = useState<Map<number, Set<string>>>(
+    new Map(),
+  );
 
   // Counter for generating unique instance IDs for agents
   const [nextInstanceId, setNextInstanceId] = useState(0);
 
   // Add parameter modal state
   const [addParamModalVisible, setAddParamModalVisible] = useState(false);
-  const [currentAgentIndex, setCurrentAgentIndex] = useState<number | null>(null);
+  const [currentAgentIndex, setCurrentAgentIndex] = useState<number | null>(
+    null,
+  );
   const [selectedParam, setSelectedParam] = useState<string>('');
 
   // DnD sensors
@@ -226,10 +236,10 @@ export function OcfAgentEditor({
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
-  const loadParsedAgents = async () => {
+  const loadParsedAgents = useCallback(async () => {
     // In create mode, load from form
     if (mode === 'create') {
       const ocfAgents = form.getFieldValue('ocf_agents') || [];
@@ -247,14 +257,20 @@ export function OcfAgentEditor({
             const paramStr = Object.entries(params || {})
               .filter(([_, value]) => value !== undefined && value !== '')
               .map(([key, value]) => {
-                if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
+                if (
+                  String(value).includes(' ') ||
+                  String(value).includes(',') ||
+                  String(value) === ''
+                ) {
                   return `${key}='${value}'`;
                 }
                 return `${key}=${value}`;
               })
               .join(' ');
 
-            const fullOriginal = paramStr ? `${original} ${paramStr}` : original;
+            const fullOriginal = paramStr
+              ? `${original} ${paramStr}`
+              : original;
 
             return {
               position: {
@@ -274,7 +290,7 @@ export function OcfAgentEditor({
                   params: params || {},
                 },
               },
-              metadata: null,  // Will load later
+              metadata: null, // Will load later
               instanceId: instanceIdCounter++,
             };
           } else if (agentData.type === 'mount') {
@@ -319,10 +335,12 @@ export function OcfAgentEditor({
 
         // Initialize form with agent data
         const initialValues = {
-          agents: agentsWithIds.map(agentWithMeta => {
+          agents: agentsWithIds.map((agentWithMeta) => {
             if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
               return {
-                params: paramsToRecord(agentWithMeta.item.ocf_agent.params || []),
+                params: paramsToRecord(
+                  agentWithMeta.item.ocf_agent.params || [],
+                ),
                 original: agentWithMeta.item.original,
               };
             } else {
@@ -368,23 +386,22 @@ export function OcfAgentEditor({
 
       // 只取 start 数组中的 agents
       const startAgents = parseResult.content.ocf_agents.filter(
-        agent => agent.position.key === 'start'
+        (agent) => agent.position.key === 'start',
       );
-
 
       // Assign unique instance IDs to all agents (stored as a hidden property)
       let instanceIdCounter = 0;
-      const agentsWithIds = startAgents.map(agent => ({
+      const agentsWithIds = startAgents.map((agent) => ({
         ...agent,
-        instanceId: instanceIdCounter++,  // Add instance ID property
+        instanceId: instanceIdCounter++, // Add instance ID property
       }));
 
       setParsedAgents(agentsWithIds);
-      setNextInstanceId(instanceIdCounter);  // Next new agent will use this
+      setNextInstanceId(instanceIdCounter); // Next new agent will use this
 
       // Initialize form with agent data (use agentsWithIds, not startAgents)
       const initialValues = {
-        agents: agentsWithIds.map(agentWithMeta => {
+        agents: agentsWithIds.map((agentWithMeta) => {
           if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
             return {
               params: paramsToRecord(agentWithMeta.item.ocf_agent.params || []),
@@ -408,7 +425,7 @@ export function OcfAgentEditor({
       loadingRef.current = false;
       setLoading(false);
     }
-  };
+  }, [mode, form, profile]);
 
   const loadAllResourceAgents = useCallback(async () => {
     try {
@@ -430,7 +447,10 @@ export function OcfAgentEditor({
             setAllAgents(parsed);
             return;
           } catch (e) {
-            console.warn('Failed to parse cached data, will fetch from backend', e);
+            console.warn(
+              'Failed to parse cached data, will fetch from backend',
+              e,
+            );
             // Clear invalid cache
             localStorage.removeItem(cacheKey);
             localStorage.removeItem(`${cacheKey}:timestamp`);
@@ -458,7 +478,10 @@ export function OcfAgentEditor({
     if (mode === 'create' && externalForm) {
       // Convert parsedAgents back to ocf_agents format (backend expects)
       const ocfAgents = parsedAgents
-        .filter((agentWithMeta: any) => agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent)
+        .filter(
+          (agentWithMeta: any) =>
+            agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent,
+        )
         .map((agentWithMeta: any) => {
           const ocfAgent = agentWithMeta.item.ocf_agent;
           return {
@@ -481,14 +504,14 @@ export function OcfAgentEditor({
     } else if (profile) {
       loadParsedAgents();
     }
-  }, [profile, mode]);
+  }, [profile, mode, loadParsedAgents]);
 
   // Sync changes to parent form in create mode
   useEffect(() => {
     if (mode === 'create') {
       syncToParentForm();
     }
-  }, [syncToParentForm]);
+  }, [syncToParentForm, mode]);
 
   // 加载所有可用的 resource agents（异步，只加载一次）
   useEffect(() => {
@@ -520,7 +543,10 @@ export function OcfAgentEditor({
       try {
         values = await form.validateFields();
       } catch (validationError) {
-        console.warn('Form validation failed, using current values:', validationError);
+        console.warn(
+          'Form validation failed, using current values:',
+          validationError,
+        );
       }
 
       // Check if agents array exists (optional now, since we use parsedAgents as source of truth)
@@ -528,46 +554,60 @@ export function OcfAgentEditor({
 
       // Generate the updated start array strings using parsedAgents as source of truth
       // This ensures all agents are included even if form doesn't have complete data
-      const startArrayItems = parsedAgents.map((agentWithMeta: any, index: number) => {
-        const item = agentWithMeta.item;
-        // Get form data for this agent if available
-        const agentData = formAgents[index] || {};
+      const startArrayItems = parsedAgents.map(
+        (agentWithMeta: any, index: number) => {
+          const item = agentWithMeta.item;
+          // Get form data for this agent if available
+          const agentData = formAgents[index] || {};
 
-        if (item.is_ocf && item.ocf_agent) {
-          // OCF agent - generate string from parsedAgent (source of truth)
-          // Form values are used to update params if user changed them
-          const formParams = agentData.params || {};
-          const originalParams = paramsToRecord(item.ocf_agent.params || []);
-          // Merge: form params override original params
-          const mergedParams = { ...originalParams, ...formParams };
-          const agent = item.ocf_agent;
+          if (item.is_ocf && item.ocf_agent) {
+            // OCF agent - generate string from parsedAgent (source of truth)
+            // Form values are used to update params if user changed them
+            const formParams = agentData.params || {};
+            const originalParams = paramsToRecord(item.ocf_agent.params || []);
+            // Merge: form params override original params
+            const mergedParams = { ...originalParams, ...formParams };
+            const agent = item.ocf_agent;
 
-          // Generate parameter string (empty if no params)
-          const paramStr = Object.entries(mergedParams)
-            .filter(([_, value]) => value !== undefined && value !== '')
-            .map(([key, value]) => {
-              if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
-                return `${key}='${value}'`;
-              }
-              return `${key}=${value}`;
-            })
-            .join(' ');
+            // Generate parameter string (empty if no params)
+            const paramStr = Object.entries(mergedParams)
+              .filter(([_, value]) => value !== undefined && value !== '')
+              .map(([key, value]) => {
+                if (
+                  String(value).includes(' ') ||
+                  String(value).includes(',') ||
+                  String(value) === ''
+                ) {
+                  return `${key}='${value}'`;
+                }
+                return `${key}=${value}`;
+              })
+              .join(' ');
 
-          return `ocf:${agent.provider}:${agent.agent_type} ${agent.instance_name}${paramStr ? ' ' + paramStr : ''}`;
-        } else {
-          // Non-OCF item - use original from parsedAgent
-          return item.original;
-        }
-      });
+            return `ocf:${agent.provider}:${agent.agent_type} ${agent.instance_name}${paramStr ? ` ${paramStr}` : ''}`;
+          } else {
+            // Non-OCF item - use original from parsedAgent
+            return item.original;
+          }
+        },
+      );
 
       // Step 1: Update start array using the new API (automatically syncs and reloads drbd-reactor)
       message.loading('Saving and syncing configuration...');
-      const result = await haProfilesApi.updateStartArray(profile.name, startArrayItems);
+      const result = await haProfilesApi.updateStartArray(
+        profile.name,
+        startArrayItems,
+      );
 
       if (result.success) {
-        message.success(result.message || `Configuration saved and synced to ${result.synced_nodes.length} node(s)`);
+        message.success(
+          result.message ||
+            `Configuration saved and synced to ${result.synced_nodes.length} node(s)`,
+        );
       } else {
-        message.warning(result.message || 'Configuration saved but sync had issues');
+        message.warning(
+          result.message || 'Configuration saved but sync had issues',
+        );
       }
 
       // Reload the parsed agents to reflect changes
@@ -589,7 +629,7 @@ export function OcfAgentEditor({
     const providerAgents = allAgents.providers[agent.provider];
     if (!providerAgents) return null;
 
-    return providerAgents.find(a => a.name === agent.agent_type) || null;
+    return providerAgents.find((a) => a.name === agent.agent_type) || null;
   };
 
   // 拖拽结束处理
@@ -597,9 +637,13 @@ export function OcfAgentEditor({
     const { active, over } = event;
 
     if (over && active.id !== over.id) {
-      // Extract array indices from IDs
-      const oldIndex = parseInt(String(active.id).replace('agent-', ''));
-      const newIndex = parseInt(String(over.id).replace('agent-', ''));
+      // Find indices based on instanceId in the ID string
+      const oldIndex = parsedAgents.findIndex(
+        (a) => `agent-${a.instanceId}` === active.id,
+      );
+      const newIndex = parsedAgents.findIndex(
+        (a) => `agent-${a.instanceId}` === over.id,
+      );
 
       if (oldIndex >= 0 && newIndex >= 0) {
         // Move parsedAgents array - this has the latest data from handleFormValuesChange
@@ -608,7 +652,7 @@ export function OcfAgentEditor({
 
         // Rebuild form data from parsedAgents to ensure consistency
         // Don't rely on form.getFieldsValue() as it may be incomplete when panels are collapsed
-        const newFormAgents = newAgents.map(agentWithMeta => {
+        const newFormAgents = newAgents.map((agentWithMeta) => {
           if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
             return {
               params: paramsToRecord(agentWithMeta.item.ocf_agent.params || []),
@@ -640,7 +684,7 @@ export function OcfAgentEditor({
   };
 
   // Sync form changes to parsedAgents immediately
-  const handleFormValuesChange = (changedValues: any, allValues: any) => {
+  const handleFormValuesChange = (changedValues: any, _allValues: any) => {
     if (changedValues.agents) {
       const changedAgents = changedValues.agents;
 
@@ -650,16 +694,18 @@ export function OcfAgentEditor({
 
       if (Array.isArray(changedAgents)) {
         // Array format: find first non-undefined element
-        idx = changedAgents.findIndex((item: any) => item && (item.params || item.original !== undefined));
+        idx = changedAgents.findIndex(
+          (item: any) => item && (item.params || item.original !== undefined),
+        );
         changedValue = idx >= 0 ? changedAgents[idx] : null;
       } else {
         // Object format: find numeric key
-        const changedKey = Object.keys(changedAgents).find(key => {
+        const changedKey = Object.keys(changedAgents).find((key) => {
           const value = changedAgents[key];
           return typeof key === 'string' && /^\d+$/.test(key) && value;
         });
         if (changedKey) {
-          idx = parseInt(changedKey);
+          idx = parseInt(changedKey, 10);
           changedValue = changedAgents[idx];
         }
       }
@@ -671,9 +717,15 @@ export function OcfAgentEditor({
           const newAgent = { ...agent };
 
           // For OCF agents with params
-          if (agent.item.is_ocf && agent.item.ocf_agent && changedValue.params) {
+          if (
+            agent.item.is_ocf &&
+            agent.item.ocf_agent &&
+            changedValue.params
+          ) {
             // Merge params: convert ParamEntry[] to Record, merge, then convert back to ParamEntry[]
-            const originalParamsRecord = paramsToRecord(agent.item.ocf_agent.params || []);
+            const originalParamsRecord = paramsToRecord(
+              agent.item.ocf_agent.params || [],
+            );
             const mergedParamsRecord = {
               ...originalParamsRecord,
               ...changedValue.params,
@@ -682,11 +734,13 @@ export function OcfAgentEditor({
             // Convert merged Record back to ParamEntry[], preserving order from original
             // For keys that exist in original, keep their order
             // For new keys from changedValue, append them
-            const originalParamsMap = new Map(agent.item.ocf_agent.params?.map(p => [p.key, p.value]) || []);
+            const _originalParamsMap = new Map(
+              agent.item.ocf_agent.params?.map((p) => [p.key, p.value]) || [],
+            );
             const mergedParams: ParamEntry[] = [];
 
             // First, add all original params (with potentially updated values)
-            for (const entry of (agent.item.ocf_agent.params || [])) {
+            for (const entry of agent.item.ocf_agent.params || []) {
               const key = entry.key;
               // Use updated value if exists, otherwise use original
               const value = mergedParamsRecord[key] ?? entry.value;
@@ -718,7 +772,11 @@ export function OcfAgentEditor({
             const paramStr = mergedParams
               .filter(({ value }) => value !== undefined && value !== '')
               .map(({ key, value }) => {
-                if (String(value).includes(' ') || String(value).includes(',') || String(value) === '') {
+                if (
+                  String(value).includes(' ') ||
+                  String(value).includes(',') ||
+                  String(value) === ''
+                ) {
                   return `${key}='${value}'`;
                 }
                 return `${key}=${value}`;
@@ -769,7 +827,9 @@ export function OcfAgentEditor({
 
     // Update form
     const currentValues = form.getFieldsValue();
-    const newAgentsData = (currentValues.agents || []).filter((_: any, i: number) => i !== index);
+    const newAgentsData = (currentValues.agents || []).filter(
+      (_: any, i: number) => i !== index,
+    );
     form.setFieldValue('agents', newAgentsData);
 
     // No need to update addedParams - it uses stable keys (position.index)
@@ -783,14 +843,18 @@ export function OcfAgentEditor({
   // stableKey parameter is the instanceId
   const handleRemoveParam = (stableKey: number, paramName: string) => {
     // Find agent by instanceId
-    const arrayIndex = parsedAgents.findIndex((a: any) => a.instanceId === stableKey);
+    const arrayIndex = parsedAgents.findIndex(
+      (a: any) => a.instanceId === stableKey,
+    );
     if (arrayIndex === -1) return;
 
     const agent = parsedAgents[arrayIndex];
     if (!agent.item.ocf_agent) return;
 
     // Remove from params (filter out the param to remove)
-    const newParams = (agent.item.ocf_agent.params || []).filter((p: ParamEntry) => p.key !== paramName);
+    const newParams = (agent.item.ocf_agent.params || []).filter(
+      (p: ParamEntry) => p.key !== paramName,
+    );
 
     // Update agent
     const newAgent = {
@@ -817,7 +881,7 @@ export function OcfAgentEditor({
     }
 
     // Remove from addedParams tracking
-    setAddedParams(prev => {
+    setAddedParams((prev) => {
       const newMap = new Map(prev);
       const params = newMap.get(stableKey);
       if (params) {
@@ -851,14 +915,18 @@ export function OcfAgentEditor({
 
     const stableKey = currentAgentIndex;
     // Find agent by instanceId
-    const arrayIndex = parsedAgents.findIndex((a: any) => a.instanceId === stableKey);
+    const arrayIndex = parsedAgents.findIndex(
+      (a: any) => a.instanceId === stableKey,
+    );
     if (arrayIndex === -1) return;
 
     const agent = parsedAgents[arrayIndex];
     if (!agent.item.ocf_agent || !agent.metadata) return;
 
     // Find parameter metadata
-    const paramMeta = agent.metadata.parameters.find(p => p.name === selectedParam);
+    const paramMeta = agent.metadata.parameters.find(
+      (p) => p.name === selectedParam,
+    );
     if (!paramMeta) return;
 
     // Add to params with default value (append new param to end)
@@ -893,7 +961,7 @@ export function OcfAgentEditor({
     });
 
     // Add to addedParams tracking using stable key
-    setAddedParams(prev => {
+    setAddedParams((prev) => {
       const newMap = new Map(prev);
       const existing = newMap.get(stableKey) || new Set();
       existing.add(selectedParam);
@@ -922,7 +990,7 @@ export function OcfAgentEditor({
           section: 'resources',
           array_index: null,
           key: 'start',
-          index: parsedAgents.length,  // This is for TOML output, not tracking
+          index: parsedAgents.length, // This is for TOML output, not tracking
         },
         item: {
           original: systemdUnit.trim(),
@@ -930,7 +998,7 @@ export function OcfAgentEditor({
           ocf_agent: null,
         },
         metadata: null,
-        instanceId,  // Unique instance ID for tracking
+        instanceId, // Unique instance ID for tracking
       } as any;
 
       const newAgents = [...parsedAgents, newAgent];
@@ -942,7 +1010,10 @@ export function OcfAgentEditor({
       // Update form
       const currentValues = form.getFieldsValue();
       const agents = currentValues.agents || [];
-      form.setFieldValue('agents', [...agents, { original: systemdUnit.trim() }]);
+      form.setFieldValue('agents', [
+        ...agents,
+        { original: systemdUnit.trim() },
+      ]);
 
       message.success(`Added systemd unit: ${systemdUnit.trim()}`);
       closeAddModal();
@@ -954,7 +1025,9 @@ export function OcfAgentEditor({
 
       // Find metadata for selected agent
       const providerAgents = allAgents?.providers[selectedProvider] || [];
-      const agentMetadata = providerAgents.find(a => a.name === selectedAgent);
+      const agentMetadata = providerAgents.find(
+        (a) => a.name === selectedAgent,
+      );
 
       if (!agentMetadata) {
         message.error('Agent metadata not found');
@@ -964,8 +1037,8 @@ export function OcfAgentEditor({
       // Generate default params from metadata
       const defaultParamsList: ParamEntry[] = [];
       const defaultParamsRecord: Record<string, string> = {};
-      
-      agentMetadata.parameters.forEach(param => {
+
+      agentMetadata.parameters.forEach((param) => {
         // Only include required params
         if (param.required) {
           const value = param.default || '';
@@ -984,7 +1057,7 @@ export function OcfAgentEditor({
           section: 'resources',
           array_index: null,
           key: 'start',
-          index: parsedAgents.length,  // This is for TOML output, not tracking
+          index: parsedAgents.length, // This is for TOML output, not tracking
         },
         item: {
           original: `ocf:${selectedProvider}:${selectedAgent} ${instanceName}`,
@@ -998,7 +1071,7 @@ export function OcfAgentEditor({
           },
         },
         metadata: agentMetadata,
-        instanceId,  // Unique instance ID for tracking
+        instanceId, // Unique instance ID for tracking
       } as any;
 
       const newAgents = [...parsedAgents, newAgent];
@@ -1010,10 +1083,13 @@ export function OcfAgentEditor({
       // Update form
       const currentValues = form.getFieldsValue();
       const agents = currentValues.agents || [];
-      form.setFieldValue('agents', [...agents, {
-        original: `ocf:${selectedProvider}:${selectedAgent} ${instanceName}`,
-        params: defaultParamsRecord,
-      }]);
+      form.setFieldValue('agents', [
+        ...agents,
+        {
+          original: `ocf:${selectedProvider}:${selectedAgent} ${instanceName}`,
+          params: defaultParamsRecord,
+        },
+      ]);
 
       message.success(`Added OCF agent: ${selectedProvider}:${selectedAgent}`);
       closeAddModal();
@@ -1040,21 +1116,22 @@ export function OcfAgentEditor({
     );
   }
 
-  // Generate IDs for DnD - use array index for DnD Kit
-  // DnD Kit needs items array to match the rendering order
-  // Memoize to prevent unnecessary re-renders during drag
+  // Generate IDs for DnD - use instanceId for stable keys
   const items = useMemo(
-    () => parsedAgents.map((_, index) => `agent-${index}`),
-    [parsedAgents.length]  // Only regenerate when length changes
+    () => parsedAgents.map((agent) => `agent-${agent.instanceId}`),
+    [parsedAgents],
   );
 
   return (
-    <div className="ocf-agent-editor" style={{
-      padding: mode === 'create' ? '0' : '24px',
-      height: '100%',
-      display: 'flex',
-      flexDirection: 'column'
-    }}>
+    <div
+      className="ocf-agent-editor"
+      style={{
+        padding: mode === 'create' ? '0' : '24px',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
       {/* Header - only show in edit mode */}
       {mode === 'edit' && (
         <div style={{ marginBottom: '24px', flexShrink: 0 }}>
@@ -1066,10 +1143,7 @@ export function OcfAgentEditor({
             </Col>
             <Col>
               <Space>
-                <Button
-                  icon={<ReloadOutlined />}
-                  onClick={loadParsedAgents}
-                >
+                <Button icon={<ReloadOutlined />} onClick={loadParsedAgents}>
                   Reload
                 </Button>
                 <Button
@@ -1096,14 +1170,22 @@ export function OcfAgentEditor({
 
           {allAgents ? (
             <>
-              <Text strong style={{ marginLeft: '16px' }}>Available Providers:</Text>
-              {Object.keys(allAgents.providers).sort().map(provider => (
-                <Tag key={provider} color="green">{provider}</Tag>
-              ))}
+              <Text strong style={{ marginLeft: '16px' }}>
+                Available Providers:
+              </Text>
+              {Object.keys(allAgents.providers)
+                .sort()
+                .map((provider) => (
+                  <Tag key={provider} color="green">
+                    {provider}
+                  </Tag>
+                ))}
             </>
           ) : (
             <>
-              <Text strong style={{ marginLeft: '16px' }}>Loading OCF agent parameters...</Text>
+              <Text strong style={{ marginLeft: '16px' }}>
+                Loading OCF agent parameters...
+              </Text>
               <Spin size="small" />
             </>
           )}
@@ -1113,7 +1195,12 @@ export function OcfAgentEditor({
       {/* Main Content: Split View */}
       <div
         ref={containerRef}
-        style={{ display: 'flex', flex: 1, overflow: 'hidden', alignItems: 'stretch' }}
+        style={{
+          display: 'flex',
+          flex: 1,
+          overflow: 'hidden',
+          alignItems: 'stretch',
+        }}
       >
         {/* Left Panel - Editor */}
         <div
@@ -1125,13 +1212,27 @@ export function OcfAgentEditor({
         >
           <Card
             title={
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
                   {mode === 'edit' && (
                     <Button
                       type="text"
                       size="small"
-                      icon={previewVisible ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                      icon={
+                        previewVisible ? (
+                          <EyeOutlined />
+                        ) : (
+                          <EyeInvisibleOutlined />
+                        )
+                      }
                       onClick={togglePreview}
                       title={previewVisible ? 'Hide preview' : 'Show preview'}
                     />
@@ -1150,7 +1251,11 @@ export function OcfAgentEditor({
             }
             bordered={false}
             style={{ height: '100%', boxShadow: 'none' }}
-            bodyStyle={{ padding: '16px', height: 'calc(100% - 57px)', overflow: 'auto' }}
+            bodyStyle={{
+              padding: '16px',
+              height: 'calc(100% - 57px)',
+              overflow: 'auto',
+            }}
           >
             <Spin spinning={loading} tip="Loading OCF agents...">
               {/* Main Form */}
@@ -1171,21 +1276,27 @@ export function OcfAgentEditor({
                     collisionDetection={closestCenter}
                     onDragEnd={handleDragEnd}
                   >
-                    <SortableContext items={items} strategy={verticalListSortingStrategy}>
+                    <SortableContext
+                      items={items}
+                      strategy={verticalListSortingStrategy}
+                    >
                       {parsedAgents.map((agentWithMeta, index) => {
                         const { item } = agentWithMeta;
 
                         // 尝试从 allAgents 中查找元数据 (只对 OCF agents)
-                        const matchedMetadata = item.is_ocf && item.ocf_agent
-                          ? findAgentMetadata(item.ocf_agent)
-                          : null;
+                        const matchedMetadata =
+                          item.is_ocf && item.ocf_agent
+                            ? findAgentMetadata(item.ocf_agent)
+                            : null;
 
                         // 如果后端已经返回了元数据，使用它；否则使用匹配的
-                        const metadata = agentWithMeta.metadata || matchedMetadata;
-                        const isLoadingMetadata = item.is_ocf && !metadata && !allAgents;
+                        const metadata =
+                          agentWithMeta.metadata || matchedMetadata;
+                        const isLoadingMetadata =
+                          item.is_ocf && !metadata && !allAgents;
 
-                        // Use simple agent-{index} ID to match items array
-                        const id = `agent-${index}`;
+                        // Use instanceId for stable ID
+                        const id = `agent-${agentWithMeta.instanceId}`;
 
                         return (
                           <SortableAgentItem
@@ -1230,14 +1341,37 @@ export function OcfAgentEditor({
               paddingTop: 16,
             }}
           >
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-            }}>
-              <div style={{ width: 3, height: 3, borderRadius: '50%', background: '#bfbfbf' }} />
-              <div style={{ width: 3, height: 3, borderRadius: '50%', background: '#bfbfbf' }} />
-              <div style={{ width: 3, height: 3, borderRadius: '50%', background: '#bfbfbf' }} />
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              <div
+                style={{
+                  width: 3,
+                  height: 3,
+                  borderRadius: '50%',
+                  background: '#bfbfbf',
+                }}
+              />
+              <div
+                style={{
+                  width: 3,
+                  height: 3,
+                  borderRadius: '50%',
+                  background: '#bfbfbf',
+                }}
+              />
+              <div
+                style={{
+                  width: 3,
+                  height: 3,
+                  borderRadius: '50%',
+                  background: '#bfbfbf',
+                }}
+              />
             </div>
           </div>
         )}

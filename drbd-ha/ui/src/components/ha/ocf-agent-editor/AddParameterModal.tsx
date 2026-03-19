@@ -49,12 +49,12 @@ export function AddParameterModal({
                     if (!agent.metadata) return [];
 
                     const existingParams = new Set(
-                      (agent.item.ocf_agent?.params || []).map(p => p.key)
+                      (agent.item.ocf_agent?.params || []).map((p) => p.key),
                     );
 
                     return agent.metadata.parameters
-                      .filter(p => !existingParams.has(p.name))
-                      .map(p => ({
+                      .filter((p) => !existingParams.has(p.name))
+                      .map((p) => ({
                         label: `${p.name}${p.required ? ' (required)' : ''} - ${p.shortdesc || p.type}`,
                         value: p.name,
                       }));
@@ -69,7 +69,7 @@ export function AddParameterModal({
             <Form.Item label="Type">
               <Tag color="blue">
                 {parsedAgents[currentAgentIndex].metadata?.parameters.find(
-                  p => p.name === selectedParam
+                  (p) => p.name === selectedParam,
                 )?.type || 'unknown'}
               </Tag>
             </Form.Item>
@@ -84,18 +84,16 @@ export function AddParameterModal({
                   border: '1px solid var(--ant-colorBorder)',
                 }}
               >
-                {
-                  parsedAgents[currentAgentIndex].metadata?.parameters.find(
-                    p => p.name === selectedParam
-                  )?.longdesc || 'No description available'
-                }
+                {parsedAgents[currentAgentIndex].metadata?.parameters.find(
+                  (p) => p.name === selectedParam,
+                )?.longdesc || 'No description available'}
               </div>
             </Form.Item>
 
             <Form.Item label="Default Value">
               <Text code>
                 {parsedAgents[currentAgentIndex].metadata?.parameters.find(
-                  p => p.name === selectedParam
+                  (p) => p.name === selectedParam,
                 )?.default || '(empty)'}
               </Text>
             </Form.Item>

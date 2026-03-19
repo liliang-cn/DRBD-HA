@@ -65,7 +65,7 @@ impl DrbdReactorClient {
         let opts = options.unwrap_or_default();
 
         // Build command arguments
-        let mut args_vec = vec!["status".to_string()];
+        let mut args_vec = vec!["status".to_string(), "--json".to_string()];
 
         // Add resource filter if specified
         if let Some(resources) = opts.resources {
@@ -222,4 +222,3 @@ impl DrbdReactorClient {
         Ok(())
     }
 }
-
