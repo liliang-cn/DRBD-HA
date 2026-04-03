@@ -635,7 +635,9 @@ pub async fn create_resource(
     );
 
     // Write config locally first
-    state.write_controller_file(&config_path, &config_content).await?;
+    state
+        .write_controller_file(&config_path, &config_content)
+        .await?;
 
     info!("create_resource: Written local config to {}", config_path);
     state.send_progress(

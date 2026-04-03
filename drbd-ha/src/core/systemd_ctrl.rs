@@ -284,7 +284,10 @@ impl SystemdController {
             SystemdControllerBackend::Proxy => {
                 let output = self
                     .run_proxy_systemctl(
-                        &format!("systemctl show {} --property=ActiveEnterTimestampUSec --value", unit),
+                        &format!(
+                            "systemctl show {} --property=ActiveEnterTimestampUSec --value",
+                            unit
+                        ),
                         &format!("Get activation timestamp for {}", unit),
                     )
                     .await?;
@@ -294,7 +297,12 @@ impl SystemdController {
                 } else {
                     raw.parse::<i64>()
                         .map(|micros| micros / 1_000_000)
-                        .map_err(|e| AppError::Systemd(format!("Failed to parse ActiveEnterTimestampUSec for {}: {}", unit, e)))
+                        .map_err(|e| {
+                            AppError::Systemd(format!(
+                                "Failed to parse ActiveEnterTimestampUSec for {}: {}",
+                                unit, e
+                            ))
+                        })
                 }
             }
         }

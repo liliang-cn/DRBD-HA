@@ -22,14 +22,14 @@ pub struct Volume {
     pub drbd_res: Option<String>, // Associated DRBD resource name
 }
 
-/// Request to create a new storage pool (LVM VG)
+/// Request to create a new storage pool
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateStoragePoolRequest {
     pub name: String, // e.g., "ha_pool"
     /// Primary device (legacy/single-node support).
     /// If `node_devices` is empty, this device is used for the local node.
     pub device: Option<String>,
-    pub pool_type: String, // e.g., "lvm"
+    pub pool_type: String, // e.g., "lvm" or "zfs"
 
     /// Map of Node ID to Device Path for cluster-wide pool creation.
     /// e.g. {"node1": "/dev/sdb", "node2": "/dev/sdc"}
@@ -61,12 +61,14 @@ pub struct ListStoragePoolResponse {
     pub pools: Vec<StoragePool>,
 }
 
-/// Request to create a new logical volume (LVM LV)
+/// Request to create a new volume in a storage pool
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateVolumeRequest {
     pub pool_id: String, // ID of the parent StoragePool
     pub name: String,    // e.g., "vol_mysql"
     pub size_gb: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool_type: Option<String>, // e.g., "lvm" or "zfs"; auto-detected when omitted
 }
 
 /// Response for logical volume creation

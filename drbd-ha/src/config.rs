@@ -202,7 +202,12 @@ fn platform_config_dir() -> Option<PathBuf> {
 fn default_log_file() -> Option<String> {
     let legacy_log_dir = Path::new("/var/log/drbd-ha");
     if legacy_log_dir.exists() {
-        return Some(legacy_log_dir.join("drbd-ha.log").to_string_lossy().to_string());
+        return Some(
+            legacy_log_dir
+                .join("drbd-ha.log")
+                .to_string_lossy()
+                .to_string(),
+        );
     }
 
     platform_config_dir().map(|dir| dir.join("drbd-ha.log").to_string_lossy().to_string())
@@ -410,11 +415,9 @@ port = 9000
 
     #[test]
     fn test_embedded_mode_rejected_on_non_linux() {
-        let err =
-            validate_controller_mode_for_platform(&ControllerMode::Embedded, "windows").unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("Use controller.mode = 'external'"));
+        let err = validate_controller_mode_for_platform(&ControllerMode::Embedded, "windows")
+            .unwrap_err();
+        assert!(err.to_string().contains("Use controller.mode = 'external'"));
     }
 
     #[test]
@@ -431,20 +434,14 @@ port = 9000
     #[test]
     fn test_normalize_embedded_mode_to_external_on_non_linux() {
         let mut mode = ControllerMode::Embedded;
-        assert!(normalize_controller_mode_for_platform(
-            &mut mode,
-            "windows"
-        ));
+        assert!(normalize_controller_mode_for_platform(&mut mode, "windows"));
         assert_eq!(mode, ControllerMode::External);
     }
 
     #[test]
     fn test_normalize_keeps_linux_embedded_mode() {
         let mut mode = ControllerMode::Embedded;
-        assert!(!normalize_controller_mode_for_platform(
-            &mut mode,
-            "linux"
-        ));
+        assert!(!normalize_controller_mode_for_platform(&mut mode, "linux"));
         assert_eq!(mode, ControllerMode::Embedded);
     }
 }

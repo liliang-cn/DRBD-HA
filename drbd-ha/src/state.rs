@@ -5,7 +5,9 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
 use crate::config::{AppConfig, ControllerMode};
-use crate::core::{CommandProxyConfig, NodeStore, SshCredential, SshManager, configure_command_proxy};
+use crate::core::{
+    configure_command_proxy, CommandProxyConfig, NodeStore, SshCredential, SshManager,
+};
 use crate::error::AppError;
 use crate::error::AppResult;
 use crate::models::{Node, NodeStatus};
@@ -149,7 +151,9 @@ impl AppState {
             if let Some(proxy_host) = self.config.controller.proxy_host.clone() {
                 if let Ok(nodes) = self.node_store.get_all() {
                     if let Some(node) = nodes.iter().find(|node| {
-                        node.hostname == proxy_host || node.ip == proxy_host || node.id == proxy_host
+                        node.hostname == proxy_host
+                            || node.ip == proxy_host
+                            || node.id == proxy_host
                     }) {
                         return node.hostname.clone();
                     }

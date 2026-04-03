@@ -188,7 +188,12 @@ pub async fn validate_device_unique(device_name: &str, config_dir: &str) -> AppR
     match crate::core::run_shell_command(&scan_cmd, "Scan DRBD configs for device conflicts").await
     {
         Ok(output) if output.success() => {
-            if let Some(path) = output.stdout.lines().map(str::trim).find(|line| !line.is_empty()) {
+            if let Some(path) = output
+                .stdout
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+            {
                 let resource_name = std::path::Path::new(path)
                     .file_stem()
                     .and_then(|stem| stem.to_str())

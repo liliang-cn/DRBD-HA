@@ -93,7 +93,9 @@ pub async fn add_vip(
     let config_content = config_gen.generate_promoter(&promoter_config)?;
     let config_path = ReactorConfigPaths::promoter_path(&profile.name);
 
-    state.write_controller_file(&config_path, &config_content).await?;
+    state
+        .write_controller_file(&config_path, &config_content)
+        .await?;
 
     let sync_config = HaSyncConfig {
         drbd_resource_config: None, // No DRBD config changes for VIP updates
@@ -200,7 +202,9 @@ pub async fn remove_vip(
     let config_content = config_gen.generate_promoter(&promoter_config)?;
     let config_path = ReactorConfigPaths::promoter_path(&profile.name);
 
-    state.write_controller_file(&config_path, &config_content).await?;
+    state
+        .write_controller_file(&config_path, &config_content)
+        .await?;
 
     let sync_config = HaSyncConfig {
         drbd_resource_config: None, // No DRBD config changes for VIP updates

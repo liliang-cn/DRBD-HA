@@ -85,6 +85,10 @@ impl NodeStore {
         self.save(&nodes)
     }
 
+    pub fn replace_all(&self, nodes: &[Node]) -> AppResult<()> {
+        self.save(nodes)
+    }
+
     /// Update an existing node (must exist)
     pub fn update(&self, node: &Node) -> AppResult<()> {
         let mut nodes = self.get_all()?;

@@ -67,7 +67,9 @@ async fn run_shell_command_via_proxy(
         .arg(remote_cmd)
         .output()
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to execute proxied shell command: {}", e)))?;
+        .map_err(|e| {
+            AppError::Internal(format!("Failed to execute proxied shell command: {}", e))
+        })?;
 
     Ok(CommandOutput {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),

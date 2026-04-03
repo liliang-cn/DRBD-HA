@@ -116,12 +116,32 @@ impl ZfsProvider {
 
 #[async_trait]
 impl StorageProvider for ZfsProvider {
-    async fn init_pool(&self, _disk: &str) -> Result<()> {
-        // ZFS pool initialization is typically done outside of this provider
-        // as it requires entire disks and is a destructive operation
-        warn!(
-            "ZFS pool initialization should be done manually. Pool '{}' should already exist.",
-            self.pool_name
+    async fn init_pool(&self, disk: &str) -> Result<()> {
+        if disk.trim().is_empty() {
+            return Err(anyhow::anyhow!("ZFS pool disk must not be empty"));
+        }
+
+        if self.pool_exists().await? {
+            info!(
+                "ZFS pool '{}' already exists, skipping creation",
+                self.pool_name
+            );
+            return Ok(());
+        }
+
+        let command = ZfsCmd::zpool_create_cmd(&self.pool_name, disk);
+        self.execute_command(&command, "Create ZFS pool").await?;
+
+        if !self.pool_exists().await? {
+            return Err(anyhow::anyhow!(
+                "ZFS pool '{}' was not found after creation attempt",
+                self.pool_name
+            ));
+        }
+
+        info!(
+            "Successfully initialized ZFS pool '{}' on disk '{}'",
+            self.pool_name, disk
         );
         Ok(())
     }

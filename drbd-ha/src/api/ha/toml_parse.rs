@@ -701,11 +701,8 @@ mod tests {
     use super::*;
 
     // Helper function to get param value by key from Vec<ParamEntry>
-    fn get_param(params: &[ParamEntry], key: &str) -> Option<&str> {
-        params
-            .iter()
-            .find(|p| p.key == key)
-            .map(|p| p.value.as_str())
+    fn get_param<'a>(params: &'a [ParamEntry], key: &str) -> Option<&'a String> {
+        params.iter().find(|p| p.key == key).map(|p| &p.value)
     }
 
     #[test]
@@ -952,43 +949,25 @@ mod tests {
             "fs_cluster_private"
         );
         assert_eq!(
-            fs_agent
-                .item
-                .ocf_agent
-                .as_ref()
-                .unwrap()
-                .params
-                .get("device"),
+            get_param(&fs_agent.item.ocf_agent.as_ref().unwrap().params, "device"),
             Some(&"/dev/drbd/by-res/iscsi2/0".to_string())
         );
         assert_eq!(
-            fs_agent
-                .item
-                .ocf_agent
-                .as_ref()
-                .unwrap()
-                .params
-                .get("directory"),
+            get_param(
+                &fs_agent.item.ocf_agent.as_ref().unwrap().params,
+                "directory"
+            ),
             Some(&"/srv/ha/internal/iscsi2".to_string())
         );
         assert_eq!(
-            fs_agent
-                .item
-                .ocf_agent
-                .as_ref()
-                .unwrap()
-                .params
-                .get("fstype"),
+            get_param(&fs_agent.item.ocf_agent.as_ref().unwrap().params, "fstype"),
             Some(&"ext4".to_string())
         );
         assert_eq!(
-            fs_agent
-                .item
-                .ocf_agent
-                .as_ref()
-                .unwrap()
-                .params
-                .get("run_fsck"),
+            get_param(
+                &fs_agent.item.ocf_agent.as_ref().unwrap().params,
+                "run_fsck"
+            ),
             Some(&"no".to_string())
         );
         assert_eq!(fs_agent.position.section, "iscsi2"); // Changed from "promoter" to "iscsi2"
@@ -1006,13 +985,7 @@ mod tests {
             "pblock0"
         );
         assert_eq!(
-            pblock0
-                .item
-                .ocf_agent
-                .as_ref()
-                .unwrap()
-                .params
-                .get("action"),
+            get_param(&pblock0.item.ocf_agent.as_ref().unwrap().params, "action"),
             Some(&"block".to_string())
         );
         assert_eq!(pblock0.position.index, 1);
@@ -1028,7 +1001,7 @@ mod tests {
             "service_ip0"
         );
         assert_eq!(
-            ipaddr2.item.ocf_agent.as_ref().unwrap().params.get("ip"),
+            get_param(&ipaddr2.item.ocf_agent.as_ref().unwrap().params, "ip"),
             Some(&"192.168.123.191".to_string())
         );
         assert_eq!(ipaddr2.position.index, 2);
@@ -1044,7 +1017,7 @@ mod tests {
             "target"
         );
         assert_eq!(
-            target.item.ocf_agent.as_ref().unwrap().params.get("iqn"),
+            get_param(&target.item.ocf_agent.as_ref().unwrap().params, "iqn"),
             Some(&"iqn.2025-12.com.linbit:iscsi2".to_string())
         );
         assert_eq!(target.position.index, 3);
@@ -1057,11 +1030,11 @@ mod tests {
         );
         assert_eq!(lu1.item.ocf_agent.as_ref().unwrap().instance_name, "lu1");
         assert_eq!(
-            lu1.item.ocf_agent.as_ref().unwrap().params.get("lun"),
+            get_param(&lu1.item.ocf_agent.as_ref().unwrap().params, "lun"),
             Some(&"1".to_string())
         );
         assert_eq!(
-            lu1.item.ocf_agent.as_ref().unwrap().params.get("path"),
+            get_param(&lu1.item.ocf_agent.as_ref().unwrap().params, "path"),
             Some(&"/dev/drbd/by-res/iscsi2/1".to_string())
         );
         assert_eq!(lu1.position.index, 4);
@@ -1070,11 +1043,11 @@ mod tests {
         let lu2 = &result.ocf_agents[5];
         assert_eq!(lu2.item.ocf_agent.as_ref().unwrap().instance_name, "lu2");
         assert_eq!(
-            lu2.item.ocf_agent.as_ref().unwrap().params.get("lun"),
+            get_param(&lu2.item.ocf_agent.as_ref().unwrap().params, "lun"),
             Some(&"2".to_string())
         );
         assert_eq!(
-            lu2.item.ocf_agent.as_ref().unwrap().params.get("path"),
+            get_param(&lu2.item.ocf_agent.as_ref().unwrap().params, "path"),
             Some(&"/dev/drbd/by-res/iscsi2/2".to_string())
         );
         assert_eq!(lu2.position.index, 5);
@@ -1083,11 +1056,11 @@ mod tests {
         let lu3 = &result.ocf_agents[6];
         assert_eq!(lu3.item.ocf_agent.as_ref().unwrap().instance_name, "lu3");
         assert_eq!(
-            lu3.item.ocf_agent.as_ref().unwrap().params.get("lun"),
+            get_param(&lu3.item.ocf_agent.as_ref().unwrap().params, "lun"),
             Some(&"3".to_string())
         );
         assert_eq!(
-            lu3.item.ocf_agent.as_ref().unwrap().params.get("path"),
+            get_param(&lu3.item.ocf_agent.as_ref().unwrap().params, "path"),
             Some(&"/dev/drbd/by-res/iscsi2/3".to_string())
         );
         assert_eq!(lu3.position.index, 6);
@@ -1103,23 +1076,17 @@ mod tests {
             "portunblock0"
         );
         assert_eq!(
-            portunblock0
-                .item
-                .ocf_agent
-                .as_ref()
-                .unwrap()
-                .params
-                .get("action"),
+            get_param(
+                &portunblock0.item.ocf_agent.as_ref().unwrap().params,
+                "action"
+            ),
             Some(&"unblock".to_string())
         );
         assert_eq!(
-            portunblock0
-                .item
-                .ocf_agent
-                .as_ref()
-                .unwrap()
-                .params
-                .get("tickle_dir"),
+            get_param(
+                &portunblock0.item.ocf_agent.as_ref().unwrap().params,
+                "tickle_dir"
+            ),
             Some(&"/srv/ha/internal/iscsi2".to_string())
         );
         assert_eq!(portunblock0.position.index, 7);
@@ -1325,13 +1292,7 @@ mod tests {
             "export_1_0"
         );
         assert_eq!(
-            exportfs
-                .item
-                .ocf_agent
-                .as_ref()
-                .unwrap()
-                .params
-                .get("options"),
+            get_param(&exportfs.item.ocf_agent.as_ref().unwrap().params, "options"),
             Some(&"rw,all_squash,anonuid=0,anongid=0".to_string())
         );
         assert_eq!(exportfs.position.index, 5);
@@ -1381,8 +1342,14 @@ on-drbd-demote-failure = "reboot"
         assert_eq!(ocf1.provider, "heartbeat");
         assert_eq!(ocf1.agent_type, "IPaddr2");
         assert_eq!(ocf1.instance_name, "service_ip");
-        assert_eq!(ocf1get_param(&.params, "cidr_netmask"), Some(&"24".to_string()));
-        assert_eq!(ocf1get_param(&.params, "ip"), Some(&"192.168.123.200".to_string()));
+        assert_eq!(
+            get_param(&ocf1.params, "cidr_netmask"),
+            Some(&"24".to_string())
+        );
+        assert_eq!(
+            get_param(&ocf1.params, "ip"),
+            Some(&"192.168.123.200".to_string())
+        );
 
         // Third item: linstor-controller.service (not OCF)
         let item2 = &result.ocf_agents[2];

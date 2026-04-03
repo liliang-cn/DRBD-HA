@@ -16,7 +16,7 @@ use crate::core::{
     systemd_ctrl::{RemoteSystemdController, SystemdController},
     validator, DrbdConfigGenerator, DrbdConfigPaths, LvmProvider, NodeConfig,
     ReactorConfigGenerator, ReactorConfigPaths, ResourceConfig, ServiceInitFactory,
-    StorageProvider, ZfsProvider,
+    StorageProvider, ZfsProvider, ZfsUtilsClient,
 };
 use crate::error::{AppError, AppResult};
 use crate::models::{
@@ -98,7 +98,11 @@ pub async fn create_profile(
     }
 
     let config_path = ReactorConfigPaths::promoter_path(&req.name);
-    if state.controller_file_exists(&config_path).await.unwrap_or(false) {
+    if state
+        .controller_file_exists(&config_path)
+        .await
+        .unwrap_or(false)
+    {
         return Err(AppError::AlreadyExists(format!(
             "HA profile with name {} already exists",
             req.name
@@ -187,7 +191,7 @@ pub async fn create_profile(
             let current_vg_name = storage_pool_name.clone();
             let lv_name = format!("drbd-ha-lv-{}", req.resource_name);
 
-            let mut lvm_provider = if state.is_controller_node(node) {
+            let mut lvm_provider = if node.is_local {
                 LvmProvider::new_local(current_vg_name.clone())
             } else {
                 let credential = crate::core::SshCredential::Password("ignored".to_string());
@@ -208,7 +212,7 @@ pub async fn create_profile(
             lvm_provider.thin_pool_name = req.lvm_thin_pool_name.clone();
 
             // Check if VG exists on this node
-            let vg_exists = if state.is_controller_node(node) {
+            let vg_exists = if node.is_local {
                 crate::core::get_vg_info(&current_vg_name).await?.is_some()
             } else {
                 let credential = crate::core::SshCredential::Password("ignored".to_string());
@@ -297,7 +301,9 @@ pub async fn create_profile(
         let config_content = config_gen.generate_drbd_resource(&resource_config)?;
         let config_path = DrbdConfigPaths::drbd_resource_path(&req.resource_name);
 
-        state.write_controller_file(&config_path, &config_content).await?;
+        state
+            .write_controller_file(&config_path, &config_content)
+            .await?;
 
         generated_units.drbd_config_path = Some(config_path.clone());
 
@@ -424,9 +430,68 @@ pub async fn create_profile(
         for node in &all_nodes {
             let current_pool_name = zpool_name.clone();
             let zvol_name = format!("drbd-ha-zvol-{}", req.resource_name);
+            let zfs_client = if node.is_local {
+                ZfsUtilsClient::new_local()
+            } else {
+                let credential = crate::core::SshCredential::Password("ignored".to_string());
+                ZfsUtilsClient::new_remote(
+                    state.ssh_manager.clone(),
+                    node.ip.clone(),
+                    node.ssh_port,
+                    node.ssh_user.clone(),
+                    credential,
+                )
+            };
 
-            let device_path: String = if state.is_controller_node(node) {
-                let provider = ZfsProvider::new_local(current_pool_name.clone());
+            let provider = if node.is_local {
+                ZfsProvider::new_local(current_pool_name.clone())
+            } else {
+                let credential = crate::core::SshCredential::Password("ignored".to_string());
+                ZfsProvider::new_remote(
+                    current_pool_name.clone(),
+                    state.ssh_manager.clone(),
+                    node.ip.clone(),
+                    node.ssh_port,
+                    node.ssh_user.clone(),
+                    credential,
+                )
+            };
+
+            let pool_exists = zfs_client
+                .get_pool_info(&current_pool_name)
+                .await?
+                .is_some();
+            if !pool_exists {
+                if let Some(ref disks) = req.node_disks {
+                    if let Some(disk) = disks.get(&node.id) {
+                        state.send_progress(
+                            &operation_id,
+                            "create_ha_profile",
+                            Some(&req.name),
+                            12,
+                            &format!(
+                                "Initializing zpool {} on disk {} for node {}...",
+                                current_pool_name, disk, node.hostname
+                            ),
+                            false,
+                            None,
+                        );
+                        provider.init_pool(disk).await?;
+                    } else {
+                        return Err(AppError::NotFound(format!(
+                            "ZFS pool '{}' not found on node {} and no disk provided for initialization",
+                            pool_id, node.hostname
+                        )));
+                    }
+                } else {
+                    return Err(AppError::NotFound(format!(
+                        "ZFS pool '{}' not found on node {} and node_disks missing",
+                        pool_id, node.hostname
+                    )));
+                }
+            }
+
+            let device_path: String = if node.is_local {
                 provider
                     .create_volume(&zvol_name, *volume_size_gb)
                     .await
@@ -443,15 +508,6 @@ pub async fn create_profile(
                         }
                     })?
             } else {
-                let credential = crate::core::SshCredential::Password("ignored".to_string());
-                let provider = ZfsProvider::new_remote(
-                    current_pool_name.clone(),
-                    state.ssh_manager.clone(),
-                    node.ip.clone(),
-                    node.ssh_port,
-                    node.ssh_user.clone(),
-                    credential,
-                );
                 provider
                     .create_volume(&zvol_name, *volume_size_gb)
                     .await
@@ -504,7 +560,9 @@ pub async fn create_profile(
                 .await?;
         }
 
-        state.write_controller_file(&config_path, &config_content).await?;
+        state
+            .write_controller_file(&config_path, &config_content)
+            .await?;
 
         generated_units.drbd_config_path = Some(config_path.clone());
 
@@ -1136,7 +1194,9 @@ pub async fn create_profile(
             .await?;
     }
 
-    state.write_controller_file(&config_path, &config_content).await?;
+    state
+        .write_controller_file(&config_path, &config_content)
+        .await?;
     messages.push(if req.start_disabled {
         "Generated promoter configuration (disabled)".to_string()
     } else {
@@ -1208,7 +1268,7 @@ pub async fn create_profile(
         None,
     );
 
-        let mut synced_nodes = Vec::new();
+    let mut synced_nodes = Vec::new();
     {
         let mount_unit_content = if let Some(ref path) = generated_units.mount_unit_path {
             state.read_controller_file(path).await.ok()

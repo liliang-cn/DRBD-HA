@@ -152,11 +152,12 @@ pub async fn get_resource_agent_metadata(
 
     let agent_path = ocf_root.join("resource.d").join(&provider).join(&agent);
 
-    let (meta, _) =
-        get_agent_metadata(&agent_path).map_err(|e| AppError::NotFound(format!(
+    let (meta, _) = get_agent_metadata(&agent_path).map_err(|e| {
+        AppError::NotFound(format!(
             "Agent {}/{} not found or metadata fetch failed: {}",
             provider, agent, e
-        )))?;
+        ))
+    })?;
 
     Ok(Json(meta.into()))
 }
@@ -193,7 +194,10 @@ pub async fn list_all_resource_agents() -> AppResult<Json<ResourceAgentsByProvid
         list_agents(&ocf_root).map_err(|e| AppError::Internal(e.to_string()))?;
 
     for (provider_name, agent_name) in discovered_agents {
-        let agent_path = ocf_root.join("resource.d").join(&provider_name).join(&agent_name);
+        let agent_path = ocf_root
+            .join("resource.d")
+            .join(&provider_name)
+            .join(&agent_name);
         let (ra_metadata, _) = match get_agent_metadata(&agent_path) {
             Ok(meta) => meta,
             Err(e) => {
@@ -208,10 +212,7 @@ pub async fn list_all_resource_agents() -> AppResult<Json<ResourceAgentsByProvid
         };
 
         let agent: ResourceAgent = ResourceAgent::from(&ra_metadata);
-        providers_map
-            .entry(provider_name)
-            .or_default()
-            .push(agent);
+        providers_map.entry(provider_name).or_default().push(agent);
     }
 
     for provider_agents in providers_map.values_mut() {

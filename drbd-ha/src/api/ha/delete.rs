@@ -44,17 +44,17 @@ pub async fn delete_profile(
     let disabled_path = format!("{}.disabled", config_path);
 
     // Try to read from .toml (enabled) or .toml.disabled (disabled)
-    let (content, _is_disabled) = if let Ok(content) = state.read_controller_file(&config_path).await
-    {
-        (content, false)
-    } else if let Ok(content) = state.read_controller_file(&disabled_path).await {
-        (content, true)
-    } else {
-        return Err(AppError::NotFound(format!(
-            "HA profile {} not found",
-            id_or_name
-        )));
-    };
+    let (content, _is_disabled) =
+        if let Ok(content) = state.read_controller_file(&config_path).await {
+            (content, false)
+        } else if let Ok(content) = state.read_controller_file(&disabled_path).await {
+            (content, true)
+        } else {
+            return Err(AppError::NotFound(format!(
+                "HA profile {} not found",
+                id_or_name
+            )));
+        };
 
     let profile = create_profile_from_toml(&id_or_name, &content)
         .ok_or_else(|| AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;

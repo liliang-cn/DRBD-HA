@@ -7,7 +7,7 @@ use ssh_cmd::SshCredential;
 use std::sync::Arc;
 
 // Re-export Zpool types
-pub use zfs_utils::{ZpoolCheckResult, ZpoolStatus};
+pub use zfs_utils::{ZfsDatasetInfo, ZfsPoolInfo, ZpoolCheckResult, ZpoolStatus};
 
 /// Client for querying ZFS information (local or remote)
 pub struct ZfsClient {
@@ -48,6 +48,49 @@ impl ZfsClient {
     pub async fn check_zpool(&self) -> anyhow::Result<ZpoolCheckResult> {
         self.inner
             .check_zpool()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// Get info about a specific zpool
+    pub async fn get_pool_info(&self, pool_name: &str) -> anyhow::Result<Option<ZfsPoolInfo>> {
+        self.inner
+            .get_pool_info(pool_name)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// List all zpools
+    pub async fn list_pool_info(&self) -> anyhow::Result<Vec<ZfsPoolInfo>> {
+        self.inner
+            .list_pool_info()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// Get backing devices for a zpool
+    pub async fn get_pool_devices(&self, pool_name: &str) -> anyhow::Result<Vec<String>> {
+        self.inner
+            .get_pool_devices(pool_name)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// List datasets, optionally scoped to a specific pool
+    pub async fn list_datasets(
+        &self,
+        pool_name: Option<&str>,
+    ) -> anyhow::Result<Vec<ZfsDatasetInfo>> {
+        self.inner
+            .list_datasets(pool_name)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// Create a zpool from the provided devices
+    pub async fn create_pool(&self, pool_name: &str, devices: &[String]) -> anyhow::Result<()> {
+        self.inner
+            .create_pool(pool_name, devices)
             .await
             .map_err(|e| anyhow::anyhow!(e))
     }

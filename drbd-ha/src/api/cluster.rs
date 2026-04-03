@@ -124,13 +124,56 @@ fn resolved_ssh_user(config_default: &str, requested: Option<&str>) -> String {
         .to_string()
 }
 
+fn nodes_refer_to_same_host(left: &Node, right: &Node) -> bool {
+    left.hostname == right.hostname || left.ip == right.ip || left.id == right.id
+}
+
+fn find_existing_node<'a>(nodes: &'a [Node], hostname: &str, ip: &str) -> Option<&'a Node> {
+    nodes
+        .iter()
+        .find(|node| node.hostname == hostname)
+        .or_else(|| nodes.iter().find(|node| node.ip == ip))
+}
+
+fn insert_or_replace_node(nodes: &mut Vec<Node>, node: Node) {
+    if let Some(existing) = nodes
+        .iter_mut()
+        .find(|candidate| nodes_refer_to_same_host(candidate, &node))
+    {
+        *existing = node;
+    } else {
+        nodes.push(node);
+    }
+}
+
+fn merge_discovered_and_existing_nodes(discovered: Vec<Node>, existing: Vec<Node>) -> Vec<Node> {
+    let mut all_nodes = discovered;
+
+    for node in existing {
+        if all_nodes
+            .iter()
+            .any(|candidate| nodes_refer_to_same_host(candidate, &node))
+        {
+            continue;
+        }
+        all_nodes.push(node);
+    }
+
+    all_nodes.sort_by(|left, right| {
+        left.hostname
+            .cmp(&right.hostname)
+            .then(left.ip.cmp(&right.ip))
+            .then(left.id.cmp(&right.id))
+    });
+    all_nodes
+}
+
 /// Parse node information from DRBD .res configuration files
 /// Extracts hostname and IP from "on <hostname> { address ... }" blocks
 async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<Node>> {
-    use std::collections::HashMap;
-
     let config_path = &state.config.drbd.config_path;
-    let mut discovered_nodes: HashMap<String, Node> = HashMap::new();
+    let mut discovered_nodes = Vec::new();
+    let existing_nodes = state.node_store.get_all().unwrap_or_default();
 
     let controller_hostname = state.controller_hostname();
 
@@ -144,7 +187,6 @@ async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<
     };
 
     for file_name in entries {
-
         if !file_name.ends_with(".res") {
             continue;
         }
@@ -159,97 +201,75 @@ async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<
             }
         };
 
-        // Parse "on <hostname> { address <ip>:<port>; }" blocks
-        // Use a simple state machine to find these blocks
-        let lines: Vec<&str> = content.lines().collect();
-        let mut i = 0;
-        while i < lines.len() {
-            let line = lines[i].trim();
+        let mut parsed_nodes: Vec<(String, String)> =
+            drbd_utils::parse_res_file_for_nodes(&content)
+                .into_iter()
+                .collect();
+        parsed_nodes.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
 
-            // Look for "on <hostname> {" pattern
-            if line.starts_with("on ") && line.ends_with('{') {
-                let hostname_part = line[2..line.len() - 1].trim();
-                let hostname = hostname_part.to_string();
+        for (hostname, ip) in parsed_nodes {
+            let is_local = if state.is_external_controller() {
+                state.matches_controller_target(&hostname, &ip, &hostname)
+            } else {
+                hostname == controller_hostname
+            };
 
-                // Look for address line within the next few lines
-                let mut address = None;
-                let mut j = i + 1;
-                while j < lines.len() && j < i + 20 {
-                    let inner_line = lines[j].trim();
+            let (id, ssh_port, ssh_user, status, status_message, last_seen) =
+                if let Some(existing) = find_existing_node(&existing_nodes, &hostname, &ip) {
+                    (
+                        existing.id.clone(),
+                        existing.ssh_port,
+                        existing.ssh_user.clone(),
+                        existing.status.clone(),
+                        existing.status_message.clone(),
+                        existing.last_seen,
+                    )
+                } else {
+                    let ssh_port = state.config.ssh.default_port;
+                    let ssh_user = state.config.ssh.default_user.clone();
 
-                    // Exit the block when we see closing brace
-                    if inner_line == "}" {
-                        break;
-                    }
-
-                    // Parse address line: address    <ip>:<port>;
-                    if inner_line.starts_with("address ") {
-                        let addr_part = inner_line[8..].trim().trim_end_matches(';');
-                        // Parse IP:port, we only need the IP
-                        if let Some(colon_pos) = addr_part.find(':') {
-                            let ip = addr_part[..colon_pos].trim().to_string();
-                            address = Some(ip);
-                        }
-                        break;
-                    }
-
-                    j += 1;
-                }
-
-                if let Some(ip) = address {
-                    let is_local = if state.is_external_controller() {
-                        state.matches_controller_target(&hostname, &ip, &hostname)
+                    let (status, status_message) =
+                        verify_remote_node_access(state, &ip, ssh_port, &ssh_user).await;
+                    let last_seen = if status == NodeStatus::Online {
+                        Some(chrono::Utc::now())
                     } else {
-                        hostname == controller_hostname
+                        None
                     };
 
-                    // Use existing SSH settings if node already exists
-                    let (ssh_port, ssh_user, status, status_message, last_seen) =
-                        if let Ok(Some(existing)) = state.node_store.get(&hostname) {
-                            (
-                                existing.ssh_port,
-                                existing.ssh_user,
-                                existing.status,
-                                existing.status_message,
-                                existing.last_seen,
-                            )
-                        } else {
-                            let ssh_port = state.config.ssh.default_port;
-                            let ssh_user = state.config.ssh.default_user.clone();
-
-                            // Try to check connectivity and sudo capability
-                            let (status, status_message) =
-                                verify_remote_node_access(state, &ip, ssh_port, &ssh_user).await;
-                            let last_seen = if status == NodeStatus::Online {
-                                Some(chrono::Utc::now())
-                            } else {
-                                None
-                            };
-
-                            (ssh_port, ssh_user, status, status_message, last_seen)
-                        };
-
-                    let node = Node {
-                        id: hostname.clone(),
-                        hostname: hostname.clone(),
-                        ip,
+                    (
+                        hostname.clone(),
                         ssh_port,
                         ssh_user,
-                        is_local,
                         status,
                         status_message,
                         last_seen,
-                    };
+                    )
+                };
 
-                    discovered_nodes.insert(hostname, node);
-                }
-            }
+            let node = Node {
+                id,
+                hostname,
+                ip,
+                ssh_port,
+                ssh_user,
+                is_local,
+                status,
+                status_message,
+                last_seen,
+            };
 
-            i += 1;
+            insert_or_replace_node(&mut discovered_nodes, node);
         }
     }
 
-    Ok(discovered_nodes.into_values().collect())
+    discovered_nodes.sort_by(|left, right| {
+        left.hostname
+            .cmp(&right.hostname)
+            .then(left.ip.cmp(&right.ip))
+            .then(left.id.cmp(&right.id))
+    });
+
+    Ok(discovered_nodes)
 }
 
 /// Sync nodes from DRBD configs with the node store
@@ -261,22 +281,10 @@ pub async fn sync_nodes_from_drbd(state: &Arc<AppState>) -> AppResult<Vec<Node>>
     // Get existing manually added nodes
     let existing = state.node_store.get_all().unwrap_or_default();
 
-    // Merge: nodes from .res files + existing nodes that aren't in .res files
-    use std::collections::HashSet;
-    let discovered_hostnames: HashSet<String> =
-        discovered.iter().map(|n| n.hostname.clone()).collect();
+    let all_nodes = merge_discovered_and_existing_nodes(discovered, existing);
 
-    let mut all_nodes = discovered;
-    for node in existing {
-        if !discovered_hostnames.contains(node.hostname.as_str()) {
-            all_nodes.push(node);
-        }
-    }
-
-    // Update the store with merged nodes
-    for node in &all_nodes {
-        let _ = state.node_store.insert(node);
-    }
+    // Replace the store with the merged view so stale duplicates are removed.
+    state.node_store.replace_all(&all_nodes)?;
 
     state.refresh_command_proxy();
 
@@ -697,4 +705,51 @@ pub async fn check_node_status(
         status,
         message,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_node(id: &str, hostname: &str, ip: &str, ssh_user: &str) -> Node {
+        Node {
+            id: id.to_string(),
+            hostname: hostname.to_string(),
+            ip: ip.to_string(),
+            ssh_port: 22,
+            ssh_user: ssh_user.to_string(),
+            is_local: false,
+            status: NodeStatus::Unknown,
+            status_message: None,
+            last_seen: None,
+        }
+    }
+
+    #[test]
+    fn merge_nodes_skips_existing_duplicates_by_ip() {
+        let discovered = vec![test_node("node-a", "node-a", "10.0.0.1", "cluster-admin")];
+        let existing = vec![test_node("uuid-1", "old-name", "10.0.0.1", "ubuntu")];
+
+        let merged = merge_discovered_and_existing_nodes(discovered, existing);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].hostname, "node-a");
+    }
+
+    #[test]
+    fn find_existing_node_matches_by_hostname_or_ip() {
+        let existing = vec![
+            test_node("uuid-1", "node-a", "10.0.0.1", "ubuntu"),
+            test_node("uuid-2", "node-b", "10.0.0.2", "root"),
+        ];
+
+        assert_eq!(
+            find_existing_node(&existing, "node-a", "10.0.0.9").map(|node| node.id.as_str()),
+            Some("uuid-1")
+        );
+        assert_eq!(
+            find_existing_node(&existing, "node-c", "10.0.0.2").map(|node| node.id.as_str()),
+            Some("uuid-2")
+        );
+    }
 }

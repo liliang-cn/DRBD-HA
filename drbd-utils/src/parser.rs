@@ -187,7 +187,10 @@ pub fn get_used_minors_from_config() -> HashSet<u32> {
         let target = format!("{}@{}", user, host);
         let escaped_dir = shell_escape_single_quotes(&config_dir.to_string_lossy());
         let list_cmd = if user == "root" {
-            format!("find '{}' -maxdepth 1 -type f -name '*.res' -print", escaped_dir)
+            format!(
+                "find '{}' -maxdepth 1 -type f -name '*.res' -print",
+                escaped_dir
+            )
         } else {
             format!(
                 "sudo -n find '{}' -maxdepth 1 -type f -name '*.res' -print",

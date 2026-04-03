@@ -141,7 +141,9 @@ pub async fn update_profile_toml(
     let config_path = state.reactor_config_path(&id);
 
     // Write the TOML content
-    state.write_controller_file(&config_path, &request.content).await?;
+    state
+        .write_controller_file(&config_path, &request.content)
+        .await?;
 
     tracing::info!(
         "Updated TOML configuration for profile '{}': {}",
@@ -378,7 +380,9 @@ pub async fn update_start_array(
     let updated_content = doc.to_string();
 
     // Write back to file
-    state.write_controller_file(&config_path, &updated_content).await?;
+    state
+        .write_controller_file(&config_path, &updated_content)
+        .await?;
 
     tracing::info!(
         "Updated start array in TOML configuration for profile '{}': {}",
