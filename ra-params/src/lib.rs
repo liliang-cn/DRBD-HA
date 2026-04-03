@@ -9,7 +9,63 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+fn controller_proxy_from_env() -> Option<(String, u16, String)> {
+    let host = std::env::var("DRBD_HA_REMOTE_EXEC_HOST").ok()?;
+    let port = std::env::var("DRBD_HA_REMOTE_EXEC_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(22);
+    let user = std::env::var("DRBD_HA_REMOTE_EXEC_USER").unwrap_or_else(|_| "root".to_string());
+    Some((host, port, user))
+}
+
+fn shell_escape_single_quotes(value: &str) -> String {
+    value.replace('\'', "'\"'\"'")
+}
+
+fn run_proxy_command(command: &str) -> Result<String> {
+    let (host, port, user) =
+        controller_proxy_from_env().context("proxy execution requested but no proxy configured")?;
+    let target = format!("{}@{}", user, host);
+    let remote_cmd = if user == "root" {
+        format!("sh -lc '{}'", shell_escape_single_quotes(command))
+    } else {
+        format!("sudo -n sh -lc '{}'", shell_escape_single_quotes(command))
+    };
+
+    let output = Command::new("ssh")
+        .arg("-p")
+        .arg(port.to_string())
+        .arg("-o")
+        .arg("StrictHostKeyChecking=no")
+        .arg("-o")
+        .arg("UserKnownHostsFile=/dev/null")
+        .arg("-o")
+        .arg("BatchMode=yes")
+        .arg("-o")
+        .arg("ConnectTimeout=5")
+        .arg(target)
+        .arg(remote_cmd)
+        .output()?;
+
+    if !output.status.success() {
+        anyhow::bail!("{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    String::from_utf8(output.stdout).context("Invalid UTF-8 output")
+}
+
 pub fn get_agent_metadata(agent_path: &Path) -> Result<(ResourceAgent, String)> {
+    if controller_proxy_from_env().is_some() {
+        let command = format!(
+            "OCF_ROOT=/usr/lib/ocf '{}' meta-data",
+            shell_escape_single_quotes(&agent_path.to_string_lossy())
+        );
+        let xml_content = run_proxy_command(&command)?;
+        let ra: ResourceAgent = from_str(&xml_content).context("Failed to parse XML")?;
+        return Ok((ra, xml_content));
+    }
+
     // Run the agent with meta-data argument
     let output = Command::new(agent_path)
         .arg("meta-data")
@@ -41,6 +97,27 @@ pub fn get_agent_metadata_with_provider(
 pub fn list_agents(ocf_root: &Path) -> Result<Vec<(String, String)>> {
     let mut agents = Vec::new();
     let resource_d = ocf_root.join("resource.d");
+
+    if controller_proxy_from_env().is_some() {
+        let command = format!(
+            "find '{}' -mindepth 2 -maxdepth 2 -type f -executable -printf '%P\n'",
+            shell_escape_single_quotes(&resource_d.to_string_lossy())
+        );
+        let output = run_proxy_command(&command)?;
+
+        for line in output.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            if let Some((provider, agent)) = trimmed.split_once('/') {
+                agents.push((provider.to_string(), agent.to_string()));
+            }
+        }
+
+        return Ok(agents);
+    }
 
     if !resource_d.exists() {
         return Ok(agents);

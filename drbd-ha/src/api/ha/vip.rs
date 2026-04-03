@@ -40,7 +40,8 @@ pub async fn add_vip(
 
     // Load profile from toml file instead of database
     let config_path = ReactorConfigPaths::promoter_path(&id_or_name);
-    let content = tokio::fs::read_to_string(&config_path)
+    let content = state
+        .read_controller_file(&config_path)
         .await
         .map_err(|_| AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
     let mut profile = create_profile_from_toml(&id_or_name, &content)
@@ -92,9 +93,7 @@ pub async fn add_vip(
     let config_content = config_gen.generate_promoter(&promoter_config)?;
     let config_path = ReactorConfigPaths::promoter_path(&profile.name);
 
-    tokio::fs::write(&config_path, &config_content)
-        .await
-        .map_err(|e| AppError::Config(format!("Failed to write promoter config: {}", e)))?;
+    state.write_controller_file(&config_path, &config_content).await?;
 
     let sync_config = HaSyncConfig {
         drbd_resource_config: None, // No DRBD config changes for VIP updates
@@ -148,7 +147,8 @@ pub async fn remove_vip(
 ) -> AppResult<Json<VipOperationResponse>> {
     // Load profile from toml file instead of database
     let config_path = ReactorConfigPaths::promoter_path(&id_or_name);
-    let content = tokio::fs::read_to_string(&config_path)
+    let content = state
+        .read_controller_file(&config_path)
         .await
         .map_err(|_| AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
     let mut profile = create_profile_from_toml(&id_or_name, &content)
@@ -200,9 +200,7 @@ pub async fn remove_vip(
     let config_content = config_gen.generate_promoter(&promoter_config)?;
     let config_path = ReactorConfigPaths::promoter_path(&profile.name);
 
-    tokio::fs::write(&config_path, &config_content)
-        .await
-        .map_err(|e| AppError::Config(format!("Failed to write promoter config: {}", e)))?;
+    state.write_controller_file(&config_path, &config_content).await?;
 
     let sync_config = HaSyncConfig {
         drbd_resource_config: None, // No DRBD config changes for VIP updates

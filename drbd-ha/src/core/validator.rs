@@ -178,61 +178,34 @@ pub fn validate_minor_available(minor: u32) -> AppResult<()> {
 
 /// Check if DRBD device name conflicts with existing resources
 pub async fn validate_device_unique(device_name: &str, config_dir: &str) -> AppResult<()> {
-    // Check against existing DRBD configuration files
-    let config_dir = config_dir;
+    let escaped_device = device_name.replace('\'', "'\"'\"'");
+    let escaped_dir = config_dir.replace('\'', "'\"'\"'");
+    let scan_cmd = format!(
+        "find '{}' -maxdepth 1 -type f -name '*.res' -print0 | xargs -0 grep -l -F 'device {}' 2>/dev/null",
+        escaped_dir, escaped_device
+    );
 
-    // List all .res files
-    match tokio::fs::read_dir(config_dir).await {
-        Ok(mut entries) => {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                // Only process .res files
-                let file_name_os = entry.file_name();
-                let file_name = match file_name_os.to_str() {
-                    Some(name) => name,
-                    None => continue,
-                };
+    match crate::core::run_shell_command(&scan_cmd, "Scan DRBD configs for device conflicts").await
+    {
+        Ok(output) if output.success() => {
+            if let Some(path) = output.stdout.lines().map(str::trim).find(|line| !line.is_empty()) {
+                let resource_name = std::path::Path::new(path)
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .unwrap_or("unknown");
 
-                if !file_name.ends_with(".res") {
-                    continue;
-                }
-
-                let file_path = entry.path();
-
-                // Read the content of the .res file
-                match tokio::fs::read_to_string(&file_path).await {
-                    Ok(content) => {
-                        // Check if this file contains our target device name
-                        for line in content.lines() {
-                            let trimmed_line = line.trim();
-                            // Look for device lines like: device /dev/drbd1234;
-                            if trimmed_line.starts_with("device ") {
-                                let device_part = trimmed_line
-                                    .strip_prefix("device ")
-                                    .unwrap_or("")
-                                    .trim_end_matches(';');
-
-                                if device_part == device_name {
-                                    let resource_name =
-                                        file_name.strip_suffix(".res").unwrap_or("unknown");
-
-                                    return Err(AppError::Validation(format!(
-                                        "DRBD device '{}' is already used by resource '{}'",
-                                        device_name, resource_name
-                                    )));
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to read DRBD config file '{:?}': {}", file_path, e);
-                    }
-                }
+                return Err(AppError::Validation(format!(
+                    "DRBD device '{}' is already used by resource '{}'",
+                    device_name, resource_name
+                )));
             }
         }
+        Ok(_) => {}
         Err(e) => {
             tracing::warn!(
-                "Failed to read DRBD config directory '{}': {}",
+                "Failed to scan DRBD config directory '{}' for device '{}': {}",
                 config_dir,
+                device_name,
                 e
             );
         }

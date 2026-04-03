@@ -4,7 +4,7 @@
 //! managed by drbd-reactor. These overrides ensure that services properly depend on
 //! their DRBD mount points and don't start before the filesystem is available.
 
-use crate::core::run_shell_command;
+use crate::core::{current_command_proxy, run_shell_command};
 use crate::error::{AppError, AppResult};
 
 /// Generator for systemd service override (drop-in) files
@@ -48,30 +48,34 @@ impl ServiceOverrideGenerator {
             )));
         }
 
-        // 1. Create override directory
+        // 1. Create override directory when running embedded; external mode writes via controller file APIs
         let override_dir = format!("/etc/systemd/system/{}.d", service_name);
-        tokio::fs::create_dir_all(&override_dir)
-            .await
-            .map_err(|e| {
-                AppError::Config(format!(
-                    "Failed to create override directory {}: {}",
-                    override_dir, e
-                ))
-            })?;
+        if current_command_proxy().is_none() {
+            tokio::fs::create_dir_all(&override_dir)
+                .await
+                .map_err(|e| {
+                    AppError::Config(format!(
+                        "Failed to create override directory {}: {}",
+                        override_dir, e
+                    ))
+                })?;
+        }
 
         // 2. Render override content
         let content = Self::render_override(mount_unit, profile_name);
 
         // 3. Write override file
         let override_path = format!("{}/ha-override.conf", override_dir);
-        tokio::fs::write(&override_path, &content)
-            .await
-            .map_err(|e| {
-                AppError::Config(format!(
-                    "Failed to write override file {}: {}",
-                    override_path, e
-                ))
-            })?;
+        if current_command_proxy().is_none() {
+            tokio::fs::write(&override_path, &content)
+                .await
+                .map_err(|e| {
+                    AppError::Config(format!(
+                        "Failed to write override file {}: {}",
+                        override_path, e
+                    ))
+                })?;
+        }
 
         tracing::info!(
             "Generated service override for {} (mount: {}, profile: {})",
@@ -85,6 +89,7 @@ impl ServiceOverrideGenerator {
             override_dir,
             override_path,
             mount_unit: mount_unit.to_string(),
+            content,
         })
     }
 
@@ -132,6 +137,8 @@ After={mount}
         // 1. Remove persistent override in /etc
         let override_dir = format!("/etc/systemd/system/{}.d", service_name);
         let override_path = format!("{}/ha-override.conf", override_dir);
+        let run_override_dir = format!("/run/systemd/system/{}.d", service_name);
+        let run_override_path = format!("{}/reactor.conf", run_override_dir);
 
         tracing::info!(
             "Removing service override for {}: {}",
@@ -139,7 +146,29 @@ After={mount}
             override_path
         );
 
-        if std::path::Path::new(&override_path).exists() {
+        if current_command_proxy().is_some() {
+            let _ = run_shell_command(
+                &format!("rm -f '{}'", override_path),
+                "Remove service override",
+            )
+            .await;
+            let _ = run_shell_command(
+                &format!("rmdir '{}' 2>/dev/null || true", override_dir),
+                "Remove empty service override directory",
+            )
+            .await;
+            let _ = run_shell_command(
+                &format!("rm -f '{}'", run_override_path),
+                "Remove runtime reactor override",
+            )
+            .await;
+            let _ = run_shell_command(
+                &format!("rmdir '{}' 2>/dev/null || true", run_override_dir),
+                "Remove empty runtime override directory",
+            )
+            .await;
+            return Ok(());
+        } else if std::path::Path::new(&override_path).exists() {
             if let Err(e) = tokio::fs::remove_file(&override_path).await {
                 tracing::warn!("Failed to remove override file {}: {}", override_path, e);
                 let _ =
@@ -163,10 +192,6 @@ After={mount}
                 tracing::info!("Removed empty override directory: {}", override_dir);
             }
         }
-
-        // 2. Remove runtime override in /run (created by drbd-reactor)
-        let run_override_dir = format!("/run/systemd/system/{}.d", service_name);
-        let run_override_path = format!("{}/reactor.conf", run_override_dir);
 
         if std::path::Path::new(&run_override_path).exists() {
             tracing::info!("Removing runtime reactor override: {}", run_override_path);
@@ -202,7 +227,17 @@ After={mount}
     /// Check if an override exists for a service
     pub async fn exists(service_name: &str) -> bool {
         let override_path = format!("/etc/systemd/system/{}.d/ha-override.conf", service_name);
-        tokio::fs::metadata(&override_path).await.is_ok()
+        if current_command_proxy().is_some() {
+            run_shell_command(
+                &format!("test -f '{}'", override_path),
+                "Check service override",
+            )
+            .await
+            .map(|output| output.success())
+            .unwrap_or(false)
+        } else {
+            tokio::fs::metadata(&override_path).await.is_ok()
+        }
     }
 
     /// Get the override file path for a service
@@ -225,6 +260,9 @@ pub struct ServiceOverrideInfo {
 
     /// Mount unit this service depends on
     pub mount_unit: String,
+
+    /// Generated override file content
+    pub content: String,
 }
 
 #[cfg(test)]

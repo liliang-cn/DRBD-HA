@@ -102,7 +102,7 @@ pub async fn reload_reactor(
 
     let mut results = Vec::new();
 
-    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+    let local_hostname = state.controller_hostname();
 
     let (local_success, local_error) = match SystemdController::new().await {
         Ok(sys) => {
@@ -132,7 +132,7 @@ pub async fn reload_reactor(
     let nodes = state.node_store.get_all()?;
 
     for node in nodes {
-        if node.is_local {
+        if state.is_controller_node(&node) {
             continue;
         }
 

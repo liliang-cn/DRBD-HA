@@ -4,7 +4,44 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
-const NODES_FILE: &str = "/etc/drbd-ha/nodes.toml";
+fn default_nodes_file() -> String {
+    if let Ok(path) = std::env::var("DRBD_HA_NODES_FILE") {
+        return path;
+    }
+
+    let legacy_path = "/etc/drbd-ha/nodes.toml";
+    if Path::new(legacy_path).exists() {
+        return legacy_path.to_string();
+    }
+
+    let base_dir = if cfg!(target_os = "windows") {
+        std::env::var("APPDATA")
+            .ok()
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var("USERPROFILE")
+                    .ok()
+                    .map(std::path::PathBuf::from)
+            })
+            .map(|path| path.join("drbd-ha"))
+    } else if cfg!(target_os = "macos") {
+        std::env::var("HOME")
+            .ok()
+            .map(std::path::PathBuf::from)
+            .map(|path| path.join("Library/Application Support/drbd-ha"))
+    } else {
+        std::env::var("HOME")
+            .ok()
+            .map(std::path::PathBuf::from)
+            .map(|path| path.join(".config/drbd-ha"))
+    };
+
+    base_dir
+        .unwrap_or_else(|| std::path::PathBuf::from("/etc/drbd-ha"))
+        .join("nodes.toml")
+        .to_string_lossy()
+        .to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NodesData {
@@ -19,7 +56,7 @@ pub struct NodeStore {
 impl NodeStore {
     pub fn new(path: Option<String>) -> Self {
         Self {
-            path: path.unwrap_or_else(|| NODES_FILE.to_string()),
+            path: path.unwrap_or_else(default_nodes_file),
         }
     }
 

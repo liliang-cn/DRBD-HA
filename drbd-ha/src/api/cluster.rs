@@ -9,6 +9,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use utoipa::ToSchema;
 
+use crate::config::detected_controller_platform;
 use crate::core::{run_shell_command, SshCredential};
 use crate::error::{AppError, AppResult};
 use crate::models::{AddNodeRequest, BlockDevice, LsblkOutput, Node, NodeStatus};
@@ -19,6 +20,8 @@ use crate::state::AppState;
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
+    pub platform: String,
+    pub controller_mode: String,
 }
 
 /// GET /api/v1/health
@@ -30,10 +33,12 @@ pub struct HealthResponse {
         (status = 200, description = "System is healthy", body = HealthResponse)
     )
 )]
-pub async fn health_check() -> Json<HealthResponse> {
+pub async fn health_check(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        platform: detected_controller_platform().to_string(),
+        controller_mode: state.config.controller.mode.as_str().to_string(),
     })
 }
 
@@ -43,7 +48,7 @@ fn get_node_by_id_resolved(state: &AppState, id: &str) -> AppResult<Node> {
         let nodes = state.node_store.get_all()?;
         return nodes
             .into_iter()
-            .find(|n| n.is_local)
+            .find(|n| state.is_controller_node(n))
             .ok_or_else(|| AppError::NotFound("Local node not found".to_string()));
     }
 
@@ -111,6 +116,14 @@ async fn verify_remote_node_access(
     }
 }
 
+fn resolved_ssh_user(config_default: &str, requested: Option<&str>) -> String {
+    requested
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(config_default)
+        .to_string()
+}
+
 /// Parse node information from DRBD .res configuration files
 /// Extracts hostname and IP from "on <hostname> { address ... }" blocks
 async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<Node>> {
@@ -119,29 +132,26 @@ async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<
     let config_path = &state.config.drbd.config_path;
     let mut discovered_nodes: HashMap<String, Node> = HashMap::new();
 
-    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+    let controller_hostname = state.controller_hostname();
 
     // Read all .res files
-    let mut entries = match tokio::fs::read_dir(config_path).await {
-        Ok(e) => e,
+    let entries = match state.list_controller_dir_entries(config_path).await {
+        Ok(entries) => entries,
         Err(e) => {
             tracing::warn!("Cannot read DRBD config directory {}: {}", config_path, e);
             return Ok(Vec::new());
         }
     };
 
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let file_name = match entry.file_name().to_str() {
-            Some(name) => name.to_string(),
-            None => continue,
-        };
+    for file_name in entries {
 
         if !file_name.ends_with(".res") {
             continue;
         }
 
         // Read .res file content
-        let content = match tokio::fs::read_to_string(entry.path()).await {
+        let file_path = format!("{}/{}", config_path.trim_end_matches('/'), file_name);
+        let content = match state.read_controller_file(&file_path).await {
             Ok(c) => c,
             Err(e) => {
                 tracing::warn!("Failed to read {}: {}", file_name, e);
@@ -187,8 +197,11 @@ async fn import_nodes_from_drbd_configs(state: &Arc<AppState>) -> AppResult<Vec<
                 }
 
                 if let Some(ip) = address {
-                    // Check if this is the local node
-                    let is_local = hostname == local_hostname;
+                    let is_local = if state.is_external_controller() {
+                        state.matches_controller_target(&hostname, &ip, &hostname)
+                    } else {
+                        hostname == controller_hostname
+                    };
 
                     // Use existing SSH settings if node already exists
                     let (ssh_port, ssh_user, status, status_message, last_seen) =
@@ -265,6 +278,8 @@ pub async fn sync_nodes_from_drbd(state: &Arc<AppState>) -> AppResult<Vec<Node>>
         let _ = state.node_store.insert(node);
     }
 
+    state.refresh_command_proxy();
+
     Ok(all_nodes)
 }
 
@@ -320,13 +335,11 @@ pub async fn add_node(
 
     // Optional connectivity check; never block add by status.
     let ssh_port = req.ssh_port.unwrap_or(state.config.ssh.default_port);
-    let ssh_user = req
-        .ssh_user
-        .clone()
-        .unwrap_or(state.config.ssh.default_user.clone());
+    let ssh_user = resolved_ssh_user(&state.config.ssh.default_user, req.ssh_user.as_deref());
 
     let (status, status_message) =
         verify_remote_node_access(&state, &req.ip, ssh_port, &ssh_user).await;
+    let is_local = state.matches_controller_target(&req.hostname, &req.ip, &req.hostname);
 
     // Create node
     let node = Node {
@@ -334,10 +347,8 @@ pub async fn add_node(
         hostname: req.hostname,
         ip: req.ip,
         ssh_port: req.ssh_port.unwrap_or(state.config.ssh.default_port),
-        ssh_user: req
-            .ssh_user
-            .unwrap_or(state.config.ssh.default_user.clone()),
-        is_local: false,
+        ssh_user,
+        is_local,
         status: status.clone(),
         status_message,
         last_seen: if status == NodeStatus::Online {
@@ -349,6 +360,7 @@ pub async fn add_node(
 
     // Store node
     state.node_store.insert(&node)?;
+    state.refresh_command_proxy();
 
     Ok((StatusCode::CREATED, Json(node)))
 }
@@ -416,10 +428,8 @@ pub async fn update_node(
 
     // Update node with new values
     let ssh_port = req.ssh_port.unwrap_or(state.config.ssh.default_port);
-    let ssh_user = req
-        .ssh_user
-        .clone()
-        .unwrap_or(state.config.ssh.default_user.clone());
+    let ssh_user = resolved_ssh_user(&state.config.ssh.default_user, req.ssh_user.as_deref());
+    let is_local = state.matches_controller_target(&req.hostname, &req.ip, &existing.id);
 
     let updated_node = Node {
         id,
@@ -427,7 +437,7 @@ pub async fn update_node(
         ip: req.ip,
         ssh_port,
         ssh_user,
-        is_local: existing.is_local,
+        is_local,
         status: existing.status,
         status_message: existing.status_message,
         last_seen: existing.last_seen,
@@ -435,6 +445,7 @@ pub async fn update_node(
 
     // Update in store
     state.node_store.update(&updated_node)?;
+    state.refresh_command_proxy();
 
     Ok(Json(updated_node))
 }
@@ -457,6 +468,7 @@ pub async fn delete_node(
     Path(id): Path<String>,
 ) -> AppResult<StatusCode> {
     if state.node_store.delete(&id)? {
+        state.refresh_command_proxy();
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(AppError::NotFound(format!("Node {} not found", id)))
@@ -483,13 +495,14 @@ pub async fn list_node_disks(
     let node = get_node_by_id_resolved(&state, &id)?;
 
     // Get block devices using lsblk (add sudo for non-root users)
-    let lsblk_cmd = if node.ssh_user != "root" && !node.is_local {
+    let is_controller_node = state.is_controller_node(&node);
+    let lsblk_cmd = if node.ssh_user != "root" && !is_controller_node {
         "sudo lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,RO,MODEL,PATH"
     } else {
         "lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,RO,MODEL,PATH"
     };
 
-    let output: LsblkOutput = if node.is_local {
+    let output: LsblkOutput = if is_controller_node {
         // Local node
         let local_output = run_shell_command(lsblk_cmd, "List block devices locally")
             .await?
@@ -577,7 +590,7 @@ pub async fn list_available_disks(
         .collect();
 
     // Setup LVM client (local or remote)
-    let lvm_client = if node.is_local {
+    let lvm_client = if state.is_controller_node(&node) {
         crate::core::lvm_utils::LvmClient::new_local()
     } else {
         // Dummy credential, as in other parts of this file
@@ -646,17 +659,18 @@ pub async fn check_node_status(
 ) -> AppResult<Json<NodeStatusResponse>> {
     let mut node = get_node_by_id_resolved(&state, &id)?;
 
-    if node.is_local {
+    if state.is_controller_node(&node) {
         node.status = NodeStatus::Online;
         node.status_message = None;
         node.last_seen = Some(chrono::Utc::now());
         state.node_store.insert(&node)?;
+        state.refresh_command_proxy();
 
         return Ok(Json(NodeStatusResponse {
             id: node.id.clone(),
             hostname: node.hostname.clone(),
             status: NodeStatus::Online,
-            message: Some("Local node".to_string()),
+            message: Some("Controller execution node".to_string()),
         }));
     }
 
@@ -675,6 +689,7 @@ pub async fn check_node_status(
         node.last_seen = last_seen;
     }
     state.node_store.insert(&node)?;
+    state.refresh_command_proxy();
 
     Ok(Json(NodeStatusResponse {
         id: node.id.clone(),

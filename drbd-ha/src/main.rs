@@ -2,7 +2,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use drbd_ha::{api, config::AppConfig, state::AppState};
+use drbd_ha::{
+    api,
+    config::{detected_controller_platform, validate_controller_runtime, AppConfig},
+    state::AppState,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -55,10 +59,16 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Log output enabled to file: {}", f);
     }
     tracing::info!("Configuration loaded");
+    tracing::info!(
+        "Detected controller platform: {} (mode: {})",
+        detected_controller_platform(),
+        config.controller.mode.as_str()
+    );
 
-    // Initialize application state
-    // Use with_local_node to ensure DB is opened and local node exists
-    let state = Arc::new(AppState::with_local_node(config.clone()).await?);
+    validate_controller_runtime(&config)?;
+
+    // Initialize application state according to controller mode
+    let state = Arc::new(AppState::initialize(config.clone()).await?);
 
     // Start background tasks
     // Currently no background tasks are implemented on AppState

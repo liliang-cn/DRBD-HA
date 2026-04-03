@@ -32,7 +32,7 @@ use super::types::HaProfileCreateResponse;
 async fn get_drbd_device_for_resource(resource_name: &str, state: &AppState) -> Option<String> {
     let config_path = state.drbd_resource_path(resource_name);
 
-    match tokio::fs::read_to_string(&config_path).await {
+    match state.read_controller_file(&config_path).await {
         Ok(content) => {
             for line in content.lines() {
                 let trimmed_line = line.trim();
@@ -98,7 +98,7 @@ pub async fn create_profile(
     }
 
     let config_path = ReactorConfigPaths::promoter_path(&req.name);
-    if tokio::fs::try_exists(&config_path).await.unwrap_or(false) {
+    if state.controller_file_exists(&config_path).await.unwrap_or(false) {
         return Err(AppError::AlreadyExists(format!(
             "HA profile with name {} already exists",
             req.name
@@ -187,7 +187,7 @@ pub async fn create_profile(
             let current_vg_name = storage_pool_name.clone();
             let lv_name = format!("drbd-ha-lv-{}", req.resource_name);
 
-            let mut lvm_provider = if node.is_local {
+            let mut lvm_provider = if state.is_controller_node(node) {
                 LvmProvider::new_local(current_vg_name.clone())
             } else {
                 let credential = crate::core::SshCredential::Password("ignored".to_string());
@@ -208,7 +208,7 @@ pub async fn create_profile(
             lvm_provider.thin_pool_name = req.lvm_thin_pool_name.clone();
 
             // Check if VG exists on this node
-            let vg_exists = if node.is_local {
+            let vg_exists = if state.is_controller_node(node) {
                 crate::core::get_vg_info(&current_vg_name).await?.is_some()
             } else {
                 let credential = crate::core::SshCredential::Password("ignored".to_string());
@@ -297,13 +297,14 @@ pub async fn create_profile(
         let config_content = config_gen.generate_drbd_resource(&resource_config)?;
         let config_path = DrbdConfigPaths::drbd_resource_path(&req.resource_name);
 
-        tokio::fs::write(&config_path, &config_content)
-            .await
-            .map_err(|e| AppError::Config(format!("Failed to write DRBD config: {}", e)))?;
+        state.write_controller_file(&config_path, &config_content).await?;
 
         generated_units.drbd_config_path = Some(config_path.clone());
 
-        let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
+        let remote_nodes: Vec<_> = all_nodes
+            .iter()
+            .filter(|node| !state.is_controller_node(node))
+            .collect();
         for node in &remote_nodes {
             let credential = crate::core::SshCredential::Password("ignored".to_string());
             let state_for_write = state.clone();
@@ -424,7 +425,7 @@ pub async fn create_profile(
             let current_pool_name = zpool_name.clone();
             let zvol_name = format!("drbd-ha-zvol-{}", req.resource_name);
 
-            let device_path: String = if node.is_local {
+            let device_path: String = if state.is_controller_node(node) {
                 let provider = ZfsProvider::new_local(current_pool_name.clone());
                 provider
                     .create_volume(&zvol_name, *volume_size_gb)
@@ -497,20 +498,20 @@ pub async fn create_profile(
         let config_content = config_gen.generate_drbd_resource(&resource_config)?;
         let config_path = DrbdConfigPaths::drbd_resource_path(&req.resource_name);
 
-        let config_dir = std::path::Path::new(&config_path).parent().unwrap();
-        if !config_dir.exists() {
-            tokio::fs::create_dir_all(config_dir)
-                .await
-                .map_err(|e| AppError::Config(format!("Failed to create config dir: {}", e)))?;
+        if let Some(config_dir) = std::path::Path::new(&config_path).parent() {
+            state
+                .create_controller_dir_all(&config_dir.to_string_lossy())
+                .await?;
         }
 
-        tokio::fs::write(&config_path, &config_content)
-            .await
-            .map_err(|e| AppError::Config(format!("Failed to write DRBD config: {}", e)))?;
+        state.write_controller_file(&config_path, &config_content).await?;
 
         generated_units.drbd_config_path = Some(config_path.clone());
 
-        let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
+        let remote_nodes: Vec<_> = all_nodes
+            .iter()
+            .filter(|node| !state.is_controller_node(node))
+            .collect();
         for node in &remote_nodes {
             let credential = crate::core::SshCredential::Password("ignored".to_string());
             let state_for_write = state.clone();
@@ -632,6 +633,9 @@ pub async fn create_profile(
             let mount_info =
                 MountUnitGenerator::generate(&req.resource_name, &req.mount_point, &req.fs_type)
                     .await?;
+            state
+                .write_controller_file(&mount_info.unit_path, &mount_info.content)
+                .await?;
 
             generated_units.mount_unit = Some(mount_info.unit_name.clone());
             generated_units.mount_unit_path = Some(mount_info.unit_path.clone());
@@ -774,7 +778,7 @@ pub async fn create_profile(
                 for service in &req.services {
                     for node in &all_nodes {
                         tracing::info!("Stopping service {} on {}", service, node.hostname);
-                        if node.is_local {
+                        if state.is_controller_node(node) {
                             if let Ok(sys) = SystemdController::new().await {
                                 let _ = sys.stop(service).await;
                             }
@@ -837,8 +841,10 @@ pub async fn create_profile(
                             None,
                         );
 
-                        let remote_nodes: Vec<_> =
-                            all_nodes.iter().filter(|n| !n.is_local).collect();
+                        let remote_nodes: Vec<_> = all_nodes
+                            .iter()
+                            .filter(|node| !state.is_controller_node(node))
+                            .collect();
                         for node in &remote_nodes {
                             let credential =
                                 crate::core::SshCredential::Password("ignored".to_string());
@@ -1022,6 +1028,9 @@ pub async fn create_profile(
                 .await?;
 
                 for info in override_infos {
+                    state
+                        .write_controller_file(&info.override_path, &info.content)
+                        .await?;
                     generated_units.service_overrides.push(ServiceOverride {
                         service_name: info.service_name.clone(),
                         override_dir: info.override_dir,
@@ -1121,16 +1130,13 @@ pub async fn create_profile(
         normal_config_path.clone()
     };
 
-    let config_dir = std::path::Path::new(&config_path).parent().unwrap();
-    if !config_dir.exists() {
-        tokio::fs::create_dir_all(config_dir)
-            .await
-            .map_err(|e| AppError::Config(format!("Failed to create config dir: {}", e)))?;
+    if let Some(config_dir) = std::path::Path::new(&config_path).parent() {
+        state
+            .create_controller_dir_all(&config_dir.to_string_lossy())
+            .await?;
     }
 
-    tokio::fs::write(&config_path, &config_content)
-        .await
-        .map_err(|e| AppError::Config(format!("Failed to write promoter config: {}", e)))?;
+    state.write_controller_file(&config_path, &config_content).await?;
     messages.push(if req.start_disabled {
         "Generated promoter configuration (disabled)".to_string()
     } else {
@@ -1161,7 +1167,10 @@ pub async fn create_profile(
         }
 
         let remote_sys = RemoteSystemdController::new(state.ssh_manager.clone());
-        let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
+        let remote_nodes: Vec<_> = all_nodes
+            .iter()
+            .filter(|node| !state.is_controller_node(node))
+            .collect();
         for node in &remote_nodes {
             let credential = crate::core::SshCredential::Password("ignored".to_string());
             for service in &services_to_disable {
@@ -1199,22 +1208,25 @@ pub async fn create_profile(
         None,
     );
 
-    let mut synced_nodes = Vec::new();
+        let mut synced_nodes = Vec::new();
     {
         let mount_unit_content = if let Some(ref path) = generated_units.mount_unit_path {
-            tokio::fs::read_to_string(path).await.ok()
+            state.read_controller_file(path).await.ok()
         } else {
             None
         };
 
         let mut service_override_contents = Vec::new();
         for so in &generated_units.service_overrides {
-            if let Ok(content) = tokio::fs::read_to_string(&so.override_path).await {
+            if let Ok(content) = state.read_controller_file(&so.override_path).await {
                 service_override_contents.push((so.override_path.clone(), content));
             }
         }
 
-        let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
+        let remote_nodes: Vec<_> = all_nodes
+            .iter()
+            .filter(|node| !state.is_controller_node(node))
+            .collect();
         for (path, content) in extra_sync_files {
             for node in &remote_nodes {
                 let credential = crate::core::SshCredential::Password("ignored".to_string());
@@ -1233,7 +1245,8 @@ pub async fn create_profile(
         }
 
         let drbd_config_path = if let Some(ref path) = generated_units.drbd_config_path {
-            tokio::fs::read_to_string(path)
+            state
+                .read_controller_file(path)
                 .await
                 .ok()
                 .map(|content| (path.clone(), content))
@@ -1291,7 +1304,7 @@ pub async fn create_profile(
             total_nodes += 1;
             let hostname = &node.hostname;
 
-            if node.is_local {
+            if state.is_controller_node(node) {
                 let sys = SystemdController::new().await;
                 if let Ok(sys) = sys {
                     match sys.reload("drbd-reactor.service").await {
@@ -1401,11 +1414,11 @@ pub async fn create_profile(
     // If we created a new DRBD config, read it from the generated path
     // Otherwise, try to read the existing DRBD resource config
     let drbd_config_content = if let Some(ref path) = generated_units.drbd_config_path {
-        tokio::fs::read_to_string(path).await.ok()
+        state.read_controller_file(path).await.ok()
     } else {
         // Try to read existing DRBD resource config
         let existing_config_path = DrbdConfigPaths::drbd_resource_path(&req.resource_name);
-        tokio::fs::read_to_string(&existing_config_path).await.ok()
+        state.read_controller_file(&existing_config_path).await.ok()
     };
 
     Ok((

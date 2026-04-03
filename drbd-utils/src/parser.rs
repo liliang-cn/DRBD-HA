@@ -2,6 +2,21 @@ use crate::models::{DrbdPeerStatus, DrbdResourceStatus, ResourceStatus};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
+use std::process::Command;
+
+fn controller_proxy_from_env() -> Option<(String, u16, String)> {
+    let host = std::env::var("DRBD_HA_REMOTE_EXEC_HOST").ok()?;
+    let port = std::env::var("DRBD_HA_REMOTE_EXEC_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(22);
+    let user = std::env::var("DRBD_HA_REMOTE_EXEC_USER").unwrap_or_else(|_| "root".to_string());
+    Some((host, port, user))
+}
+
+fn shell_escape_single_quotes(value: &str) -> String {
+    value.replace('\'', "'\"'\"'")
+}
 
 /// Parse DRBD res file to extract node information (hostname and IP)
 /// Returns a HashMap mapping hostname to IP address
@@ -167,6 +182,76 @@ pub fn parse_res_file_for_minors(content: &str) -> HashSet<u32> {
 pub fn get_used_minors_from_config() -> HashSet<u32> {
     let mut used_minors = HashSet::new();
     let config_dir = Path::new("/etc/drbd.d");
+
+    if let Some((host, port, user)) = controller_proxy_from_env() {
+        let target = format!("{}@{}", user, host);
+        let escaped_dir = shell_escape_single_quotes(&config_dir.to_string_lossy());
+        let list_cmd = if user == "root" {
+            format!("find '{}' -maxdepth 1 -type f -name '*.res' -print", escaped_dir)
+        } else {
+            format!(
+                "sudo -n find '{}' -maxdepth 1 -type f -name '*.res' -print",
+                escaped_dir
+            )
+        };
+
+        let list_output = Command::new("ssh")
+            .arg("-p")
+            .arg(port.to_string())
+            .arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null")
+            .arg("-o")
+            .arg("BatchMode=yes")
+            .arg("-o")
+            .arg("ConnectTimeout=5")
+            .arg(&target)
+            .arg(&list_cmd)
+            .output();
+
+        if let Ok(output) = list_output {
+            if output.status.success() {
+                for file_path in String::from_utf8_lossy(&output.stdout).lines() {
+                    let file_path = file_path.trim();
+                    if file_path.is_empty() {
+                        continue;
+                    }
+
+                    let escaped_path = shell_escape_single_quotes(file_path);
+                    let cat_cmd = if user == "root" {
+                        format!("cat '{}'", escaped_path)
+                    } else {
+                        format!("sudo -n cat '{}'", escaped_path)
+                    };
+
+                    if let Ok(content_output) = Command::new("ssh")
+                        .arg("-p")
+                        .arg(port.to_string())
+                        .arg("-o")
+                        .arg("StrictHostKeyChecking=no")
+                        .arg("-o")
+                        .arg("UserKnownHostsFile=/dev/null")
+                        .arg("-o")
+                        .arg("BatchMode=yes")
+                        .arg("-o")
+                        .arg("ConnectTimeout=5")
+                        .arg(&target)
+                        .arg(&cat_cmd)
+                        .output()
+                    {
+                        if content_output.status.success() {
+                            let content = String::from_utf8_lossy(&content_output.stdout);
+                            let minors = parse_res_file_for_minors(&content);
+                            used_minors.extend(minors);
+                        }
+                    }
+                }
+            }
+        }
+
+        return used_minors;
+    }
 
     if !config_dir.exists() {
         return used_minors;

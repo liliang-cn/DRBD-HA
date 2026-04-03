@@ -38,7 +38,8 @@ pub async fn activate_profile(
 
     // Load profile from toml file instead of database
     let config_path = crate::core::ReactorConfigPaths::promoter_path(&id);
-    let content = tokio::fs::read_to_string(&config_path)
+    let content = state
+        .read_controller_file(&config_path)
         .await
         .map_err(|_| AppError::NotFound(format!("HA profile {} not found", id)))?;
     let profile = create_profile_from_toml(&id, &content)
@@ -611,7 +612,7 @@ pub async fn activate_profile(
         let current_status_output =
             run_shell_command(&current_drbd_status_cmd, "Check current DRBD role").await?;
 
-        let hostname_str = gethostname::gethostname().to_string_lossy().to_string();
+        let hostname_str = state.controller_hostname();
 
         // Determine if this node should be the active one based on DRBD status
         let should_be_active = if current_status_output.stdout.contains("role:Primary") {
@@ -946,7 +947,8 @@ pub async fn deactivate_profile(
 
     // Load profile from toml file instead of database
     let config_path = crate::core::ReactorConfigPaths::promoter_path(&id);
-    let content = tokio::fs::read_to_string(&config_path)
+    let content = state
+        .read_controller_file(&config_path)
         .await
         .map_err(|_| AppError::NotFound(format!("HA profile {} not found", id)))?;
     let profile = create_profile_from_toml(&id, &content)

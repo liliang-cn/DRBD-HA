@@ -4,7 +4,7 @@ A modern, Rust-based High Availability management system for DRBD, LVM, and Syst
 
 ## Features
 
-*   **Cluster Management**: Manage multiple nodes via SSH.
+*   **Cluster Management**: Manage multiple nodes via SSH from either an embedded controller node or an external controller host.
 *   **Storage Management**: Create LVM Volume Groups and Logical Volumes (with thin pool support) and ZFS volumes across the cluster.
 *   **DRBD Resources**: Create, initialize, and manage DRBD resources automatically.
 *   **High Availability**: Define HA profiles for systemd services that automatically failover using `drbd-reactor`.
@@ -13,15 +13,50 @@ A modern, Rust-based High Availability management system for DRBD, LVM, and Syst
 
 ## Requirements
 
-*   **Operating System**: Linux (tested on Ubuntu/Debian, RHEL/CentOS).
-*   **Permissions**: **Must run as root** on the management node.
-*   **Remote Access**: Managed nodes must allow passwordless SSH. If the remote SSH user is not `root`, it must also allow passwordless sudo (`sudo -n`).
+*   **Operating System**:
+    *   `embedded` mode: Linux only (tested on Ubuntu/Debian, RHEL/CentOS)
+    *   `external` mode: Linux, macOS, or Windows, as long as the host can reach managed nodes over SSH
+*   **Permissions**:
+    *   `embedded` mode: `drbd-ha` must run as `root` on the controller host
+    *   `external` mode: the management host does not need local DRBD/LVM/systemd privileges; only SSH client access to managed nodes is required
+*   **Remote Access**: Managed nodes must allow passwordless SSH for the SSH account you actually use. If that user is not `root`, it must also allow passwordless sudo (`sudo -n`).
 *   **Dependencies**:
-    *   `lvm2`
-    *   `drbd-utils` & `drbd-dkms` (Kernel module loaded)
-    *   `drbd-reactor`
-    *   `systemd`
-    *   `ssh` (Client)
+    *   Managed nodes: `lvm2`, `drbd-utils` & `drbd-dkms`, `drbd-reactor`, `systemd`
+    *   Controller host: `ssh` client
+*   **Default SSH User**: If you do not set one explicitly, `drbd-ha` uses `DRBD_HA_SSH_USER`, then the current login user, and finally falls back to `root`.
+
+## Controller Modes
+
+`drbd-ha` supports two deployment modes:
+
+- `external`: the default mode. `drbd-ha` runs on a separate management host outside the cluster and talks to managed nodes purely over SSH.
+- `embedded`: opt-in mode. `drbd-ha` runs on one of the managed cluster nodes and treats that node as the controller execution target.
+
+Example external controller configuration:
+
+```toml
+[controller]
+mode = "external"
+# optional advanced override; usually you do not need this
+# proxy_host = "gui01"
+# optional; defaults to [ssh].default_port / [ssh].default_user
+# proxy_port = 22
+# proxy_user = "cluster-admin"
+
+[ssh]
+# optional global default for all nodes
+# default_user = "cluster-admin"
+```
+
+In `external` mode:
+
+- The machine running `drbd-ha` does not need DRBD/LVM/systemd cluster state locally.
+- The machine running `drbd-ha` can be a regular Linux/macOS/Windows host as long as it can reach the managed nodes over SSH.
+- You only need to configure managed nodes in the UI/API and make SSH work. `drbd-ha` will automatically choose a managed node when it needs cluster-side config or system operations.
+- `proxy_host` remains available only as an advanced override if you want to pin those controller-side operations to a specific node.
+- Local controller config/state defaults to platform-appropriate user paths when `/etc/drbd-ha` is not present.
+- Startup automatically detects the controller platform. On non-Linux hosts, `drbd-ha` automatically forces `mode = "external"` for SSH-only management.
+- `/api/v1/health` reports both the detected `platform` and the active `controller_mode`.
 
 ## Installation & Deployment
 
@@ -106,9 +141,9 @@ make release
 
 #### 2. Setup SSH Access (IMPORTANT)
 
-**The drbd-ha service runs as root on the controller**, so SSH keys must be configured for the **root** user on the machine running `drbd-ha`.
+Use SSH keys for the account configured on each managed node. You can set a global `[ssh].default_user`, or leave the field empty per node and let `drbd-ha` use that default.
 
-On managed nodes, you have two supported options:
+Supported remote access modes:
 
 - SSH directly as `root`
 - SSH as a non-root user that has passwordless sudo (`sudo -n`)
@@ -116,20 +151,17 @@ On managed nodes, you have two supported options:
 On the machine where drbd-ha will run:
 
 ```bash
-# Switch to root shell
-sudo -i
-
 # Generate SSH key (if not exists)
 ssh-keygen -t rsa -b 4096
 
-# Option A: SSH as root on each cluster node
+# Option A: root SSH on each cluster node
 ssh-copy-id root@orange2
 ssh-copy-id root@orange3
 
 # Test root SSH access
 ssh -o BatchMode=yes root@orange2 echo ok
 
-# Option B: SSH as a non-root user with passwordless sudo
+# Option B: non-root user with passwordless sudo
 # First, ensure the user can sudo without a password on the managed nodes:
 #   sudo visudo
 #   <user> ALL=(ALL) NOPASSWD:ALL
@@ -141,9 +173,9 @@ ssh -o BatchMode=yes ubuntu@orange2 echo ok
 ssh -o BatchMode=yes ubuntu@orange2 "sudo -n true"
 ```
 
-**Why root on the controller?** The drbd-ha service manages DRBD, LVM, and systemd services which require root privileges. It runs as root and uses SSH to execute commands on remote nodes, so SSH keys must be in `/root/.ssh/`, not your regular user's home directory.
-
 **How node checks work:** The built-in node health check only reports a remote node as online when passwordless SSH works and, for non-root SSH users, `sudo -n` also succeeds.
+
+**External mode note:** when `[controller].mode = "external"`, the management host only needs SSH connectivity to the cluster nodes. If you optionally pin `proxy_host`, that node must also satisfy the same passwordless SSH and sudo requirements.
 
 #### 3. Deploy as System Service
 
@@ -163,6 +195,13 @@ Edit `/etc/drbd-ha/config.toml` to enable file logging:
 [log]
 level = "info"
 file = "/var/log/drbd-ha/drbd-ha.log"
+```
+
+If you want the controller host itself to behave as a managed cluster node, explicitly enable embedded mode:
+
+```toml
+[controller]
+mode = "embedded"
 ```
 
 **Step 3: Create Systemd Service**

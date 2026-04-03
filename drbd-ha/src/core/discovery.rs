@@ -2,12 +2,14 @@ use crate::models::{
     GeneratedUnits, HaProfile, HaProfileStatus, HaType, MountStrategy, Node, NodeStatus,
     OcfAgentConfig, PromoterSettings, VipConfig,
 };
+use anyhow::anyhow;
 use anyhow::Result;
 use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use tracing::warn;
 
 #[derive(Deserialize, Debug)]
@@ -46,6 +48,140 @@ struct ResourceSection {
 
 pub struct ReactorDiscovery;
 
+fn controller_proxy_from_env() -> Option<(String, u16, String)> {
+    let host = std::env::var("DRBD_HA_REMOTE_EXEC_HOST").ok()?;
+    let port = std::env::var("DRBD_HA_REMOTE_EXEC_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(22);
+    let user = std::env::var("DRBD_HA_REMOTE_EXEC_USER").unwrap_or_else(|_| "root".to_string());
+    Some((host, port, user))
+}
+
+fn shell_escape_single_quotes(value: &str) -> String {
+    value.replace('\'', "'\"'\"'")
+}
+
+fn controller_dir_exists(path: &Path) -> Result<bool> {
+    if let Some((host, port, user)) = controller_proxy_from_env() {
+        let target = format!("{}@{}", user, host);
+        let escaped_path = shell_escape_single_quotes(&path.to_string_lossy());
+        let remote_cmd = if user == "root" {
+            format!("test -d '{}'", escaped_path)
+        } else {
+            format!("sudo -n test -d '{}'", escaped_path)
+        };
+
+        let output = Command::new("ssh")
+            .arg("-p")
+            .arg(port.to_string())
+            .arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null")
+            .arg("-o")
+            .arg("BatchMode=yes")
+            .arg("-o")
+            .arg("ConnectTimeout=5")
+            .arg(target)
+            .arg(remote_cmd)
+            .output()?;
+
+        return Ok(output.status.success());
+    }
+
+    Ok(path.exists())
+}
+
+fn read_controller_dir_files(path: &Path) -> Result<Vec<String>> {
+    if let Some((host, port, user)) = controller_proxy_from_env() {
+        let target = format!("{}@{}", user, host);
+        let escaped_path = shell_escape_single_quotes(&path.to_string_lossy());
+        let remote_cmd = if user == "root" {
+            format!("find '{}' -maxdepth 1 -type f -printf '%f\n'", escaped_path)
+        } else {
+            format!(
+                "sudo -n find '{}' -maxdepth 1 -type f -printf '%f\n'",
+                escaped_path
+            )
+        };
+
+        let output = Command::new("ssh")
+            .arg("-p")
+            .arg(port.to_string())
+            .arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null")
+            .arg("-o")
+            .arg("BatchMode=yes")
+            .arg("-o")
+            .arg("ConnectTimeout=5")
+            .arg(target)
+            .arg(remote_cmd)
+            .output()?;
+
+        if !output.status.success() {
+            return Err(anyhow!(
+                "Failed to list controller directory {}: {}",
+                path.display(),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        return Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(|line| line.to_string())
+            .collect());
+    }
+
+    Ok(fs::read_dir(path)?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect())
+}
+
+fn read_controller_file(path: &Path) -> Result<String> {
+    if let Some((host, port, user)) = controller_proxy_from_env() {
+        let target = format!("{}@{}", user, host);
+        let escaped_path = shell_escape_single_quotes(&path.to_string_lossy());
+        let remote_cmd = if user == "root" {
+            format!("cat '{}'", escaped_path)
+        } else {
+            format!("sudo -n cat '{}'", escaped_path)
+        };
+
+        let output = Command::new("ssh")
+            .arg("-p")
+            .arg(port.to_string())
+            .arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null")
+            .arg("-o")
+            .arg("BatchMode=yes")
+            .arg("-o")
+            .arg("ConnectTimeout=5")
+            .arg(target)
+            .arg(remote_cmd)
+            .output()?;
+
+        if !output.status.success() {
+            return Err(anyhow!(
+                "Failed to read controller file {}: {}",
+                path.display(),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    }
+
+    Ok(fs::read_to_string(path)?)
+}
+
 impl ReactorDiscovery {
     pub const REACTOR_CONFIG_DIR: &'static str = "/etc/drbd-reactor.d";
     pub const DRBD_CONFIG_DIR: &'static str = "/etc/drbd.d";
@@ -56,7 +192,7 @@ impl ReactorDiscovery {
         let path = Path::new(dir);
         let mut discovered = Vec::new();
 
-        if !path.exists() {
+        if !controller_dir_exists(path)? {
             return Ok(discovered);
         }
 
@@ -70,12 +206,11 @@ impl ReactorDiscovery {
         .unwrap();
         let agent_regex = Regex::new(r"^(\S+)\s+(\S+)(?:\s+(.*))?$").unwrap();
 
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            let path = entry.path();
+        for file_name in read_controller_dir_files(path)? {
+            let path = path.join(&file_name);
 
             if path.extension().is_some_and(|ext| ext == "toml") {
-                let content = match fs::read_to_string(&path) {
+                let content = match read_controller_file(&path) {
                     Ok(c) => c,
                     Err(e) => {
                         warn!("Failed to read {}: {}", path.display(), e);
@@ -237,7 +372,7 @@ impl ReactorDiscovery {
         let path = Path::new(dir);
         let mut nodes = HashMap::new();
 
-        if !path.exists() {
+        if !controller_dir_exists(path)? {
             return Ok(Vec::new());
         }
 
@@ -248,12 +383,11 @@ impl ReactorDiscovery {
         let node_regex =
             Regex::new(r"on\s+([a-zA-Z0-9\-\.]+)\s+\{[^}]*address\s+([0-9\.]+):(\d+);").unwrap();
 
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            let path = entry.path();
+        for file_name in read_controller_dir_files(path)? {
+            let path = path.join(&file_name);
 
             if path.extension().is_some_and(|ext| ext == "res") {
-                let content = match fs::read_to_string(&path) {
+                let content = match read_controller_file(&path) {
                     Ok(c) => c,
                     Err(e) => {
                         warn!("Failed to read {}: {}", path.display(), e);

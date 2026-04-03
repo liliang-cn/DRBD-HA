@@ -21,8 +21,6 @@ use super::types::{
 };
 use super::utils::{create_profile_from_toml, get_all_ha_profile_names};
 
-use gethostname;
-
 /// Implementation of drbd_utils::RemoteExecutor using the backend's SSH manager
 struct SshExecutor {
     ssh_manager: Arc<crate::core::ssh_manager::SshManager>,
@@ -84,13 +82,12 @@ pub async fn list_profiles(
     for name in &profile_names {
         // Try to read from .toml (enabled) or .toml.disabled (disabled)
         let config_path = ConfigPaths::promoter_path(name);
-        let disabled_path =
-            std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", name));
+        let disabled_path = format!("{}/{}.toml.disabled", reactor_dir, name);
 
         let (content, is_locally_disabled) =
-            if let Ok(content) = tokio::fs::read_to_string(&config_path).await {
+            if let Ok(content) = state.read_controller_file(&config_path).await {
                 (Some(content), false)
-            } else if let Ok(content) = tokio::fs::read_to_string(&disabled_path).await {
+            } else if let Ok(content) = state.read_controller_file(&disabled_path).await {
                 (Some(content), true)
             } else {
                 (None, false)
@@ -168,11 +165,8 @@ async fn check_if_enabled_on_other_nodes(
         Err(_) => return (false, None),
     };
 
-    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
-
     for node in nodes {
-        // Skip local node
-        if node.hostname == local_hostname || node.id == local_hostname {
+        if state.is_controller_node(&node) {
             continue;
         }
 
@@ -266,13 +260,12 @@ pub async fn fetch_profile_details(
     // Load profile from toml file (try both .toml and .toml.disabled)
     let config_path = ConfigPaths::promoter_path(&id_or_name);
     let reactor_dir = ConfigPaths::REACTOR_CONF_DIR;
-    let disabled_path =
-        std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", &id_or_name));
+    let disabled_path = format!("{}/{}.toml.disabled", reactor_dir, &id_or_name);
 
-    let (content, is_disabled) = if let Ok(content) = tokio::fs::read_to_string(&config_path).await
+    let (content, is_disabled) = if let Ok(content) = state.read_controller_file(&config_path).await
     {
         (content, false)
-    } else if let Ok(content) = tokio::fs::read_to_string(&disabled_path).await {
+    } else if let Ok(content) = state.read_controller_file(&disabled_path).await {
         (content, true)
     } else {
         return Err(crate::error::AppError::NotFound(format!(
@@ -296,14 +289,11 @@ pub async fn fetch_profile_details(
                     // Check if any node has .toml file (not .toml.disabled)
                     match state.node_store.get_all() {
                         Ok(nodes) => {
-                            let local_hostname =
-                                gethostname::gethostname().to_string_lossy().to_string();
                             let reactor_dir = config_gen::ConfigPaths::REACTOR_CONF_DIR;
 
                             let mut enabled_on_remote = false;
                             for node in nodes {
-                                // Skip local node
-                                if node.hostname == local_hostname {
+                                if state.is_controller_node(&node) {
                                     continue;
                                 }
 
@@ -373,7 +363,7 @@ pub async fn fetch_profile_details(
         // Still fetch configured_nodes even for disabled profiles
         // Try to get nodes from res file
         let res_file_path = state.drbd_resource_path(&profile.resource_name);
-        let res_file_nodes = match tokio::fs::read_to_string(&res_file_path).await {
+        let res_file_nodes = match state.read_controller_file(&res_file_path).await {
             Ok(content) => {
                 let parsed = drbd_utils::parse_res_file_for_nodes(&content);
                 tracing::debug!(
@@ -391,7 +381,7 @@ pub async fn fetch_profile_details(
                 );
                 // Try LINSTOR path
                 let linstor_path = format!("/var/lib/linstor.d/{}.res", profile.resource_name);
-                match tokio::fs::read_to_string(&linstor_path).await {
+                match state.read_controller_file(&linstor_path).await {
                     Ok(content) => {
                         let parsed = drbd_utils::parse_res_file_for_nodes(&content);
                         tracing::debug!(
@@ -442,19 +432,19 @@ pub async fn fetch_profile_details(
         let configured_nodes = check_nodes_disabled_status(&state, &id_or_name, node_infos).await;
 
         // Read DRBD config file content for disabled profiles too
-        let drbd_config_raw = match tokio::fs::read_to_string(&res_file_path).await {
+        let drbd_config_raw = match state.read_controller_file(&res_file_path).await {
             Ok(content) => Some(content),
             Err(_) => {
                 // Try LINSTOR path as fallback
                 let linstor_path = format!("/var/lib/linstor.d/{}.res", profile.resource_name);
-                tokio::fs::read_to_string(&linstor_path).await.ok()
+                state.read_controller_file(&linstor_path).await.ok()
             }
         };
 
         // Read drbd-reactor promoter config file content for disabled profiles
         let reactor_dir = config_gen::ConfigPaths::REACTOR_CONF_DIR;
         let promoter_config_path = format!("{}/{}.toml", reactor_dir, id_or_name);
-        let promoter_config_raw = tokio::fs::read_to_string(&promoter_config_path).await.ok();
+        let promoter_config_raw = state.read_controller_file(&promoter_config_path).await.ok();
 
         // Return for disabled profiles with configured_nodes
         return Ok(Json(HaProfileDetailResponse {
@@ -534,11 +524,11 @@ pub async fn fetch_profile_details(
     };
 
     // Determine active node from local DRBD status
-    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+    let local_hostname = state.controller_hostname();
 
     // Parse res file to get hostname -> IP mapping
     let res_file_path = state.drbd_resource_path(&profile.resource_name);
-    let res_file_nodes = match tokio::fs::read_to_string(&res_file_path).await {
+    let res_file_nodes = match state.read_controller_file(&res_file_path).await {
         Ok(content) => {
             let parsed = drbd_utils::parse_res_file_for_nodes(&content);
             tracing::debug!(
@@ -556,7 +546,7 @@ pub async fn fetch_profile_details(
             );
             // Try LINSTOR path
             let linstor_path = format!("/var/lib/linstor.d/{}.res", profile.resource_name);
-            match tokio::fs::read_to_string(&linstor_path).await {
+            match state.read_controller_file(&linstor_path).await {
                 Ok(content) => {
                     let parsed = drbd_utils::parse_res_file_for_nodes(&content);
                     tracing::debug!(
@@ -607,7 +597,7 @@ pub async fn fetch_profile_details(
     let remote_query = drbd_utils::RemoteDrbdQuery::new(ssh_executor, ssh_port, ssh_user);
 
     // Get local hostname
-    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+    let local_hostname = state.controller_hostname();
 
     // Step 2: Execute drbdadm status and drbd-reactorctl status --json on the active node
     // Track whether DRBD status is from local or remote node
@@ -868,7 +858,10 @@ pub async fn fetch_profile_details(
         });
 
     let promoter_config_path = ConfigPaths::promoter_path(&profile.name);
-    let promoter_config_exists = tokio::fs::metadata(&promoter_config_path).await.is_ok();
+    let promoter_config_exists = state
+        .controller_file_exists(&promoter_config_path)
+        .await
+        .unwrap_or(false);
     let systemd = SystemdController::new().await?;
     let reactor_service_status = systemd.status("drbd-reactor.service").await?;
     let config = ConfigVisibility {
@@ -881,7 +874,7 @@ pub async fn fetch_profile_details(
         let mut active = false;
 
         if promoter_config_exists {
-            if let Ok(cfg) = tokio::fs::read_to_string(&promoter_config_path).await {
+            if let Ok(cfg) = state.read_controller_file(&promoter_config_path).await {
                 if cfg.contains("ocf:heartbeat:IPaddr2") && active_node.is_some() {
                     active = true;
                 }
@@ -948,7 +941,7 @@ pub async fn fetch_profile_details(
     // Build list of configured nodes from DRBD res file and DRBD status
     let configured_nodes = {
         let mut node_infos = Vec::new();
-        let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
+        let local_hostname = state.controller_hostname();
 
         // Helper to convert DRBD role to display role
         let role_to_display = |role: &str| -> String {
@@ -964,7 +957,7 @@ pub async fn fetch_profile_details(
         // 1. Standard DRBD path: /etc/drbd.d/{resource}.res
         // 2. LINSTOR path: /var/lib/linstor.d/{resource}.res
         let res_file_path = state.drbd_resource_path(&profile.resource_name);
-        let res_file_nodes = match tokio::fs::read_to_string(&res_file_path).await {
+        let res_file_nodes = match state.read_controller_file(&res_file_path).await {
             Ok(content) => {
                 let parsed = drbd_utils::parse_res_file_for_nodes(&content);
                 tracing::debug!(
@@ -982,7 +975,7 @@ pub async fn fetch_profile_details(
                 );
                 // Try LINSTOR path
                 let linstor_path = format!("/var/lib/linstor.d/{}.res", profile.resource_name);
-                match tokio::fs::read_to_string(&linstor_path).await {
+                match state.read_controller_file(&linstor_path).await {
                     Ok(content) => {
                         let parsed = drbd_utils::parse_res_file_for_nodes(&content);
                         tracing::debug!(
@@ -1139,19 +1132,19 @@ pub async fn fetch_profile_details(
     };
 
     // Read DRBD config file content for preview
-    let drbd_config_raw = match tokio::fs::read_to_string(&res_file_path).await {
+    let drbd_config_raw = match state.read_controller_file(&res_file_path).await {
         Ok(content) => Some(content),
         Err(_) => {
             // Try LINSTOR path as fallback
             let linstor_path = format!("/var/lib/linstor.d/{}.res", profile.resource_name);
-            tokio::fs::read_to_string(&linstor_path).await.ok()
+            state.read_controller_file(&linstor_path).await.ok()
         }
     };
 
     // Read drbd-reactor promoter config file content
     let reactor_dir = config_gen::ConfigPaths::REACTOR_CONF_DIR;
     let promoter_config_path = format!("{}/{}.toml", reactor_dir, profile.name);
-    let promoter_config_raw = tokio::fs::read_to_string(&promoter_config_path).await.ok();
+    let promoter_config_raw = state.read_controller_file(&promoter_config_path).await.ok();
 
     Ok(Json(HaProfileDetailResponse {
         profile: profile_out,
@@ -1179,7 +1172,6 @@ async fn check_nodes_disabled_status(
 ) -> Vec<super::types::NodeConfigInfo> {
     use crate::core::SshCredential;
 
-    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
     let reactor_dir = config_gen::ConfigPaths::REACTOR_CONF_DIR;
 
     // Get full node info from store for SSH credentials
@@ -1194,19 +1186,22 @@ async fn check_nodes_disabled_status(
     let mut nodes_with_disabled = Vec::new();
 
     for node in nodes {
-        // Check if this node is local
-        let is_local = node.hostname == local_hostname
-            || node.hostname
-                == local_hostname.replace(
-                    &format!(".{}", std::env::var("DOMAIN").unwrap_or_default()),
-                    "",
-                );
+        let is_local = node
+            .hostname
+            .as_str()
+            .eq(state.controller_hostname().as_str())
+            || all_nodes
+                .iter()
+                .find(|candidate| candidate.hostname == node.hostname || candidate.ip == node.ip)
+                .map(|candidate| state.is_controller_node(candidate))
+                .unwrap_or(false);
 
         let disabled = if is_local {
-            // Check local file system
-            let disabled_path =
-                std::path::Path::new(reactor_dir).join(format!("{}.toml.disabled", profile_name));
-            disabled_path.exists()
+            let disabled_path = format!("{}/{}.toml.disabled", reactor_dir, profile_name);
+            state
+                .controller_file_exists(&disabled_path)
+                .await
+                .unwrap_or(false)
         } else {
             // Find full node info for SSH credentials
             let full_node = all_nodes

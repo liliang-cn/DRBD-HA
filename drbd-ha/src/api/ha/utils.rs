@@ -4,7 +4,6 @@ use crate::models::{HaProfile, HaProfileStatus, HaType, Node, PromoterSettings, 
 use crate::state::AppState;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::fs;
 
 /// Get SSH credential for a node (Dummy) - copied from cluster.rs
 #[allow(dead_code)]
@@ -83,11 +82,11 @@ pub async fn find_next_free_drbd_minor(state: &AppState) -> AppResult<u32> {
     // 1. Scan config files
     let config_dir = state.drbd_config_dir();
 
-    if let Ok(mut entries) = fs::read_dir(config_dir).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "res") {
-                if let Ok(content) = fs::read_to_string(&path).await {
+    if let Ok(entries) = state.list_controller_dir_entries(config_dir).await {
+        for entry in entries {
+            if entry.ends_with(".res") {
+                let path = format!("{}/{}", config_dir.trim_end_matches('/'), entry);
+                if let Ok(content) = state.read_controller_file(&path).await {
                     for line in content.lines() {
                         let line = line.trim();
                         if line.starts_with("minor") {
@@ -151,11 +150,11 @@ pub async fn find_next_free_drbd_port(state: &AppState) -> AppResult<u16> {
     let mut used_ports = HashSet::new();
     let config_dir = state.drbd_config_dir();
 
-    if let Ok(mut entries) = fs::read_dir(config_dir).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "res") {
-                if let Ok(content) = fs::read_to_string(&path).await {
+    if let Ok(entries) = state.list_controller_dir_entries(config_dir).await {
+        for entry in entries {
+            if entry.ends_with(".res") {
+                let path = format!("{}/{}", config_dir.trim_end_matches('/'), entry);
+                if let Ok(content) = state.read_controller_file(&path).await {
                     for line in content.lines() {
                         let line = line.trim();
                         // address 192.168.1.1:7789;
@@ -188,24 +187,15 @@ pub async fn get_all_ha_profile_names(state: &AppState) -> AppResult<Vec<String>
     let mut profiles = Vec::new();
     let reactor_dir = state.reactor_config_dir();
 
-    if let Ok(mut entries) = fs::read_dir(reactor_dir).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let path = entry.path();
-            let file_name = path.file_name().and_then(|n| n.to_str());
-
-            if let Some(name) = file_name {
-                // Check for .toml files (enabled)
-                if name.ends_with(".toml") && !name.ends_with(".toml.disabled") {
-                    let profile_name = name.strip_suffix(".toml").unwrap_or(name);
+    if let Ok(entries) = state.list_controller_dir_entries(reactor_dir).await {
+        for name in entries {
+            if name.ends_with(".toml") && !name.ends_with(".toml.disabled") {
+                let profile_name = name.strip_suffix(".toml").unwrap_or(&name);
+                profiles.push(profile_name.to_string());
+            } else if name.ends_with(".toml.disabled") {
+                let profile_name = name.strip_suffix(".toml.disabled").unwrap_or(&name);
+                if !profiles.iter().any(|p| p == profile_name) {
                     profiles.push(profile_name.to_string());
-                }
-                // Check for .toml.disabled files (disabled)
-                else if name.ends_with(".toml.disabled") {
-                    let profile_name = name.strip_suffix(".toml.disabled").unwrap_or(name);
-                    // Only add if not already in the list (avoid duplicates)
-                    if !profiles.iter().any(|p| p == profile_name) {
-                        profiles.push(profile_name.to_string());
-                    }
                 }
             }
         }

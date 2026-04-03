@@ -322,7 +322,7 @@ pub async fn create_resource(
                 node.hostname, cmd_str
             );
 
-            if node.is_local {
+            if state.is_controller_node(&node) {
                 let output =
                     run_shell_command(&cmd_str, "Initialize local LVM with thin pool").await?;
                 if !output.success() {
@@ -394,7 +394,7 @@ pub async fn create_resource(
                 use_thin, node.hostname, cmd_str
             );
 
-            if node.is_local {
+            if state.is_controller_node(&node) {
                 let output = run_shell_command(&cmd_str, "Initialize local ZFS").await?;
                 if !output.success() {
                     return Err(AppError::Internal(format!(
@@ -449,7 +449,7 @@ pub async fn create_resource(
         });
 
         // Get credential for remote nodes
-        if !node.is_local {
+        if !state.is_controller_node(&node) {
             // Dummy credential
             let cred = crate::core::SshCredential::Password("ignored".to_string());
 
@@ -635,9 +635,7 @@ pub async fn create_resource(
     );
 
     // Write config locally first
-    tokio::fs::write(&config_path, &config_content)
-        .await
-        .map_err(|e| AppError::Config(format!("Failed to write config: {}", e)))?;
+    state.write_controller_file(&config_path, &config_content).await?;
 
     info!("create_resource: Written local config to {}", config_path);
     state.send_progress(
@@ -658,7 +656,10 @@ pub async fn create_resource(
         all_nodes.len()
     );
 
-    let remote_nodes: Vec<_> = all_nodes.iter().filter(|n| !n.is_local).collect();
+    let remote_nodes: Vec<_> = all_nodes
+        .iter()
+        .filter(|node| !state.is_controller_node(node))
+        .collect();
     info!(
         "create_resource: {} remote nodes to sync: {:?}",
         remote_nodes.len(),
@@ -759,7 +760,7 @@ pub async fn create_resource(
                         .await;
                 }
                 // Also remove local config
-                let _ = tokio::fs::remove_file(&config_path).await;
+                let _ = state.remove_controller_file(&config_path).await;
                 return Err(e);
             }
         }
@@ -946,7 +947,11 @@ pub async fn init_resource(
     let config_path = ConfigPaths::drbd_resource_path(&name);
     info!("init_resource: Checking local config at {}", config_path);
 
-    if tokio::fs::metadata(&config_path).await.is_err() {
+    if !state
+        .controller_file_exists(&config_path)
+        .await
+        .unwrap_or(false)
+    {
         info!("init_resource: Local config file not found!");
         state.send_progress(
             &operation_id,
@@ -965,9 +970,7 @@ pub async fn init_resource(
     info!("init_resource: Local config exists");
 
     // Read local config for syncing to remote nodes
-    let config_content = tokio::fs::read_to_string(&config_path)
-        .await
-        .map_err(|e| AppError::Config(format!("Failed to read config: {}", e)))?;
+    let config_content = state.read_controller_file(&config_path).await?;
     info!(
         "init_resource: Read local config, {} bytes",
         config_content.len()
@@ -987,7 +990,10 @@ pub async fn init_resource(
     let nodes = state.node_store.get_all()?;
     info!("init_resource: Found {} total nodes in store", nodes.len());
 
-    let remote_nodes: Vec<_> = nodes.iter().filter(|n| !n.is_local).collect();
+    let remote_nodes: Vec<_> = nodes
+        .iter()
+        .filter(|node| !state.is_controller_node(node))
+        .collect();
     info!(
         "init_resource: {} remote nodes: {:?}",
         remote_nodes.len(),
@@ -1846,15 +1852,20 @@ pub async fn delete_resource(
 
     // Delete configuration file locally
     let config_path = ConfigPaths::drbd_resource_path(&name);
-    if tokio::fs::metadata(&config_path).await.is_ok() {
-        tokio::fs::remove_file(&config_path)
-            .await
-            .map_err(|e| AppError::Config(format!("Failed to delete config: {}", e)))?;
+    if state
+        .controller_file_exists(&config_path)
+        .await
+        .unwrap_or(false)
+    {
+        state.remove_controller_file(&config_path).await?;
     }
 
     // Delete configuration file from all remote nodes
     if let Ok(nodes) = state.node_store.get_all() {
-        let remote_nodes: Vec<_> = nodes.iter().filter(|n| !n.is_local).collect();
+        let remote_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|node| !state.is_controller_node(node))
+            .collect();
 
         for node in remote_nodes {
             // Get credential (dummy for now)

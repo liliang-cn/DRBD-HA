@@ -15,9 +15,9 @@ command_timeout_secs = 60
 max_connections_per_host = 5
 # Default SSH port
 default_port = 22
-# Default SSH username (change to "ubuntu" or other non-root user if needed)
-# IMPORTANT: This user must have passwordless SSH access and sudo privileges
-default_user = "ubuntu"
+# Optional default SSH username for managed nodes.
+# If unset, drbd-ha first tries the current login user and falls back to root.
+# default_user = "cluster-admin"
 
 [drbd]
 # Path to DRBD resource configuration directory
@@ -26,6 +26,17 @@ config_path = "/etc/drbd.d"
 reactor_config_path = "/etc/drbd-reactor.d"
 # Path to systemd unit files directory
 systemd_unit_path = "/etc/systemd/system"
+
+[controller]
+# external: recommended default; drbd-ha runs outside the cluster and executes cluster operations over SSH
+# embedded: opt-in mode when drbd-ha itself runs on a managed cluster node
+mode = "external"
+# Optional advanced override for external mode.
+# If unset, drbd-ha automatically selects a managed node from the node list.
+# Optional SSH overrides for the explicit proxy_host above.
+# proxy_host = "gui01"
+# proxy_port = 22
+# proxy_user = "cluster-admin"
 
 [auth]
 # Whether authentication is enabled

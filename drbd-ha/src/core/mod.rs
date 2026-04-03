@@ -27,7 +27,10 @@ pub use mount_unit::{MountUnitGenerator, MountUnitInfo};
 pub use safety::SafetyChecker;
 pub use service_init::ServiceInitFactory;
 pub use service_override::{ServiceOverrideGenerator, ServiceOverrideInfo};
-pub use shell_cmd::{run_shell_command, CommandOutput};
+pub use shell_cmd::{
+    configure_command_proxy, current_command_proxy, run_shell_command, CommandOutput,
+    CommandProxyConfig,
+};
 pub use ssh_manager::{SshCredential, SshManager};
 pub use storage::{LvmProvider, StorageProvider, ZfsProvider};
 pub use store::NodeStore;

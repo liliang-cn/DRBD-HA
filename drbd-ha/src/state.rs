@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
-use crate::config::AppConfig;
-use crate::core::{NodeStore, SshCredential, SshManager};
+use crate::config::{AppConfig, ControllerMode};
+use crate::core::{CommandProxyConfig, NodeStore, SshCredential, SshManager, configure_command_proxy};
+use crate::error::AppError;
 use crate::error::AppResult;
 use crate::models::{Node, NodeStatus};
 
@@ -73,6 +74,318 @@ impl AppState {
             node_store,
             credentials: Arc::new(RwLock::new(HashMap::new())),
             event_tx,
+        }
+    }
+
+    /// Create and initialize application state according to controller mode
+    pub async fn initialize(config: AppConfig) -> AppResult<Self> {
+        match config.controller.mode {
+            ControllerMode::Embedded => {
+                configure_command_proxy(None);
+                Self::with_local_node(config).await
+            }
+            ControllerMode::External => {
+                let state = Self::new(config);
+                state.refresh_command_proxy();
+                Ok(state)
+            }
+        }
+    }
+
+    pub fn is_external_controller(&self) -> bool {
+        self.config.controller.mode == ControllerMode::External
+    }
+
+    fn configured_controller_target(&self) -> Option<CommandProxyConfig> {
+        let host = self.config.controller.proxy_host.clone()?;
+        let port = self
+            .config
+            .controller
+            .proxy_port
+            .unwrap_or(self.config.ssh.default_port);
+        let user = self
+            .config
+            .controller
+            .proxy_user
+            .clone()
+            .unwrap_or_else(|| self.config.ssh.default_user.clone());
+
+        Some(CommandProxyConfig { host, port, user })
+    }
+
+    fn auto_controller_target(&self) -> Option<CommandProxyConfig> {
+        let nodes = self.node_store.get_all().ok()?;
+        let selected = nodes
+            .iter()
+            .find(|node| node.status == NodeStatus::Online)
+            .or_else(|| nodes.first())?;
+
+        Some(CommandProxyConfig {
+            host: selected.ip.clone(),
+            port: selected.ssh_port,
+            user: selected.ssh_user.clone(),
+        })
+    }
+
+    fn controller_target_config(&self) -> Option<CommandProxyConfig> {
+        if !self.is_external_controller() {
+            return None;
+        }
+
+        self.configured_controller_target()
+            .or_else(|| self.auto_controller_target())
+    }
+
+    pub fn refresh_command_proxy(&self) {
+        if self.is_external_controller() {
+            configure_command_proxy(self.controller_target_config());
+        } else {
+            configure_command_proxy(None);
+        }
+    }
+
+    pub fn controller_hostname(&self) -> String {
+        if self.is_external_controller() {
+            if let Some(proxy_host) = self.config.controller.proxy_host.clone() {
+                if let Ok(nodes) = self.node_store.get_all() {
+                    if let Some(node) = nodes.iter().find(|node| {
+                        node.hostname == proxy_host || node.ip == proxy_host || node.id == proxy_host
+                    }) {
+                        return node.hostname.clone();
+                    }
+                }
+                return proxy_host;
+            }
+
+            if let Ok(nodes) = self.node_store.get_all() {
+                if let Some(node) = nodes
+                    .iter()
+                    .find(|node| node.status == NodeStatus::Online)
+                    .or_else(|| nodes.first())
+                {
+                    return node.hostname.clone();
+                }
+            }
+
+            return "external-controller".to_string();
+        }
+
+        gethostname::gethostname().to_string_lossy().to_string()
+    }
+
+    pub fn is_controller_node(&self, node: &Node) -> bool {
+        if node.is_local {
+            return true;
+        }
+
+        self.matches_controller_target(&node.hostname, &node.ip, &node.id)
+    }
+
+    pub fn matches_controller_target(&self, hostname: &str, ip: &str, id: &str) -> bool {
+        if !self.is_external_controller() {
+            return false;
+        }
+
+        if let Some(proxy_host) = self.config.controller.proxy_host.as_deref() {
+            return hostname == proxy_host || ip == proxy_host || id == proxy_host;
+        }
+
+        if let Ok(nodes) = self.node_store.get_all() {
+            if let Some(node) = nodes
+                .iter()
+                .find(|node| node.status == NodeStatus::Online)
+                .or_else(|| nodes.first())
+            {
+                return node.hostname == hostname || node.ip == ip || node.id == id;
+            }
+        }
+
+        false
+    }
+
+    fn controller_target(&self) -> AppResult<(String, u16, String, SshCredential)> {
+        let target = self.controller_target_config().ok_or_else(|| {
+            AppError::Config(
+                "No managed nodes available for external controller mode. Add at least one SSH-reachable node first."
+                    .to_string(),
+            )
+        })?;
+        Ok((
+            target.host,
+            target.port,
+            target.user,
+            SshCredential::Password("ignored".to_string()),
+        ))
+    }
+
+    fn shell_escape_single_quotes(value: &str) -> String {
+        value.replace('\'', "'\"'\"'")
+    }
+
+    pub async fn read_controller_file(&self, path: &str) -> AppResult<String> {
+        if self.is_external_controller() {
+            let (host, port, user, credential) = self.controller_target()?;
+            self.ssh_manager
+                .read_file(&host, port, &user, &credential, path)
+                .await
+        } else {
+            tokio::fs::read_to_string(path)
+                .await
+                .map_err(|e| AppError::Config(format!("Failed to read file '{}': {}", path, e)))
+        }
+    }
+
+    pub async fn write_controller_file(&self, path: &str, content: &str) -> AppResult<()> {
+        if self.is_external_controller() {
+            let (host, port, user, credential) = self.controller_target()?;
+            self.ssh_manager
+                .write_file(&host, port, &user, &credential, path, content)
+                .await
+        } else {
+            if let Some(parent) = std::path::Path::new(path).parent() {
+                tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                    AppError::Config(format!(
+                        "Failed to create parent directory for '{}': {}",
+                        path, e
+                    ))
+                })?;
+            }
+            tokio::fs::write(path, content)
+                .await
+                .map_err(|e| AppError::Config(format!("Failed to write file '{}': {}", path, e)))
+        }
+    }
+
+    pub async fn create_controller_dir_all(&self, path: &str) -> AppResult<()> {
+        if self.is_external_controller() {
+            let (host, port, user, credential) = self.controller_target()?;
+            let escaped_path = Self::shell_escape_single_quotes(path);
+            let cmd = format!("mkdir -p '{}'", escaped_path);
+            let output = self
+                .ssh_manager
+                .execute(&host, port, &user, &credential, &cmd)
+                .await?;
+
+            if !output.success() {
+                return Err(AppError::Internal(format!(
+                    "Failed to create controller directory '{}': {}",
+                    path, output.stderr
+                )));
+            }
+            Ok(())
+        } else {
+            tokio::fs::create_dir_all(path).await.map_err(|e| {
+                AppError::Config(format!(
+                    "Failed to create controller directory '{}': {}",
+                    path, e
+                ))
+            })
+        }
+    }
+
+    pub async fn controller_file_exists(&self, path: &str) -> AppResult<bool> {
+        if self.is_external_controller() {
+            let (host, port, user, credential) = self.controller_target()?;
+            self.ssh_manager
+                .file_exists(&host, port, &user, &credential, path)
+                .await
+        } else {
+            Ok(std::path::Path::new(path).exists())
+        }
+    }
+
+    pub async fn remove_controller_file(&self, path: &str) -> AppResult<()> {
+        if self.is_external_controller() {
+            let (host, port, user, credential) = self.controller_target()?;
+            let escaped_path = Self::shell_escape_single_quotes(path);
+            let cmd = format!("rm -f '{}'", escaped_path);
+            let output = self
+                .ssh_manager
+                .execute(&host, port, &user, &credential, &cmd)
+                .await?;
+
+            if !output.success() {
+                return Err(AppError::Internal(format!(
+                    "Failed to remove controller file '{}': {}",
+                    path, output.stderr
+                )));
+            }
+            Ok(())
+        } else {
+            match tokio::fs::remove_file(path).await {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(AppError::Config(format!(
+                    "Failed to remove controller file '{}': {}",
+                    path, e
+                ))),
+            }
+        }
+    }
+
+    pub async fn rename_controller_file(&self, from: &str, to: &str) -> AppResult<()> {
+        if self.is_external_controller() {
+            let (host, port, user, credential) = self.controller_target()?;
+            let escaped_from = Self::shell_escape_single_quotes(from);
+            let escaped_to = Self::shell_escape_single_quotes(to);
+            let cmd = format!("mv '{}' '{}'", escaped_from, escaped_to);
+            let output = self
+                .ssh_manager
+                .execute(&host, port, &user, &credential, &cmd)
+                .await?;
+
+            if !output.success() {
+                return Err(AppError::Internal(format!(
+                    "Failed to rename controller file '{}' to '{}': {}",
+                    from, to, output.stderr
+                )));
+            }
+            Ok(())
+        } else {
+            tokio::fs::rename(from, to).await.map_err(|e| {
+                AppError::Config(format!(
+                    "Failed to rename controller file '{}' to '{}': {}",
+                    from, to, e
+                ))
+            })
+        }
+    }
+
+    pub async fn list_controller_dir_entries(&self, dir: &str) -> AppResult<Vec<String>> {
+        if self.is_external_controller() {
+            let (host, port, user, credential) = self.controller_target()?;
+            let escaped_dir = Self::shell_escape_single_quotes(dir);
+            let cmd = format!("find '{}' -maxdepth 1 -type f -printf '%f\n'", escaped_dir);
+            let output = self
+                .ssh_manager
+                .execute(&host, port, &user, &credential, &cmd)
+                .await?;
+
+            if !output.success() {
+                return Err(AppError::Internal(format!(
+                    "Failed to list controller directory '{}': {}",
+                    dir, output.stderr
+                )));
+            }
+
+            Ok(output
+                .stdout
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(|line| line.to_string())
+                .collect())
+        } else {
+            let mut entries = tokio::fs::read_dir(dir).await.map_err(|e| {
+                AppError::Config(format!("Failed to read directory '{}': {}", dir, e))
+            })?;
+            let mut file_names = Vec::new();
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if let Some(name) = entry.file_name().to_str() {
+                    file_names.push(name.to_string());
+                }
+            }
+            Ok(file_names)
         }
     }
 

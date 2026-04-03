@@ -4,7 +4,7 @@
 //! These units are required for drbd-reactor's promoter plugin to properly mount
 //! DRBD devices when a resource becomes Primary.
 
-use crate::core::run_shell_command;
+use crate::core::{current_command_proxy, run_shell_command};
 use crate::error::{AppError, AppResult};
 
 /// Generator for systemd mount unit files
@@ -38,11 +38,13 @@ impl MountUnitGenerator {
         // 3. Render mount unit content
         let content = Self::render_mount_unit(&device_path, mount_point, fs_type, resource_name);
 
-        // 4. Write unit file
+        // 4. Write unit file when running embedded; external mode writes via controller file APIs
         let unit_path = format!("/etc/systemd/system/{}", unit_name);
-        tokio::fs::write(&unit_path, &content).await.map_err(|e| {
-            AppError::Config(format!("Failed to write mount unit {}: {}", unit_path, e))
-        })?;
+        if current_command_proxy().is_none() {
+            tokio::fs::write(&unit_path, &content).await.map_err(|e| {
+                AppError::Config(format!("Failed to write mount unit {}: {}", unit_path, e))
+            })?;
+        }
 
         tracing::info!(
             "Generated mount unit {} for resource {} at {}",
@@ -56,6 +58,7 @@ impl MountUnitGenerator {
             unit_path,
             device_path,
             mount_point: mount_point.to_string(),
+            content,
         })
     }
 
@@ -63,7 +66,19 @@ impl MountUnitGenerator {
     async fn get_drbd_device(resource_name: &str) -> AppResult<String> {
         // Method 1: Use by-res symlink (preferred for stability)
         let by_res_path = format!("/dev/drbd/by-res/{}/0", resource_name);
-        if tokio::fs::metadata(&by_res_path).await.is_ok() {
+        let by_res_exists = if current_command_proxy().is_some() {
+            run_shell_command(
+                &format!("test -e '{}'", by_res_path),
+                &format!("Check DRBD by-res path for {}", resource_name),
+            )
+            .await
+            .map(|output| output.success())
+            .unwrap_or(false)
+        } else {
+            tokio::fs::metadata(&by_res_path).await.is_ok()
+        };
+
+        if by_res_exists {
             return Ok(by_res_path);
         }
 
@@ -156,7 +171,16 @@ Options=defaults,noatime
         let unit_name = Self::escape_mount_point(mount_point)?;
         let unit_path = format!("/etc/systemd/system/{}", unit_name);
 
-        if tokio::fs::metadata(&unit_path).await.is_ok() {
+        if current_command_proxy().is_some() {
+            let output = run_shell_command(
+                &format!("rm -f '{}'", unit_path),
+                &format!("Remove mount unit {}", unit_name),
+            )
+            .await?;
+            if output.success() {
+                tracing::info!("Removed mount unit: {}", unit_path);
+            }
+        } else if tokio::fs::metadata(&unit_path).await.is_ok() {
             tokio::fs::remove_file(&unit_path).await.map_err(|e| {
                 AppError::Config(format!("Failed to remove mount unit {}: {}", unit_path, e))
             })?;
@@ -170,7 +194,16 @@ Options=defaults,noatime
     pub async fn exists(mount_point: &str) -> AppResult<bool> {
         let unit_name = Self::escape_mount_point(mount_point)?;
         let unit_path = format!("/etc/systemd/system/{}", unit_name);
-        Ok(tokio::fs::metadata(&unit_path).await.is_ok())
+        if current_command_proxy().is_some() {
+            let output = run_shell_command(
+                &format!("test -f '{}'", unit_path),
+                &format!("Check mount unit {}", unit_name),
+            )
+            .await?;
+            Ok(output.success())
+        } else {
+            Ok(tokio::fs::metadata(&unit_path).await.is_ok())
+        }
     }
 
     /// Get the unit file path for a mount point
@@ -194,6 +227,9 @@ pub struct MountUnitInfo {
 
     /// Mount point path (e.g., "/var/lib/mysql")
     pub mount_point: String,
+
+    /// Generated unit file content
+    pub content: String,
 }
 
 #[cfg(test)]

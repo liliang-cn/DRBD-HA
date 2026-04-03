@@ -29,15 +29,18 @@ fn ensure_node_in_store(state: &AppState, hostname: &str) -> AppResult<Node> {
     // Node not found, auto-discover and add it
     tracing::info!("Auto-discovering node '{}' and adding to store", hostname);
 
-    let local_hostname = gethostname::gethostname().to_string_lossy().to_string();
-    let is_local = hostname == local_hostname;
+    let resolved_ip = resolve_hostname_to_ip(hostname);
+    let is_local = state.matches_controller_target(
+        hostname,
+        resolved_ip.as_deref().unwrap_or(hostname),
+        hostname,
+    );
 
     let ip = if is_local {
-        // Use local IP detection
-        crate::state::AppState::get_local_ip()
+        resolved_ip.unwrap_or_else(crate::state::AppState::get_local_ip)
     } else {
         // Try DNS resolution
-        resolve_hostname_to_ip(hostname).ok_or_else(|| {
+        resolved_ip.ok_or_else(|| {
             AppError::NotFound(format!("Cannot resolve IP for hostname '{}'", hostname))
         })?
     };
@@ -93,7 +96,8 @@ pub async fn evict_profile(
 ) -> AppResult<Json<EvictProfileResponse>> {
     // Load profile from toml file instead of database
     let config_path = crate::core::ReactorConfigPaths::promoter_path(&id_or_name);
-    let content = tokio::fs::read_to_string(&config_path)
+    let content = state
+        .read_controller_file(&config_path)
         .await
         .map_err(|_| AppError::NotFound(format!("HA profile {} not found", id_or_name)))?;
     let profile = create_profile_from_toml(&id_or_name, &content)
@@ -162,7 +166,7 @@ pub async fn evict_profile(
     );
 
     // Execute evict command on the target (active) node
-    let (success, stdout, stderr) = if target_node.is_local {
+    let (success, stdout, stderr) = if state.is_controller_node(&target_node) {
         // Local node - execute directly
         let output = run_shell_command(
             &evict_cmd,
@@ -339,7 +343,7 @@ pub async fn disable_profile_on_node(
 
     let disable_cmd = format!("sudo drbd-reactorctl disable {}", id_or_name);
 
-    let result = if target_node.is_local {
+    let result = if state.is_controller_node(&target_node) {
         run_shell_command(
             &disable_cmd,
             &format!("Disable profile {} locally", id_or_name),
@@ -420,7 +424,7 @@ pub async fn enable_profile(
     let mut failed_nodes = Vec::new();
 
     for node in &nodes {
-        let result = if node.is_local {
+        let result = if state.is_controller_node(node) {
             run_shell_command(
                 &enable_cmd,
                 &format!("Enable profile {} locally", id_or_name),
@@ -540,7 +544,7 @@ pub async fn enable_profile_on_node(
 
     let enable_cmd = format!("sudo drbd-reactorctl enable {}", id_or_name);
 
-    let result = if target_node.is_local {
+    let result = if state.is_controller_node(&target_node) {
         run_shell_command(
             &enable_cmd,
             &format!("Enable profile {} locally", id_or_name),

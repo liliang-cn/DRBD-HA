@@ -2,7 +2,6 @@ use axum::{extract::Path, Json};
 use ra_params::{get_agent_metadata, list_agents};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
 use utoipa::ToSchema;
 
@@ -153,15 +152,11 @@ pub async fn get_resource_agent_metadata(
 
     let agent_path = ocf_root.join("resource.d").join(&provider).join(&agent);
 
-    if !agent_path.exists() {
-        return Err(AppError::NotFound(format!(
-            "Agent {}/{} not found",
-            provider, agent
-        )));
-    }
-
     let (meta, _) =
-        get_agent_metadata(&agent_path).map_err(|e| AppError::Internal(e.to_string()))?;
+        get_agent_metadata(&agent_path).map_err(|e| AppError::NotFound(format!(
+            "Agent {}/{} not found or metadata fetch failed: {}",
+            provider, agent, e
+        )))?;
 
     Ok(Json(meta.into()))
 }
@@ -192,95 +187,35 @@ pub async fn list_all_resource_agents() -> AppResult<Json<ResourceAgentsByProvid
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/usr/lib/ocf"));
 
-    let resource_d = ocf_root.join("resource.d");
-
-    // Check if resource.d exists
-    if !resource_d.exists() {
-        return Ok(Json(ResourceAgentsByProvider {
-            providers: HashMap::new(),
-        }));
-    }
-
     let mut providers_map: HashMap<String, Vec<ResourceAgent>> = HashMap::new();
 
-    // Read all provider directories
-    let providers = fs::read_dir(&resource_d)
-        .map_err(|e| AppError::Internal(format!("Failed to read resource.d directory: {}", e)))?;
+    let discovered_agents =
+        list_agents(&ocf_root).map_err(|e| AppError::Internal(e.to_string()))?;
 
-    for provider_entry in providers {
-        let provider_entry = provider_entry
-            .map_err(|e| AppError::Internal(format!("Failed to read provider entry: {}", e)))?;
-
-        let provider_path = provider_entry.path();
-
-        // Skip if not a directory
-        if !provider_path.is_dir() {
-            continue;
-        }
-
-        let provider_name = match provider_path.file_name() {
-            Some(name) => name.to_string_lossy().to_string(),
-            None => continue,
-        };
-
-        // Skip if provider name starts with dot
-        if provider_name.starts_with('.') {
-            continue;
-        }
-
-        // Read all agents in this provider directory
-        let agents = match fs::read_dir(&provider_path) {
-            Ok(entries) => entries,
-            Err(_) => continue,
-        };
-
-        let mut provider_agents: Vec<ResourceAgent> = Vec::new();
-
-        for agent_entry in agents {
-            let agent_entry = match agent_entry {
-                Ok(entry) => entry,
-                Err(_) => continue,
-            };
-
-            let agent_path = agent_entry.path();
-
-            // Skip if not a file (or symlink to file)
-            if !agent_path.is_file() {
+    for (provider_name, agent_name) in discovered_agents {
+        let agent_path = ocf_root.join("resource.d").join(&provider_name).join(&agent_name);
+        let (ra_metadata, _) = match get_agent_metadata(&agent_path) {
+            Ok(meta) => meta,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to get metadata for {}/{}: {}",
+                    provider_name,
+                    agent_name,
+                    e
+                );
                 continue;
             }
+        };
 
-            // Get agent name from file name
-            let agent_name = match agent_path.file_name() {
-                Some(name) => name.to_string_lossy().to_string(),
-                None => continue,
-            };
+        let agent: ResourceAgent = ResourceAgent::from(&ra_metadata);
+        providers_map
+            .entry(provider_name)
+            .or_default()
+            .push(agent);
+    }
 
-            // Get metadata for this agent
-            let (ra_metadata, _) = match get_agent_metadata(&agent_path) {
-                Ok(meta) => meta,
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to get metadata for {}/{}: {}",
-                        provider_name,
-                        agent_name,
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            // Convert to flattened format (using the From impl in toml_parse)
-            let agent: ResourceAgent = ResourceAgent::from(&ra_metadata);
-            provider_agents.push(agent);
-        }
-
-        // Sort agents by name
+    for provider_agents in providers_map.values_mut() {
         provider_agents.sort_by(|a, b| a.name.cmp(&b.name));
-
-        // Only add non-empty providers
-        if !provider_agents.is_empty() {
-            providers_map.insert(provider_name, provider_agents);
-        }
     }
 
     Ok(Json(ResourceAgentsByProvider {

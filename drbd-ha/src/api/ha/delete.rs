@@ -44,10 +44,10 @@ pub async fn delete_profile(
     let disabled_path = format!("{}.disabled", config_path);
 
     // Try to read from .toml (enabled) or .toml.disabled (disabled)
-    let (content, _is_disabled) = if let Ok(content) = tokio::fs::read_to_string(&config_path).await
+    let (content, _is_disabled) = if let Ok(content) = state.read_controller_file(&config_path).await
     {
         (content, false)
-    } else if let Ok(content) = tokio::fs::read_to_string(&disabled_path).await {
+    } else if let Ok(content) = state.read_controller_file(&disabled_path).await {
         (content, true)
     } else {
         return Err(AppError::NotFound(format!(
@@ -162,7 +162,7 @@ pub async fn delete_profile(
 
     // Remove mount unit file (locally)
     if let Some(mount_unit_path) = &profile.generated_units.mount_unit_path {
-        let _ = std::fs::remove_file(mount_unit_path);
+        let _ = state.remove_controller_file(mount_unit_path).await;
     }
 
     // Remove service override files using ServiceOverrideGenerator (locally)
@@ -185,7 +185,7 @@ pub async fn delete_profile(
     let credential = crate::core::SshCredential::Password("ignored".to_string());
 
     for node in &all_nodes {
-        if !node.is_local {
+        if !state.is_controller_node(node) {
             // Remove mount unit on remote node
             if let Some(mount_unit_path) = &profile.generated_units.mount_unit_path {
                 let rm_cmd = format!("rm -f {}", mount_unit_path);
@@ -362,7 +362,7 @@ pub async fn delete_profile(
         let secondary_cmd = DrbdCmd::secondary_cmd(&profile.resource_name)?;
         let disconnect_cmd = DrbdCmd::disconnect_cmd(&profile.resource_name)?;
 
-        if node.is_local {
+        if state.is_controller_node(node) {
             // Local node - make secondary
             if let Ok(output) = run_shell_command(&secondary_cmd, "Make DRBD secondary").await {
                 if output.success() {
@@ -448,7 +448,7 @@ pub async fn delete_profile(
     // Step 2: Down DRBD on all nodes
     let mut down_failed_nodes = Vec::new();
     for node in &all_nodes {
-        if node.is_local {
+        if state.is_controller_node(node) {
             let down_cmd = DrbdCmd::down_cmd(&profile.resource_name)?;
             match run_shell_command(&down_cmd, "Down DRBD resource locally").await {
                 Ok(output) => {
@@ -544,7 +544,7 @@ pub async fn delete_profile(
         profile.resource_name
     );
     for node in &all_nodes {
-        if node.is_local {
+        if state.is_controller_node(node) {
             // Wipe metadata locally - must be done while .res file still exists
             let wipe_cmd = DrbdCmd::wipe_md_cmd(&profile.resource_name)?;
             // Add --force flag to skip confirmation
@@ -614,9 +614,9 @@ pub async fn delete_profile(
     for node in &all_nodes {
         let drbd_config_path = DrbdConfigPaths::drbd_resource_path(&profile.resource_name);
 
-        if node.is_local {
+        if state.is_controller_node(node) {
             tracing::info!("Deleting local DRBD config: {}", drbd_config_path);
-            match tokio::fs::remove_file(&drbd_config_path).await {
+            match state.remove_controller_file(&drbd_config_path).await {
                 Ok(_) => tracing::info!("Deleted DRBD config: {}", drbd_config_path),
                 Err(e) => {
                     tracing::warn!("Failed to delete DRBD config {}: {}", drbd_config_path, e)
@@ -690,7 +690,7 @@ pub async fn delete_profile(
 
     // Delete local promoter config (.toml)
     tracing::info!("Deleting local promoter config: {}", promoter_config_path);
-    match tokio::fs::remove_file(&promoter_config_path).await {
+    match state.remove_controller_file(&promoter_config_path).await {
         Ok(_) => tracing::info!("Deleted promoter config: {}", promoter_config_path),
         Err(e) => tracing::warn!(
             "Failed to delete promoter config {}: {}",
@@ -704,7 +704,7 @@ pub async fn delete_profile(
         "Deleting local promoter disabled config: {}",
         promoter_disabled_path
     );
-    match tokio::fs::remove_file(&promoter_disabled_path).await {
+    match state.remove_controller_file(&promoter_disabled_path).await {
         Ok(_) => tracing::info!(
             "Deleted promoter disabled config: {}",
             promoter_disabled_path
@@ -718,7 +718,7 @@ pub async fn delete_profile(
 
     // Delete remote promoter configs
     for node in &all_nodes {
-        if !node.is_local {
+        if !state.is_controller_node(node) {
             // Delete both .toml and .toml.disabled files
             let rm_cmd = if node.ssh_user != "root" {
                 format!(
@@ -786,7 +786,7 @@ pub async fn delete_profile(
     let mut _successful_reloads = 0;
 
     for node in all_nodes.iter() {
-        if node.is_local {
+        if state.is_controller_node(node) {
             if let Ok(sys) = SystemdController::new().await {
                 if sys.reload("drbd-reactor.service").await.is_ok() {
                     _successful_reloads += 1;
@@ -869,7 +869,11 @@ pub async fn delete_profile(
 
     // 3. Verify DRBD config file is deleted on local node
     let drbd_config_path = DrbdConfigPaths::drbd_resource_path(&profile.resource_name);
-    if tokio::fs::metadata(&drbd_config_path).await.is_ok() {
+    if state
+        .controller_file_exists(&drbd_config_path)
+        .await
+        .unwrap_or(false)
+    {
         let msg = format!("DRBD config file {} still exists", drbd_config_path);
         tracing::warn!("{}", msg);
         verification_errors.push(msg);
@@ -881,7 +885,11 @@ pub async fn delete_profile(
     let promoter_config_path = ReactorConfigPaths::promoter_path(&profile.name);
     let promoter_disabled_path = format!("{}.disabled", promoter_config_path);
 
-    if tokio::fs::metadata(&promoter_config_path).await.is_ok() {
+    if state
+        .controller_file_exists(&promoter_config_path)
+        .await
+        .unwrap_or(false)
+    {
         let msg = format!("Promoter config file {} still exists", promoter_config_path);
         tracing::warn!("{}", msg);
         verification_errors.push(msg);
@@ -892,7 +900,11 @@ pub async fn delete_profile(
         );
     }
 
-    if tokio::fs::metadata(&promoter_disabled_path).await.is_ok() {
+    if state
+        .controller_file_exists(&promoter_disabled_path)
+        .await
+        .unwrap_or(false)
+    {
         let msg = format!(
             "Promoter disabled config file {} still exists",
             promoter_disabled_path

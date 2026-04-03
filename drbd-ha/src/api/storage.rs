@@ -108,7 +108,7 @@ pub async fn create_pool(
             return Err(err);
         }
 
-        let lvm_provider = if node.is_local {
+        let lvm_provider = if state.is_controller_node(node) {
             LvmProvider::new_local(req.name.clone())
         } else {
             let credential = crate::core::SshCredential::Password("ignored".to_string());
@@ -132,7 +132,7 @@ pub async fn create_pool(
 
         // Get sizes (this runs vgdisplay)
         use crate::core::lvm_utils::LvmClient;
-        let client = if node.is_local {
+        let client = if state.is_controller_node(node) {
             LvmClient::new_local()
         } else {
             let credential = crate::core::SshCredential::Password("ignored".to_string());
@@ -335,7 +335,7 @@ pub async fn check_zpool_on_node(
 
     info!("Checking ZFS/zpool availability on node: {}", node.hostname);
 
-    let zfs_client = if node.is_local {
+    let zfs_client = if state.is_controller_node(&node) {
         ZfsUtilsClient::new_local()
     } else {
         let credential = crate::core::SshCredential::Password("ignored".to_string());

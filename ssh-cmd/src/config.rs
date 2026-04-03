@@ -64,5 +64,23 @@ fn default_ssh_port() -> u16 {
 }
 
 fn default_ssh_user() -> String {
-    "root".to_string()
+    std::env::var("DRBD_HA_SSH_USER")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var("SUDO_USER")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .or_else(|| {
+            std::env::var("USER")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .or_else(|| {
+            std::env::var("USERNAME")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .unwrap_or_else(|| "root".to_string())
 }

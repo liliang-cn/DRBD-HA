@@ -8,7 +8,6 @@ use axum::{
 use indexmap::IndexMap;
 use ra_params::{get_agent_metadata, models::ResourceAgent as RaParamsResourceAgent};
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::Path as StdPath;
 use std::sync::Arc;
 use utoipa::ToSchema;
@@ -641,7 +640,11 @@ pub async fn parse_profile_toml(
     let config_path = state.reactor_config_path(&id);
 
     // Check if the TOML file exists
-    if !StdPath::new(&config_path).exists() {
+    if !state
+        .controller_file_exists(&config_path)
+        .await
+        .unwrap_or(false)
+    {
         return Err(AppError::NotFound(format!(
             "TOML configuration file not found for profile '{}': {}",
             id, config_path
@@ -649,9 +652,7 @@ pub async fn parse_profile_toml(
     }
 
     // Read the TOML content
-    let content = fs::read_to_string(&config_path).map_err(|e| {
-        AppError::Internal(format!("Failed to read TOML file '{}': {}", config_path, e))
-    })?;
+    let content = state.read_controller_file(&config_path).await?;
 
     // Parse TOML and extract OCF agents
     let mut parsed = parse_toml_with_agents(&content);

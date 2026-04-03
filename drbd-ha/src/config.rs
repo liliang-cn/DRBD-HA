@@ -3,7 +3,7 @@
 //! Handles loading and parsing of configuration from TOML files.
 
 use serde::Deserialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::error::{AppError, AppResult};
 pub use ssh_cmd::config::SshConfig;
@@ -22,6 +22,10 @@ pub struct AppConfig {
     /// DRBD configuration
     #[serde(default)]
     pub drbd: DrbdConfig,
+
+    /// Controller execution mode
+    #[serde(default)]
+    pub controller: ControllerConfig,
 
     /// Logging configuration
     #[serde(default)]
@@ -59,6 +63,57 @@ fn default_host() -> String {
 
 fn default_port() -> u16 {
     3373
+}
+
+/// Controller deployment mode
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ControllerMode {
+    /// The controller itself is also a managed cluster node
+    #[default]
+    Embedded,
+    /// The controller runs outside the cluster and proxies shell/file access over SSH
+    External,
+}
+
+impl ControllerMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Embedded => "embedded",
+            Self::External => "external",
+        }
+    }
+}
+
+/// Controller runtime configuration
+#[derive(Debug, Clone, Deserialize)]
+pub struct ControllerConfig {
+    /// Whether the controller is embedded in the cluster or external to it
+    #[serde(default)]
+    pub mode: ControllerMode,
+
+    /// Optional pinned node hostname/IP used for controller-scoped shell/file operations in external mode
+    #[serde(default)]
+    pub proxy_host: Option<String>,
+
+    /// SSH port for the pinned controller node (defaults to ssh.default_port when unset)
+    #[serde(default)]
+    pub proxy_port: Option<u16>,
+
+    /// SSH user for the pinned controller node (defaults to ssh.default_user when unset)
+    #[serde(default)]
+    pub proxy_user: Option<String>,
+}
+
+impl Default for ControllerConfig {
+    fn default() -> Self {
+        Self {
+            mode: ControllerMode::External,
+            proxy_host: None,
+            proxy_port: None,
+            proxy_user: None,
+        }
+    }
 }
 
 /// DRBD-related paths configuration
@@ -124,8 +179,33 @@ fn default_log_level() -> String {
     "info".to_string()
 }
 
+fn platform_config_dir() -> Option<PathBuf> {
+    if cfg!(target_os = "windows") {
+        std::env::var("APPDATA")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| std::env::var("USERPROFILE").ok().map(PathBuf::from))
+            .map(|path| path.join("drbd-ha"))
+    } else if cfg!(target_os = "macos") {
+        std::env::var("HOME")
+            .ok()
+            .map(PathBuf::from)
+            .map(|path| path.join("Library/Application Support/drbd-ha"))
+    } else {
+        std::env::var("HOME")
+            .ok()
+            .map(PathBuf::from)
+            .map(|path| path.join(".config/drbd-ha"))
+    }
+}
+
 fn default_log_file() -> Option<String> {
-    Some("/var/log/drbd-ha/drbd-ha.log".to_string())
+    let legacy_log_dir = Path::new("/var/log/drbd-ha");
+    if legacy_log_dir.exists() {
+        return Some(legacy_log_dir.join("drbd-ha.log").to_string_lossy().to_string());
+    }
+
+    platform_config_dir().map(|dir| dir.join("drbd-ha.log").to_string_lossy().to_string())
 }
 
 /// Authentication configuration
@@ -186,6 +266,8 @@ impl AppConfig {
             );
             match Self::from_file(&env_config_path) {
                 Ok(config) => {
+                    let mut config = config;
+                    normalize_controller_runtime(&mut config);
                     tracing::info!(
                         "Loaded configuration from environment variable: {}",
                         env_config_path
@@ -204,12 +286,18 @@ impl AppConfig {
         }
 
         // 2. Fallback to default search paths
-        let config_paths = ["config/default.toml", "/etc/drbd-ha/config.toml"];
+        let mut config_paths = vec!["config/default.toml".to_string()];
+        if let Some(dir) = platform_config_dir() {
+            config_paths.push(dir.join("config.toml").to_string_lossy().to_string());
+        }
+        config_paths.push("/etc/drbd-ha/config.toml".to_string());
 
         for path in config_paths {
-            if Path::new(path).exists() {
-                match Self::from_file(path) {
+            if Path::new(&path).exists() {
+                match Self::from_file(&path) {
                     Ok(config) => {
+                        let mut config = config;
+                        normalize_controller_runtime(&mut config);
                         tracing::info!("Loaded configuration from {}", path);
                         return config;
                     }
@@ -221,8 +309,53 @@ impl AppConfig {
         }
 
         tracing::info!("Using default configuration");
-        Self::default()
+        let mut config = Self::default();
+        normalize_controller_runtime(&mut config);
+        config
     }
+}
+
+pub fn detected_controller_platform() -> &'static str {
+    std::env::consts::OS
+}
+
+fn validate_controller_mode_for_platform(mode: &ControllerMode, platform: &str) -> AppResult<()> {
+    if platform != "linux" && *mode == ControllerMode::Embedded {
+        return Err(AppError::Config(format!(
+            "controller.mode = '{}' requires Linux, but detected '{}'. Use controller.mode = 'external' on non-Linux hosts.",
+            mode.as_str(),
+            platform
+        )));
+    }
+
+    Ok(())
+}
+
+fn normalize_controller_mode_for_platform(mode: &mut ControllerMode, platform: &str) -> bool {
+    if platform != "linux" && *mode == ControllerMode::Embedded {
+        *mode = ControllerMode::External;
+        return true;
+    }
+
+    false
+}
+
+pub fn normalize_controller_runtime(config: &mut AppConfig) -> bool {
+    let platform = detected_controller_platform();
+    let changed = normalize_controller_mode_for_platform(&mut config.controller.mode, platform);
+
+    if changed {
+        tracing::warn!(
+            "Detected non-Linux controller platform '{}'; forcing controller.mode='external' for SSH-only management",
+            platform
+        );
+    }
+
+    changed
+}
+
+pub fn validate_controller_runtime(config: &AppConfig) -> AppResult<()> {
+    validate_controller_mode_for_platform(&config.controller.mode, detected_controller_platform())
 }
 
 #[cfg(test)]
@@ -235,6 +368,7 @@ mod tests {
         assert_eq!(config.server.port, 3373);
         assert_eq!(config.ssh.connection_timeout_secs, 30);
         assert_eq!(config.drbd.config_path, "/etc/drbd.d");
+        assert_eq!(config.controller.mode, ControllerMode::External);
         assert!(!config.auth.enabled);
     }
 
@@ -272,5 +406,45 @@ port = 9000
         // Other values should be defaults
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.ssh.connection_timeout_secs, 30);
+    }
+
+    #[test]
+    fn test_embedded_mode_rejected_on_non_linux() {
+        let err =
+            validate_controller_mode_for_platform(&ControllerMode::Embedded, "windows").unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Use controller.mode = 'external'"));
+    }
+
+    #[test]
+    fn test_external_mode_allowed_on_non_linux() {
+        validate_controller_mode_for_platform(&ControllerMode::External, "windows").unwrap();
+        validate_controller_mode_for_platform(&ControllerMode::External, "macos").unwrap();
+    }
+
+    #[test]
+    fn test_embedded_mode_allowed_on_linux() {
+        validate_controller_mode_for_platform(&ControllerMode::Embedded, "linux").unwrap();
+    }
+
+    #[test]
+    fn test_normalize_embedded_mode_to_external_on_non_linux() {
+        let mut mode = ControllerMode::Embedded;
+        assert!(normalize_controller_mode_for_platform(
+            &mut mode,
+            "windows"
+        ));
+        assert_eq!(mode, ControllerMode::External);
+    }
+
+    #[test]
+    fn test_normalize_keeps_linux_embedded_mode() {
+        let mut mode = ControllerMode::Embedded;
+        assert!(!normalize_controller_mode_for_platform(
+            &mut mode,
+            "linux"
+        ));
+        assert_eq!(mode, ControllerMode::Embedded);
     }
 }

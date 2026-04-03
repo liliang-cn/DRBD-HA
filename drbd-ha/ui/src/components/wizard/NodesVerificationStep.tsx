@@ -69,7 +69,10 @@ export function NodesVerificationStep({
   const handleAdd = async (values: AddNodeRequest) => {
     setSubmitting(true);
     try {
-      await add(values);
+      await add({
+        ...values,
+        ssh_user: values.ssh_user?.trim() || undefined,
+      });
       message.success('Node added successfully');
       setModalOpen(false);
       form.resetFields();
@@ -124,7 +127,10 @@ export function NodesVerificationStep({
     if (!editingNode) return;
     setSubmitting(true);
     try {
-      await update(editingNode.id, values);
+      await update(editingNode.id, {
+        ...values,
+        ssh_user: values.ssh_user?.trim() || undefined,
+      });
       message.success('Node updated successfully');
       setEditModalOpen(false);
       setEditingNode(null);
@@ -314,10 +320,9 @@ export function NodesVerificationStep({
           <Form.Item
             name="ssh_user"
             label="SSH User"
-            initialValue="root"
-            extra="Use root, or a user with passwordless sudo (`sudo -n`)."
+            extra="Optional. Leave empty to use the global default SSH user. If it is not root, it must support passwordless sudo (`sudo -n`)."
           >
-            <Input />
+            <Input placeholder="cluster-admin" />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={submitting} block>
@@ -355,15 +360,9 @@ export function NodesVerificationStep({
           <Form.Item
             name="ssh_user"
             label="SSH User"
-            extra="Use root, or a user with passwordless sudo (`sudo -n`)."
-            rules={[
-              {
-                required: true,
-                message: 'SSH User is required for remote operations',
-              },
-            ]}
+            extra="Optional. Leave empty to use the global default SSH user. If it is not root, it must support passwordless sudo (`sudo -n`)."
           >
-            <Input placeholder="root" />
+            <Input placeholder="cluster-admin" />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={submitting} block>
