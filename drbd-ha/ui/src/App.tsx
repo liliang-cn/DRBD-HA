@@ -1,5 +1,6 @@
-import { ConfigProvider } from 'antd';
 import { RouterProvider } from 'react-router-dom';
+import { Toaster } from '@/components/ui/sonner';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { useSSE } from './hooks/useSSE';
 import { router } from './router';
 import './index.css';
@@ -9,15 +10,10 @@ const App = () => {
   useSSE();
 
   return (
-    <ConfigProvider
-      theme={{
-        token: {
-          colorPrimary: '#1677ff',
-        },
-      }}
-    >
+    <TooltipProvider>
       <RouterProvider router={router} />
-    </ConfigProvider>
+      <Toaster />
+    </TooltipProvider>
   );
 };
 

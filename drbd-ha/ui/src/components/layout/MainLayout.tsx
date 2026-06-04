@@ -1,32 +1,28 @@
-import { ApiOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons';
-import {
-  theme as antdTheme,
-  Button,
-  ConfigProvider,
-  Layout,
-  Tooltip,
-} from 'antd';
 import gsap from 'gsap';
+import { Moon, Plug, Sun } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { Link, Outlet } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useThemeStore } from '@/stores/theme';
-import { PRIMARY_COLOR } from '@/theme/colors';
-
-const { Header, Content } = Layout;
 
 export function MainLayout() {
   const headerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const { theme: currentTheme, toggleTheme } = useThemeStore();
+  const { theme, toggleTheme } = useThemeStore();
 
   useEffect(() => {
     // Apply theme to document
-    if (currentTheme === 'dark') {
+    if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
-  }, [currentTheme]);
+  }, [theme]);
 
   useEffect(() => {
     // Animate header on mount
@@ -60,96 +56,53 @@ export function MainLayout() {
   // }, [location.pathname]);
 
   return (
-    <ConfigProvider
-      theme={{
-        algorithm:
-          currentTheme === 'dark'
-            ? antdTheme.darkAlgorithm
-            : antdTheme.defaultAlgorithm,
-        token: {
-          colorPrimary: PRIMARY_COLOR,
-          colorSuccess: '#5FD4A9',
-          colorWarning: '#E1C047',
-          colorError: '#FF6D6D',
-          borderRadius: 8,
-        },
-      }}
-    >
-      <Layout
-        className={`min-h-screen ${
-          currentTheme === 'dark' ? 'bg-slate-900' : 'bg-slate-50'
-        }`}
+    <div className="min-h-screen bg-background text-foreground">
+      {/* Header */}
+      <header
+        ref={headerRef}
+        className="sticky top-0 z-50 bg-card border-b border-border shadow-sm"
       >
-        <Layout className="relative z-10">
-          {/* Header */}
-          <Header
-            ref={headerRef}
-            style={{
-              backgroundColor: currentTheme === 'dark' ? '#1e293b' : '#fff',
-              borderBottom:
-                currentTheme === 'dark'
-                  ? '1px solid #334155'
-                  : '1px solid #e2e8f0',
-            }}
-            className="!px-0 !h-auto !py-0 sticky top-0 z-50 shadow-sm"
-          >
-            <div className="flex items-center justify-between px-4 py-2">
-              {/* Logo & Brand */}
-              <Link
-                to="/"
-                className="flex items-center gap-2"
-                style={{ textDecoration: 'none' }}
-              >
-                <img src="/favicon.svg" alt="DRBD HA" className="w-7 h-7" />
-                <span
-                  className={`text-base font-semibold ${
-                    currentTheme === 'dark' ? 'text-white' : 'text-slate-800'
-                  }`}
-                >
-                  DRBD HA Manager
-                </span>
-              </Link>
+        <div className="flex items-center justify-between px-4 py-2">
+          {/* Logo & Brand */}
+          <Link to="/" className="flex items-center gap-2 no-underline">
+            <img src="/favicon.svg" alt="DRBD HA" className="w-7 h-7" />
+            <span className="text-base font-semibold text-foreground">
+              DRBD HA Manager
+            </span>
+          </Link>
 
-              {/* Actions */}
-              <div className="flex items-center gap-1">
-                <Tooltip title="API Documentation">
-                  <Button
-                    type="text"
-                    icon={<ApiOutlined />}
-                    onClick={() => window.open('/swagger-ui/', '_blank')}
-                  />
-                </Tooltip>
-                <Tooltip
-                  title={currentTheme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+          {/* Actions */}
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => window.open('/swagger-ui/', '_blank')}
                 >
-                  <Button
-                    type="text"
-                    icon={
-                      currentTheme === 'dark' ? (
-                        <SunOutlined />
-                      ) : (
-                        <MoonOutlined />
-                      )
-                    }
-                    onClick={toggleTheme}
-                  />
-                </Tooltip>
-              </div>
-            </div>
-          </Header>
+                  <Plug />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>API Documentation</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" onClick={toggleTheme}>
+                  {theme === 'dark' ? <Sun /> : <Moon />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      </header>
 
-          {/* Content */}
-          <Content
-            className="p-4"
-            ref={contentRef}
-            style={{
-              backgroundColor: currentTheme === 'dark' ? '#0f172a' : '#f8fafc',
-            }}
-          >
-            <Outlet />
-          </Content>
-        </Layout>
-      </Layout>
-    </ConfigProvider>
+      {/* Content */}
+      <div className="p-4" ref={contentRef}>
+        <Outlet />
+      </div>
+    </div>
   );
 }
