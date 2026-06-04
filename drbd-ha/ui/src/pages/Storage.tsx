@@ -1,21 +1,26 @@
-import { HddOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import {
-  Button,
-  Card,
-  Checkbox,
-  Col,
-  Form,
-  Input,
-  Modal,
-  message,
-  Row,
-  Select,
-  Space,
-  Statistic,
-  Table,
-} from 'antd';
+import { HardDrive, Plus, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { nodesApi, storageApi } from '@/api';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Spinner } from '@/components/ui/spinner';
 import type { BlockDevice, Node, StoragePool } from '@/types';
 
 export function Storage() {
@@ -28,7 +33,8 @@ export function Storage() {
     {},
   );
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
-  const [form] = Form.useForm();
+  const [poolName, setPoolName] = useState('');
+  const [deviceByNode, setDeviceByNode] = useState<Record<string, string>>({});
 
   const fetchPools = async () => {
     setLoading(true);
@@ -37,7 +43,7 @@ export function Storage() {
       setPools(pools);
     } catch (error) {
       console.error(error);
-      message.error('Failed to load storage pools');
+      toast.error('Failed to load storage pools');
     } finally {
       setLoading(false);
     }
@@ -72,10 +78,10 @@ export function Storage() {
       try {
         const disks = await nodesApi.getAvailableDisks(nodeId);
         setDisksByNode((prev) => ({ ...prev, [nodeId]: disks }));
-        message.success(`Available disks refreshed for node ${nodeId}`);
+        toast.success(`Available disks refreshed for node ${nodeId}`);
       } catch (error) {
         console.error(`Failed to refresh disks for node ${nodeId}:`, error);
-        message.error(`Failed to refresh disks for node ${nodeId}`);
+        toast.error(`Failed to refresh disks for node ${nodeId}`);
       }
     } else {
       // Refresh for all nodes
@@ -89,7 +95,7 @@ export function Storage() {
         }
       }
       setDisksByNode(disksMap);
-      message.success('Available disks refreshed for all nodes');
+      toast.success('Available disks refreshed for all nodes');
     }
   };
 
@@ -98,9 +104,26 @@ export function Storage() {
     fetchNodes();
   }, [fetchNodes, fetchPools]); // Only run on mount, and fetchNodes internally handles avoiding duplicates
 
-  const handleCreate = async (values: any) => {
+  const resetForm = () => {
+    setPoolName('');
+    setDeviceByNode({});
+    setSelectedNodes([]);
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!poolName.trim()) {
+      toast.error('Please enter pool name');
+      return;
+    }
     if (selectedNodes.length === 0) {
-      message.error('Please select at least one node');
+      toast.error('Please select at least one node');
+      return;
+    }
+
+    const missingDevice = selectedNodes.find((id) => !deviceByNode[id]);
+    if (missingDevice) {
+      toast.error('Please select a device for each selected node');
       return;
     }
 
@@ -108,24 +131,23 @@ export function Storage() {
     try {
       const nodeDevices: Record<string, string> = {};
       selectedNodes.forEach((nodeId) => {
-        const device = values[`device_${nodeId}`];
+        const device = deviceByNode[nodeId];
         if (device) {
           nodeDevices[nodeId] = device;
         }
       });
 
       await storageApi.createPool({
-        name: values.name,
+        name: poolName,
         pool_type: 'lvm',
         node_devices: nodeDevices,
       });
-      message.success('Storage pool created successfully on selected nodes');
+      toast.success('Storage pool created successfully on selected nodes');
       setModalVisible(false);
-      form.resetFields();
-      setSelectedNodes([]);
+      resetForm();
       fetchPools();
     } catch (error: any) {
-      message.error(
+      toast.error(
         error.response?.data?.message || 'Failed to create storage pool',
       );
     } finally {
@@ -133,208 +155,239 @@ export function Storage() {
     }
   };
 
-  const columns = [
-    {
-      title: 'Name',
-      dataIndex: 'name',
-      key: 'name',
-      sorter: (a: StoragePool, b: StoragePool) => a.name.localeCompare(b.name),
-      defaultSortOrder: 'ascend',
-    },
-    {
-      title: 'Node',
-      dataIndex: 'node_id',
-      key: 'node_id',
-      render: (nodeId: string) => {
-        // Try to find by ID
-        let node = nodes.find((n) => n.id === nodeId);
-        // If not found, and nodeId === 'local', look for is_local flag
-        if (!node && nodeId === 'local') {
-          node = nodes.find((n) => n.is_local);
-        }
-        return node ? node.hostname : nodeId;
-      },
-    },
-    {
-      title: 'Device',
-      dataIndex: 'device',
-      key: 'device',
-    },
-    {
-      title: 'Total Size',
-      dataIndex: 'total_size',
-      key: 'total_size',
-      render: (size: number) => `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`,
-    },
-    {
-      title: 'Free Size',
-      dataIndex: 'free_size',
-      key: 'free_size',
-      render: (size: number) => `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`,
-    },
-  ];
+  const nodeName = (nodeId: string) => {
+    let node = nodes.find((n) => n.id === nodeId);
+    if (!node && nodeId === 'local') {
+      node = nodes.find((n) => n.is_local);
+    }
+    return node ? node.hostname : nodeId;
+  };
+
+  const sortedPools = [...pools].sort((a, b) => a.name.localeCompare(b.name));
+
+  const totalCapacity =
+    pools.reduce((acc, curr) => acc + curr.total_size, 0) / 1024 / 1024 / 1024;
+  const availableFree =
+    pools.reduce((acc, curr) => acc + curr.free_size, 0) / 1024 / 1024 / 1024;
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold">Storage Pools</h2>
-        <Space>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={fetchPools}
-            loading={loading}
-          >
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={fetchPools} disabled={loading}>
+            {loading ? (
+              <Spinner className="h-4 w-4" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
             Refresh Pools
           </Button>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={() => refreshAvailableDisks()}
-          >
+          <Button variant="outline" onClick={() => refreshAvailableDisks()}>
+            <RefreshCw className="h-4 w-4" />
             Refresh Disks
           </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setModalVisible(true)}
-          >
+          <Button onClick={() => setModalVisible(true)}>
+            <Plus className="h-4 w-4" />
             Create Pool
           </Button>
-        </Space>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
-          <Statistic
-            title="Total Pools"
-            value={pools.length}
-            prefix={<HddOutlined />}
-          />
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Total Pools</div>
+            <div className="mt-1 flex items-center gap-2 text-2xl font-semibold">
+              <HardDrive className="h-5 w-5" />
+              {pools.length}
+            </div>
+          </CardContent>
         </Card>
         <Card>
-          <Statistic
-            title="Total Capacity"
-            value={
-              pools.reduce((acc, curr) => acc + curr.total_size, 0) /
-              1024 /
-              1024 /
-              1024
-            }
-            precision={2}
-            suffix="GB"
-          />
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Total Capacity</div>
+            <div className="mt-1 text-2xl font-semibold">
+              {totalCapacity.toFixed(2)} GB
+            </div>
+          </CardContent>
         </Card>
         <Card>
-          <Statistic
-            title="Available Free"
-            value={
-              pools.reduce((acc, curr) => acc + curr.free_size, 0) /
-              1024 /
-              1024 /
-              1024
-            }
-            precision={2}
-            suffix="GB"
-            valueStyle={{ color: '#3f8600' }}
-          />
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Available Free</div>
+            <div
+              className="mt-1 text-2xl font-semibold"
+              style={{ color: '#3f8600' }}
+            >
+              {availableFree.toFixed(2)} GB
+            </div>
+          </CardContent>
         </Card>
       </div>
 
-      <Table
-        dataSource={pools}
-        columns={columns}
-        rowKey="id"
-        loading={loading}
-      />
+      <div className="rounded-md border border-border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted text-muted-foreground text-left">
+              <th className="px-4 py-2 font-medium">Name</th>
+              <th className="px-4 py-2 font-medium">Node</th>
+              <th className="px-4 py-2 font-medium">Device</th>
+              <th className="px-4 py-2 font-medium">Total Size</th>
+              <th className="px-4 py-2 font-medium">Free Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center">
+                  <Spinner className="mx-auto h-5 w-5" />
+                </td>
+              </tr>
+            ) : sortedPools.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={5}
+                  className="px-4 py-10 text-center text-muted-foreground"
+                >
+                  No data
+                </td>
+              </tr>
+            ) : (
+              sortedPools.map((pool) => (
+                <tr key={pool.id} className="border-t border-border">
+                  <td className="px-4 py-2">{pool.name}</td>
+                  <td className="px-4 py-2">
+                    {nodeName((pool as { node_id?: string }).node_id ?? '')}
+                  </td>
+                  <td className="px-4 py-2">{pool.device}</td>
+                  <td className="px-4 py-2">
+                    {(pool.total_size / 1024 / 1024 / 1024).toFixed(2)} GB
+                  </td>
+                  <td className="px-4 py-2">
+                    {(pool.free_size / 1024 / 1024 / 1024).toFixed(2)} GB
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
-      <Modal
-        title="Create Storage Pool"
+      <Dialog
         open={modalVisible}
-        onCancel={() => setModalVisible(false)}
-        onOk={() => form.submit()}
-        confirmLoading={createLoading}
-        width={700}
+        onOpenChange={(open) => {
+          setModalVisible(open);
+          if (!open) resetForm();
+        }}
       >
-        <Form form={form} layout="vertical" onFinish={handleCreate}>
-          <Form.Item
-            name="name"
-            label="Pool Name"
-            rules={[{ required: true, message: 'Please enter pool name' }]}
-          >
-            <Input placeholder="e.g., ha_pool" />
-          </Form.Item>
+        <DialogContent className="max-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Create Storage Pool</DialogTitle>
+          </DialogHeader>
+          <form id="create-pool-form" onSubmit={handleCreate} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="pool-name">Pool Name</Label>
+              <Input
+                id="pool-name"
+                placeholder="e.g., ha_pool"
+                value={poolName}
+                onChange={(e) => setPoolName(e.target.value)}
+              />
+            </div>
 
-          <Form.Item label="Create Pool On Nodes">
-            <div
-              style={{
-                border: '1px solid #d9d9d9',
-                borderRadius: '4px',
-                padding: '12px',
-              }}
-            >
-              {nodes.length === 0 ? (
-                <p>No nodes available</p>
-              ) : (
-                <Row gutter={[16, 16]}>
-                  {nodes.map((node) => (
-                    <Col span={24} key={node.id}>
-                      <div
-                        style={{
-                          paddingBottom: '12px',
-                          borderBottom: '1px solid #f0f0f0',
-                        }}
-                      >
-                        <div style={{ marginBottom: '8px' }}>
-                          <Checkbox
-                            checked={selectedNodes.includes(node.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedNodes([...selectedNodes, node.id]);
-                              } else {
-                                setSelectedNodes(
-                                  selectedNodes.filter((id) => id !== node.id),
-                                );
-                              }
-                            }}
-                          >
+            <div className="space-y-2">
+              <Label>Create Pool On Nodes</Label>
+              <div className="rounded-md border border-border p-3">
+                {nodes.length === 0 ? (
+                  <p>No nodes available</p>
+                ) : (
+                  <div className="space-y-3">
+                    {nodes.map((node) => {
+                      const checked = selectedNodes.includes(node.id);
+                      return (
+                        <div
+                          key={node.id}
+                          className="border-b border-border pb-3 last:border-b-0 last:pb-0"
+                        >
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-input"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedNodes([...selectedNodes, node.id]);
+                                } else {
+                                  setSelectedNodes(
+                                    selectedNodes.filter(
+                                      (id) => id !== node.id,
+                                    ),
+                                  );
+                                }
+                              }}
+                            />
                             <strong>{node.hostname}</strong>{' '}
                             {node.is_local && (
-                              <span style={{ color: '#1890ff' }}>(Local)</span>
+                              <span className="text-primary">(Local)</span>
                             )}
-                          </Checkbox>
+                          </label>
+                          {checked && (
+                            <div className="mt-2 ml-6 space-y-2">
+                              <Label className="text-xs text-muted-foreground">
+                                Device on {node.hostname}
+                              </Label>
+                              <Select
+                                value={deviceByNode[node.id] ?? ''}
+                                onValueChange={(value) =>
+                                  setDeviceByNode((prev) => ({
+                                    ...prev,
+                                    [node.id]: value,
+                                  }))
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select a disk" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(disksByNode[node.id] || []).map((disk) => (
+                                    <SelectItem
+                                      key={disk.path}
+                                      value={disk.path}
+                                    >
+                                      {disk.path} ({disk.size_human})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
                         </div>
-                        {selectedNodes.includes(node.id) && (
-                          <Form.Item
-                            name={`device_${node.id}`}
-                            label={`Device on ${node.hostname}`}
-                            rules={[
-                              {
-                                required: true,
-                                message: 'Please select a device',
-                              },
-                            ]}
-                            style={{ margin: '8px 0 0 24px' }}
-                          >
-                            <Select placeholder="Select a disk">
-                              {(disksByNode[node.id] || []).map((disk) => (
-                                <Select.Option
-                                  key={disk.path}
-                                  value={disk.path}
-                                >
-                                  {disk.path} ({disk.size_human})
-                                </Select.Option>
-                              ))}
-                            </Select>
-                          </Form.Item>
-                        )}
-                      </div>
-                    </Col>
-                  ))}
-                </Row>
-              )}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
-          </Form.Item>
-        </Form>
-      </Modal>
+          </form>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setModalVisible(false)}
+              disabled={createLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="create-pool-form"
+              disabled={createLoading}
+            >
+              {createLoading && <Spinner className="mr-2 h-4 w-4" />}
+              OK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

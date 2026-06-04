@@ -1,67 +1,84 @@
-import {
-  DeleteOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
-import {
-  Alert,
-  Button,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  message,
-  Popconfirm,
-  Space,
-  Table,
-  Tag,
-  Tooltip,
-} from 'antd';
+import { Info, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { nodesApi } from '@/api';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useNodesStore } from '@/stores/nodes';
 import type { AddNodeRequest, Node } from '@/types';
 
-const statusColor: Record<string, string> = {
-  online: 'green',
-  offline: 'red',
-  error: 'orange',
-  unknown: 'default',
+const statusVariant: Record<
+  string,
+  'default' | 'secondary' | 'destructive' | 'outline'
+> = {
+  online: 'default',
+  offline: 'destructive',
+  error: 'secondary',
+  unknown: 'outline',
 };
+
+const emptyForm: AddNodeRequest = {
+  hostname: '',
+  ip: '',
+  ssh_port: 22,
+  ssh_user: '',
+} as AddNodeRequest;
 
 export function Nodes() {
   const { nodes, loading, fetch, add, remove } = useNodesStore();
   const [modalOpen, setModalOpen] = useState(false);
-  const [form] = Form.useForm<AddNodeRequest>();
+  const [form, setForm] = useState<AddNodeRequest>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     fetch();
   }, [fetch]);
 
-  const handleAdd = async (values: AddNodeRequest) => {
+  const resetForm = () => setForm(emptyForm);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.hostname?.trim() || !form.ip?.trim()) {
+      toast.error('Hostname and IP Address are required');
+      return;
+    }
     setSubmitting(true);
     try {
       await add({
-        ...values,
-        ssh_user: values.ssh_user?.trim() || undefined,
+        ...form,
+        ssh_user: form.ssh_user?.trim() || undefined,
       });
-      message.success('Node added successfully');
+      toast.success('Node added successfully');
       setModalOpen(false);
-      form.resetFields();
+      resetForm();
     } catch (err) {
-      message.error((err as { message: string }).message);
+      toast.error((err as { message: string }).message);
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDelete = async (id: string) => {
+    if (!window.confirm('Delete this node?')) return;
     try {
       await remove(id);
-      message.success('Node removed');
+      toast.success('Node removed');
     } catch (err) {
-      message.error((err as { message: string }).message);
+      toast.error((err as { message: string }).message);
     }
   };
 
@@ -69,139 +86,207 @@ export function Nodes() {
     try {
       const result = await nodesApi.check(id);
       if (result.status === 'online') {
-        message.success(`Node ${result.hostname} is online`);
+        toast.success(`Node ${result.hostname} is online`);
       } else if (result.status === 'offline') {
-        message.error(
+        toast.error(
           `Node ${result.hostname}: ${result.message || 'SSH connection failed'}`,
         );
       } else {
-        message.error(
+        toast.error(
           `Node ${result.hostname}: ${result.message || result.status}`,
         );
       }
       fetch();
     } catch (err) {
-      message.error((err as { message: string }).message);
+      toast.error((err as { message: string }).message);
     }
   };
-
-  const columns = [
-    { title: 'Hostname', dataIndex: 'hostname', key: 'hostname' },
-    { title: 'IP', dataIndex: 'ip', key: 'ip' },
-    { title: 'SSH Port', dataIndex: 'ssh_port', key: 'ssh_port' },
-    { title: 'User', dataIndex: 'ssh_user', key: 'ssh_user' },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: Node['status'], record: Node) => {
-        const tag = (
-          <Tag color={statusColor[status]}>{status.toUpperCase()}</Tag>
-        );
-        return record.status_message ? (
-          <Tooltip title={record.status_message}>{tag}</Tooltip>
-        ) : (
-          tag
-        );
-      },
-    },
-    {
-      title: 'Type',
-      key: 'type',
-      render: (_: unknown, record: Node) => (
-        <Tag>{record.is_local ? 'Local' : 'Remote'}</Tag>
-      ),
-    },
-    {
-      title: 'Actions',
-      key: 'actions',
-      render: (_: unknown, record: Node) => (
-        <Space>
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={() => handleCheck(record.id)}
-          >
-            Check
-          </Button>
-          {!record.is_local && (
-            <Popconfirm
-              title="Delete this node?"
-              onConfirm={() => handleDelete(record.id)}
-            >
-              <Button size="small" danger icon={<DeleteOutlined />}>
-                Delete
-              </Button>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
-    },
-  ];
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-semibold">Nodes</h2>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setModalOpen(true)}
-        >
+        <Button onClick={() => setModalOpen(true)}>
+          <Plus className="h-4 w-4" />
           Add Node
         </Button>
       </div>
 
-      <Alert
-        type="info"
-        showIcon
-        message="Remote access requirements"
-        description="Nodes must allow passwordless SSH. If SSH User is not root, that user must also support passwordless sudo (`sudo -n`). Node Check only reports online when these requirements pass."
-      />
+      <div className="flex items-start gap-3 rounded-md border border-border bg-muted p-4 text-sm">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <div>
+          <div className="font-medium">Remote access requirements</div>
+          <div className="text-muted-foreground">
+            Nodes must allow passwordless SSH. If SSH User is not root, that user
+            must also support passwordless sudo (`sudo -n`). Node Check only
+            reports online when these requirements pass.
+          </div>
+        </div>
+      </div>
 
-      <Table
-        dataSource={nodes}
-        columns={columns}
-        rowKey="id"
-        loading={loading}
-        pagination={false}
-      />
+      <div className="rounded-md border border-border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted text-muted-foreground text-left">
+              <th className="px-4 py-2 font-medium">Hostname</th>
+              <th className="px-4 py-2 font-medium">IP</th>
+              <th className="px-4 py-2 font-medium">SSH Port</th>
+              <th className="px-4 py-2 font-medium">User</th>
+              <th className="px-4 py-2 font-medium">Status</th>
+              <th className="px-4 py-2 font-medium">Type</th>
+              <th className="px-4 py-2 font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-10 text-center">
+                  <Spinner className="mx-auto h-5 w-5" />
+                </td>
+              </tr>
+            ) : nodes.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="px-4 py-10 text-center text-muted-foreground"
+                >
+                  No data
+                </td>
+              </tr>
+            ) : (
+              nodes.map((record: Node) => {
+                const tag = (
+                  <Badge variant={statusVariant[record.status] || 'outline'}>
+                    {record.status.toUpperCase()}
+                  </Badge>
+                );
+                return (
+                  <tr key={record.id} className="border-t border-border">
+                    <td className="px-4 py-2">{record.hostname}</td>
+                    <td className="px-4 py-2">{record.ip}</td>
+                    <td className="px-4 py-2">{record.ssh_port}</td>
+                    <td className="px-4 py-2">{record.ssh_user}</td>
+                    <td className="px-4 py-2">
+                      {record.status_message ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>{tag}</span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {record.status_message}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        tag
+                      )}
+                    </td>
+                    <td className="px-4 py-2">
+                      <Badge variant="secondary">
+                        {record.is_local ? 'Local' : 'Remote'}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleCheck(record.id)}
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          Check
+                        </Button>
+                        {!record.is_local && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDelete(record.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
 
-      <Modal
-        title="Add Node"
+      <Dialog
         open={modalOpen}
-        onCancel={() => setModalOpen(false)}
-        footer={null}
-        destroyOnClose
+        onOpenChange={(open) => {
+          setModalOpen(open);
+          if (!open) resetForm();
+        }}
       >
-        <Form form={form} layout="vertical" onFinish={handleAdd}>
-          <Form.Item
-            name="hostname"
-            label="Hostname"
-            rules={[{ required: true }]}
-          >
-            <Input placeholder="node2" />
-          </Form.Item>
-          <Form.Item name="ip" label="IP Address" rules={[{ required: true }]}>
-            <Input placeholder="192.168.1.102" />
-          </Form.Item>
-          <Form.Item name="ssh_port" label="SSH Port" initialValue={22}>
-            <InputNumber min={1} max={65535} className="w-full" />
-          </Form.Item>
-          <Form.Item
-            name="ssh_user"
-            label="SSH User"
-            extra="Optional. Leave empty to use the global default SSH user. If it is not root, it must support passwordless sudo (`sudo -n`)."
-          >
-            <Input placeholder="cluster-admin" />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" loading={submitting} block>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Node</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleAdd} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="node-hostname">Hostname</Label>
+              <Input
+                id="node-hostname"
+                placeholder="node2"
+                value={form.hostname ?? ''}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, hostname: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="node-ip">IP Address</Label>
+              <Input
+                id="node-ip"
+                placeholder="192.168.1.102"
+                value={form.ip ?? ''}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, ip: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="node-ssh-port">SSH Port</Label>
+              <Input
+                id="node-ssh-port"
+                type="number"
+                min={1}
+                max={65535}
+                value={form.ssh_port ?? 22}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    ssh_port: Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="node-ssh-user">SSH User</Label>
+              <Input
+                id="node-ssh-user"
+                placeholder="cluster-admin"
+                value={form.ssh_user ?? ''}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, ssh_user: e.target.value }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Optional. Leave empty to use the global default SSH user. If it
+                is not root, it must support passwordless sudo (`sudo -n`).
+              </p>
+            </div>
+            <Button type="submit" disabled={submitting} className="w-full">
+              {submitting && <Spinner className="mr-2 h-4 w-4" />}
               Add Node
             </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
