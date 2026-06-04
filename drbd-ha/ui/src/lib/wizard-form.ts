@@ -1,9 +1,7 @@
 // Standalone, dependency-free form-instance store for the wizard steps.
 //
-// Background: antd has been removed from the project. The previous wizard form
-// relied on antd's `Form.useForm()` / `FormInstance`. This module provides a
-// minimal, API-compatible replacement covering exactly the surface the wizard
-// steps (and `OcfAgentEditor` via its `externalForm` prop) use:
+// A shared form instance passed across the wizard steps (and into
+// `OcfAgentEditor` via its `externalForm` prop). Surface area:
 //   getFieldValue / setFieldValue (string or nested path array)
 //   getFieldsValue / setFieldsValue / resetFields / validateFields
 //   getFieldsError (no-op success)
@@ -96,7 +94,7 @@ function createForm(): WizardFormInstance {
 }
 
 /**
- * Drop-in replacement for antd's `Form.useForm()`. Returns a tuple so existing
+ * Returns a tuple so existing
  * `const [form] = useWizardForm()` call sites keep working.
  */
 export function useWizardForm(): [WizardFormInstance] {
@@ -108,8 +106,8 @@ export function useWizardForm(): [WizardFormInstance] {
 }
 
 /**
- * Drop-in replacement for antd's `Form.useWatch(name, form)`. Re-renders the
- * caller whenever the watched field (or any field) changes.
+ * Reactive field reader. Re-renders the caller whenever the watched field
+ * (or any field) changes.
  */
 export function useWizardWatch(name: NamePath, form?: WizardFormInstance): any {
   const [, forceRender] = useState({});
