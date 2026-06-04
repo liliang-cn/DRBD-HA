@@ -1,12 +1,16 @@
 import {
-  ArrowLeftOutlined,
-  ArrowRightOutlined,
-  CheckCircleOutlined,
-  FundOutlined,
-  LoadingOutlined,
-  ThunderboltOutlined,
-} from '@ant-design/icons';
-import { Button, Form, message, Steps, Typography } from 'antd';
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  Loader2,
+  LineChart,
+  Zap,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
+import { Stepper } from '@/components/ui/stepper';
+import { useWizardForm } from '@/lib/wizard-form';
 import gsap from 'gsap';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -66,8 +70,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   // Option to use existing DRBD resource (skip storage config step)
   const [useExistingResource, setUseExistingResource] = useState(false);
 
-  const [resourceForm] = Form.useForm();
-  const [haForm] = Form.useForm();
+  const [resourceForm] = useWizardForm();
+  const [haForm] = useWizardForm();
 
   // New state for generated config content
   const [generatedConfig, setGeneratedConfig] = useState<string | null>(null);
@@ -88,7 +92,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const [createdProfileName, setCreatedProfileName] = useState<string | null>(
     null,
   );
-  const [activationStatus, setActivationStatus] = useState<
+  const [, setActivationStatus] = useState<
     'pending' | 'creating' | 'activating' | 'checking' | 'success' | 'error'
   >('pending');
   const [_activationError, setActivationError] = useState<string | null>(null);
@@ -205,17 +209,15 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         } catch {}
       });
 
-      // Auto-generate port and minor numbers based on existing resources
-      const _usedMinors = (resources || []).flatMap(
-        (r) => r.devices?.map((d) => d.minor) || [],
-      );
-
       // Find the maximum port used by existing resources and increment by 1
       // Filter out invalid port numbers (undefined, null, NaN)
-      const validResources = (resources || []).filter(
-        (r) => r && typeof r.port === 'number' && !Number.isNaN(r.port),
+      const validResources = (resources || []).filter((r) => {
+        const port = (r as { port?: number }).port;
+        return r && typeof port === 'number' && !Number.isNaN(port);
+      });
+      const usedPorts = validResources.map(
+        (r) => (r as { port?: number }).port as number,
       );
-      const usedPorts = validResources.map((r) => r.port);
       const maxPort = usedPorts.length > 0 ? Math.max(...usedPorts) : 7000;
       const nextPort = maxPort + 1;
 
@@ -261,7 +263,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   useEffect(() => {
     // Determine target based on current step
     let targetName = null;
-    let relevantOperations = [];
+    let relevantOperations: string[] = [];
 
     if (step === 0) {
       // Step 1: Nodes verification - listen for any progress events
@@ -448,7 +450,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const handleNext = async () => {
     if (step === 0) {
       if (nodes.length < 2) {
-        message.warning('At least 2 nodes are required for HA');
+        toast.warning('At least 2 nodes are required for HA');
         addLog('Validation failed: At least 2 nodes are required');
         return;
       }
@@ -560,32 +562,32 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         addLog(`Starting DRBD resource creation: ${values.name}`);
 
         await resourcesApi.create(createRequest);
-        message.success('DRBD resource created');
+        toast.success('DRBD resource created');
         addLog(`DRBD resource '${values.name}' created successfully`);
 
         await fetchResources();
         try {
           addLog(`Initializing resource '${values.name}'...`);
           await resourcesApi.init(values.name);
-          message.success('Resource initialized');
+          toast.success('Resource initialized');
           addLog(`Resource '${values.name}' initialized`);
 
           const fsType = values.fs_type || 'xfs';
           try {
             addLog(`Creating filesystem (${fsType}) on '${values.name}'...`);
             await resourcesApi.mkfs(values.name, fsType, true);
-            message.success(`Filesystem (${fsType}) created`);
+            toast.success(`Filesystem (${fsType}) created`);
             addLog(`Filesystem (${fsType}) created successfully`);
           } catch (mkfsErr) {
             const errMsg =
               (mkfsErr as { message?: string }).message || 'unknown error';
-            message.warning(`Filesystem creation skipped: ${errMsg}`);
+            toast.warning(`Filesystem creation skipped: ${errMsg}`);
             addLog(`Warning: Filesystem creation skipped: ${errMsg}`);
           }
         } catch (initErr) {
           const errMsg =
             (initErr as { message?: string }).message || 'unknown error';
-          message.warning(`Resource initialization skipped: ${errMsg}`);
+          toast.warning(`Resource initialization skipped: ${errMsg}`);
           addLog(`Warning: Resource initialization skipped: ${errMsg}`);
         }
 
@@ -598,7 +600,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       } catch (err) {
         if ((err as { message?: string }).message) {
           const errMsg = (err as { message: string }).message;
-          message.error(errMsg);
+          toast.error(errMsg);
           addLog(`Error in resource creation: ${errMsg}`);
         }
         // Clear resource creation tracking on error
@@ -614,7 +616,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
 
         if (!haValues.resource_name) {
           console.error('ERROR: Resource name is empty!');
-          message.error('Resource name is missing. Please go back and check.');
+          toast.error('Resource name is missing. Please go back and check.');
           addLog('Error: Resource name is missing in HA config');
           setLoading(false);
           return;
@@ -631,7 +633,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         const isSimpleMode =
           !haValues.ocf_agents || haValues.ocf_agents.length === 0;
 
-        const request: CreateHaProfileRequest = {
+        const request = {
           name: haValues.name,
           ha_type: haType,
           resource_name: haValues.resource_name,
@@ -676,7 +678,9 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             : undefined,
         };
 
-        const result = await haProfilesApi.create(request);
+        const result = await haProfilesApi.create(
+          request as unknown as CreateHaProfileRequest,
+        );
         setCreatedProfileId(result.profile.id);
         setCreatedProfileName(result.profile.name);
         setGeneratedConfig(result.promoter_config_content || null);
@@ -691,7 +695,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       } catch (err) {
         if ((err as { message?: string }).message) {
           const errMsg = (err as { message: string }).message;
-          message.error(errMsg);
+          toast.error(errMsg);
           addLog(`Error creating HA profile: ${errMsg}`);
         }
         setLoading(false);
@@ -702,7 +706,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     else if (step === 3) {
       // Enable the profile (calls drbd-reactorctl enable)
       if (!createdProfileId) {
-        message.error('No profile to enable');
+        toast.error('No profile to enable');
         addLog('Error: No profile ID available');
         return;
       }
@@ -757,39 +761,6 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     navigate('/');
   };
 
-  const _handleRetry = async () => {
-    if (createdProfileId) {
-      setActivationStatus('activating');
-      setActivationError(null);
-      setProgressSteps([]);
-      addLog('Retrying activation...');
-      try {
-        await haProfilesApi.activate(createdProfileId);
-        setActivationStatus('checking');
-        pollServiceStatus(createdProfileId);
-      } catch (err) {
-        const errMsg = (err as { message: string }).message;
-        setActivationStatus('error');
-        setActivationError(errMsg);
-        addLog(`Retry failed: ${errMsg}`);
-      }
-    }
-  };
-
-  const currentProgress = progressEvents.find(
-    (p) =>
-      p.resource === createdProfileName &&
-      (p.operation === 'create_ha_profile' ||
-        p.operation === 'activate_profile') &&
-      !p.completed,
-  );
-  const _progressPercent =
-    currentProgress?.progress ??
-    (activationStatus === 'checking'
-      ? 90
-      : activationStatus === 'success'
-        ? 100
-        : 0);
 
   const renderStepContent = () => {
     switch (step) {
@@ -881,7 +852,8 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         >
           {/* Expand/Collapse Log Panel Button - Top Right of Content Area */}
           <Button
-            icon={<FundOutlined />}
+            variant="ghost"
+            size="icon"
             onClick={() => setIsLogPanelVisible(!isLogPanelVisible)}
             style={{
               position: 'absolute',
@@ -889,9 +861,10 @@ export function Wizard({ mode = 'service' }: WizardProps) {
               right: '1rem',
               zIndex: 10,
             }}
-            type="text"
             title={isLogPanelVisible ? 'Hide logs' : 'Show logs'}
-          />
+          >
+            <LineChart className="h-4 w-4" />
+          </Button>
 
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
@@ -907,7 +880,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             </h1>
             {step === 0 && resources.length > 0 && (
               <Button
-                type="link"
+                variant="link"
                 onClick={() => {
                   setUseExistingResource(true);
                   updateStep(2);
@@ -919,15 +892,13 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           </div>
 
           {/* Steps */}
-          <Steps
+          <Stepper
             current={step}
             className="mb-8"
-            items={[
+            steps={[
               { title: 'Nodes' },
               {
-                title: 'Storage',
-                disabled: useExistingResource,
-                status: useExistingResource ? 'wait' : undefined,
+                title: useExistingResource ? 'Storage (skipped)' : 'Storage',
               },
               { title: 'Services' },
               { title: 'Preview' },
@@ -944,32 +915,38 @@ export function Wizard({ mode = 'service' }: WizardProps) {
           <div className="flex mt-8 justify-between">
             {step < 4 && (
               <Button
-                icon={<ArrowLeftOutlined />}
+                variant="outline"
                 onClick={step === 0 ? () => navigate('/') : handlePrev}
-                className="hover:!bg-slate-100"
               >
+                <ArrowLeft className="mr-2 h-4 w-4" />
                 {step === 0 ? 'Cancel' : 'Previous'}
               </Button>
             )}
 
             {step < 3 ? (
               <Button
-                type="primary"
-                icon={<ArrowRightOutlined />}
                 onClick={handleNext}
-                loading={loading}
-                className="!h-10 !px-6"
+                disabled={loading}
+                className="h-10 px-6"
               >
+                {loading ? (
+                  <Spinner className="mr-2 h-4 w-4" />
+                ) : (
+                  <ArrowRight className="mr-2 h-4 w-4" />
+                )}
                 Next
               </Button>
             ) : step === 3 ? (
               <Button
-                type="primary"
-                icon={<ArrowRightOutlined />}
                 onClick={handleNext}
-                loading={loading}
-                className="!h-10 !px-6"
+                disabled={loading}
+                className="h-10 px-6"
               >
+                {loading ? (
+                  <Spinner className="mr-2 h-4 w-4" />
+                ) : (
+                  <ArrowRight className="mr-2 h-4 w-4" />
+                )}
                 Activate
               </Button>
             ) : null}
@@ -1000,18 +977,17 @@ export function Wizard({ mode = 'service' }: WizardProps) {
                     background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
                   }}
                 >
-                  <ThunderboltOutlined className="text-sm" />
+                  <Zap className="h-3.5 w-3.5" />
                 </div>
-                <Typography.Title
-                  level={5}
-                  className={`!mb-0 ${
-                    currentTheme === 'dark' ? '!text-slate-100' : ''
+                <h5
+                  className={`text-base font-semibold mb-0 ${
+                    currentTheme === 'dark' ? 'text-slate-100' : ''
                   }`}
                 >
                   Operation Logs
-                </Typography.Title>
+                </h5>
               </div>
-              <Button size="small" type="text" onClick={() => setLogs([])}>
+              <Button variant="ghost" size="sm" onClick={() => setLogs([])}>
                 Clear
               </Button>
             </div>
@@ -1038,13 +1014,13 @@ export function Wizard({ mode = 'service' }: WizardProps) {
                       className="flex items-start gap-2 text-sm"
                     >
                       {s.done ? (
-                        <CheckCircleOutlined
-                          className="mt-0.5 shrink-0"
+                        <CheckCircle2
+                          className="mt-0.5 h-4 w-4 shrink-0"
                           style={{ color: ACCENT_COLORS.mint }}
                         />
                       ) : (
-                        <LoadingOutlined
-                          className="mt-0.5 shrink-0 animate-spin"
+                        <Loader2
+                          className="mt-0.5 h-4 w-4 shrink-0 animate-spin"
                           style={{ color: ACCENT_COLORS.sky }}
                         />
                       )}
@@ -1070,7 +1046,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
                       : 'text-slate-400'
                   }`}
                 >
-                  <ThunderboltOutlined className="text-4xl mb-2 opacity-30" />
+                  <Zap className="h-9 w-9 mb-2 opacity-30" />
                   <div>No logs yet</div>
                 </div>
               ) : (

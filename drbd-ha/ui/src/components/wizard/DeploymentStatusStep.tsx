@@ -1,28 +1,52 @@
 import {
-  CheckCircleOutlined,
-  ExclamationCircleOutlined,
-  FileTextOutlined,
-  LoadingOutlined,
-  ReloadOutlined,
-  ThunderboltOutlined,
-} from '@ant-design/icons';
-import {
-  Button,
-  Card,
-  message,
-  Progress,
-  Result,
-  Space,
-  Tag,
-  Typography,
-} from 'antd';
+  CheckCircle2,
+  AlertCircle,
+  FileText,
+  Loader2,
+  RefreshCw,
+  Zap,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { haProfilesApi } from '@/api';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Result } from '@/components/ui/result';
+import { cn } from '@/lib/utils';
 import { useThemeStore } from '@/stores/theme';
 import { ACCENT_COLORS } from '@/theme/colors';
+import { toast } from 'sonner';
 import { formatJsonForDisplay } from '@/utils/json';
 
-const { Title, Text } = Typography;
+// Map legacy Tag colors to tailwind classes.
+const tagColorClass: Record<string, string> = {
+  green: 'bg-green-500/15 text-green-600 dark:text-green-400',
+  blue: 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
+  red: 'bg-red-500/15 text-red-600 dark:text-red-400',
+  orange: 'bg-orange-500/15 text-orange-600 dark:text-orange-400',
+  default: 'bg-muted text-muted-foreground',
+};
+
+function Tag({
+  color = 'default',
+  className,
+  children,
+}: {
+  color?: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium',
+        tagColorClass[color] ?? tagColorClass.default,
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
 
 const statusColor: Record<string, string> = {
   active: 'green',
@@ -42,6 +66,33 @@ interface DeploymentStatusStepProps {
   profileId: string | null;
   profileName: string | null;
   onDone?: () => void;
+}
+
+// Local card wrapper matching the prior Card look used here.
+function PanelCard({
+  title,
+  className,
+  style,
+  children,
+}: {
+  title?: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn('rounded-xl border bg-card text-card-foreground', className)}
+      style={style}
+    >
+      {title && (
+        <div className="border-b border-border px-6 py-4 font-semibold">
+          {title}
+        </div>
+      )}
+      <div className="p-6">{children}</div>
+    </div>
+  );
 }
 
 export function DeploymentStatusStep({
@@ -76,7 +127,7 @@ export function DeploymentStatusStep({
     } catch (err) {
       const errMsg = (err as { message: string }).message;
       setError(errMsg);
-      message.error(errMsg);
+      toast.error(errMsg);
     } finally {
       setLoading(false);
     }
@@ -101,19 +152,23 @@ export function DeploymentStatusStep({
     fetchStatus,
   ]);
 
+  const headerTitle = (
+    <h3 className="text-2xl font-bold">
+      <span
+        className="bg-clip-text text-transparent"
+        style={{
+          backgroundImage: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
+        }}
+      >
+        Status
+      </span>
+    </h3>
+  );
+
   if (loading) {
     return (
       <div className="h-full flex flex-col">
-        <Title level={3} className="!mb-6">
-          <span
-            className="bg-clip-text text-transparent"
-            style={{
-              backgroundImage: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
-            }}
-          >
-            Status
-          </span>
-        </Title>
+        <div className="mb-6">{headerTitle}</div>
         <div className="flex-1 flex flex-col items-center justify-center">
           <div
             className="w-20 h-20 rounded-2xl flex items-center justify-center mb-6"
@@ -121,12 +176,12 @@ export function DeploymentStatusStep({
               background: `linear-gradient(135deg, ${ACCENT_COLORS.sky}20, ${ACCENT_COLORS.blue}20)`,
             }}
           >
-            <LoadingOutlined
-              className="text-4xl"
+            <Loader2
+              className="h-10 w-10 animate-spin"
               style={{ color: ACCENT_COLORS.sky }}
             />
           </div>
-          <Text className="text-lg">Checking deployment status...</Text>
+          <span className="text-lg">Checking deployment status...</span>
         </div>
       </div>
     );
@@ -135,32 +190,22 @@ export function DeploymentStatusStep({
   if (error) {
     return (
       <div className="h-full flex flex-col">
-        <Title level={3} className="!mb-6">
-          <span
-            className="bg-clip-text text-transparent"
-            style={{
-              backgroundImage: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
-            }}
-          >
-            Status
-          </span>
-        </Title>
+        <div className="mb-6">{headerTitle}</div>
         <div className="flex-1 flex items-center justify-center">
           <Result
             status="error"
             title="Failed to Check Deployment Status"
             subTitle={error}
             extra={
-              <Space>
-                <Button
-                  type="primary"
-                  icon={<ReloadOutlined />}
-                  onClick={fetchStatus}
-                >
+              <div className="flex items-center gap-3">
+                <Button onClick={fetchStatus}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
                   Retry
                 </Button>
-                <Button onClick={onDone}>Go to Dashboard</Button>
-              </Space>
+                <Button variant="outline" onClick={onDone}>
+                  Go to Dashboard
+                </Button>
+              </div>
             }
           />
         </div>
@@ -168,37 +213,35 @@ export function DeploymentStatusStep({
     );
   }
 
+  const cellBg =
+    currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50';
+  const subText =
+    currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500';
+  const borderColor = currentTheme === 'dark' ? '#334155' : '#e2e8f0';
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <Title level={3} className="!mb-0">
-          <span
-            className="bg-clip-text text-transparent"
-            style={{
-              backgroundImage: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
-            }}
-          >
-            Status
-          </span>
-        </Title>
-        <Button icon={<ReloadOutlined />} onClick={fetchStatus}>
+        {headerTitle}
+        <Button variant="outline" onClick={fetchStatus}>
+          <RefreshCw className="mr-2 h-4 w-4" />
           Refresh
         </Button>
       </div>
 
       {statusData && (
         <div className="flex-1 overflow-y-auto">
-          {/* Success/Warning Message - Moved to top */}
+          {/* Success/Warning Message */}
           {statusData.status === 'active' &&
           statusData.service_statuses &&
           statusData.service_statuses.length > 0 &&
           statusData.service_statuses.every((s: any) => s.active) ? (
-            <Card
+            <PanelCard
               className="shadow-sm border-l-4"
               style={{
                 borderLeftColor: ACCENT_COLORS.mint,
-                borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+                borderColor,
                 marginBottom: '24px',
               }}
             >
@@ -209,38 +252,33 @@ export function DeploymentStatusStep({
                     background: `linear-gradient(135deg, ${ACCENT_COLORS.mint}30, ${ACCENT_COLORS.cyan}30)`,
                   }}
                 >
-                  <CheckCircleOutlined
-                    className="text-3xl"
+                  <CheckCircle2
+                    className="h-8 w-8"
                     style={{ color: ACCENT_COLORS.mint }}
                   />
                 </div>
                 <div className="flex-1">
-                  <Title level={3} className="!mb-2">
+                  <h3 className="text-xl font-bold mb-2">
                     Deployment Successful!
-                  </Title>
-                  <Text
-                    className="text-base"
-                    style={{
-                      color: currentTheme === 'dark' ? '#94a3b8' : '#64748b',
-                    }}
-                  >
+                  </h3>
+                  <p className={cn('text-base', subText)}>
                     HA profile '{profileName}' is active and all services are
                     running on {statusData.active_node || 'the local node'}.
-                  </Text>
+                  </p>
                   <div className="mt-4">
-                    <Button type="primary" size="large" onClick={onDone}>
+                    <Button size="lg" onClick={onDone}>
                       Go to Dashboard
                     </Button>
                   </div>
                 </div>
               </div>
-            </Card>
+            </PanelCard>
           ) : statusData.status !== 'active' ? (
-            <Card
+            <PanelCard
               className="shadow-sm border-l-4"
               style={{
                 borderLeftColor: ACCENT_COLORS.gold,
-                borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
+                borderColor,
                 marginBottom: '24px',
               }}
             >
@@ -251,45 +289,37 @@ export function DeploymentStatusStep({
                     background: `linear-gradient(135deg, ${ACCENT_COLORS.gold}30, ${ACCENT_COLORS.orange}30)`,
                   }}
                 >
-                  <ExclamationCircleOutlined
-                    className="text-3xl"
+                  <AlertCircle
+                    className="h-8 w-8"
                     style={{ color: ACCENT_COLORS.gold }}
                   />
                 </div>
                 <div className="flex-1">
-                  <Title level={3} className="!mb-2">
+                  <h3 className="text-xl font-bold mb-2">
                     Deployment Completed
-                  </Title>
-                  <Text
-                    className="text-base"
-                    style={{
-                      color: currentTheme === 'dark' ? '#94a3b8' : '#64748b',
-                    }}
-                  >
+                  </h3>
+                  <p className={cn('text-base', subText)}>
                     HA profile '{profileName}' has been created, but the status
                     is '{statusData.status}'. Check the details below for more
                     information.
-                  </Text>
+                  </p>
                   <div className="mt-4">
-                    <Space>
-                      <Button type="primary" onClick={fetchStatus}>
-                        Refresh Status
+                    <div className="flex items-center gap-3">
+                      <Button onClick={fetchStatus}>Refresh Status</Button>
+                      <Button variant="outline" onClick={onDone}>
+                        Go to Dashboard
                       </Button>
-                      <Button onClick={onDone}>Go to Dashboard</Button>
-                    </Space>
+                    </div>
                   </div>
                 </div>
               </div>
-            </Card>
+            </PanelCard>
           ) : null}
 
           {/* Status Overview */}
-          <Card
+          <PanelCard
             className="shadow-sm"
-            style={{
-              borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
-              marginBottom: '24px',
-            }}
+            style={{ borderColor, marginBottom: '24px' }}
           >
             <div className="flex items-center gap-3 mb-4">
               <div
@@ -298,25 +328,13 @@ export function DeploymentStatusStep({
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}, ${ACCENT_COLORS.gold})`,
                 }}
               >
-                <FileTextOutlined className="text-white text-lg" />
+                <FileText className="h-5 w-5 text-white" />
               </div>
-              <Title level={4} className="!mb-0">
-                Status Overview
-              </Title>
+              <h4 className="text-lg font-semibold">Status Overview</h4>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div
-                className={`p-4 rounded-xl ${
-                  currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50'
-                }`}
-              >
-                <div
-                  className={`text-sm mb-2 ${
-                    currentTheme === 'dark'
-                      ? 'text-slate-400'
-                      : 'text-slate-500'
-                  }`}
-                >
+              <div className={cn('p-4 rounded-xl', cellBg)}>
+                <div className={cn('text-sm mb-2', subText)}>
                   Profile Status
                 </div>
                 <Tag
@@ -326,36 +344,14 @@ export function DeploymentStatusStep({
                   {statusData.status?.toUpperCase()}
                 </Tag>
               </div>
-              <div
-                className={`p-4 rounded-xl ${
-                  currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50'
-                }`}
-              >
-                <div
-                  className={`text-sm mb-2 ${
-                    currentTheme === 'dark'
-                      ? 'text-slate-400'
-                      : 'text-slate-500'
-                  }`}
-                >
-                  Active Node
-                </div>
+              <div className={cn('p-4 rounded-xl', cellBg)}>
+                <div className={cn('text-sm mb-2', subText)}>Active Node</div>
                 <div className="text-base font-semibold">
                   {statusData.active_node || '-'}
                 </div>
               </div>
-              <div
-                className={`p-4 rounded-xl ${
-                  currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50'
-                }`}
-              >
-                <div
-                  className={`text-sm mb-2 ${
-                    currentTheme === 'dark'
-                      ? 'text-slate-400'
-                      : 'text-slate-500'
-                  }`}
-                >
+              <div className={cn('p-4 rounded-xl', cellBg)}>
+                <div className={cn('text-sm mb-2', subText)}>
                   All Services Active
                 </div>
                 {statusData.service_statuses &&
@@ -375,20 +371,8 @@ export function DeploymentStatusStep({
                   </Tag>
                 )}
               </div>
-              <div
-                className={`p-4 rounded-xl ${
-                  currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50'
-                }`}
-              >
-                <div
-                  className={`text-sm mb-2 ${
-                    currentTheme === 'dark'
-                      ? 'text-slate-400'
-                      : 'text-slate-500'
-                  }`}
-                >
-                  DRBD Reactor
-                </div>
+              <div className={cn('p-4 rounded-xl', cellBg)}>
+                <div className={cn('text-sm mb-2', subText)}>DRBD Reactor</div>
                 <Tag
                   color={statusData.config?.reactor_running ? 'green' : 'red'}
                   className="text-base px-3 py-1"
@@ -397,12 +381,13 @@ export function DeploymentStatusStep({
                 </Tag>
               </div>
             </div>
-          </Card>
+          </PanelCard>
 
           {/* DRBD Status */}
           {statusData.drbd && (
-            <Card
+            <PanelCard
               className="shadow-sm"
+              style={{ borderColor, marginBottom: '24px' }}
               title={
                 <div className="flex items-center gap-3">
                   <div
@@ -411,88 +396,36 @@ export function DeploymentStatusStep({
                       background: `linear-gradient(135deg, ${ACCENT_COLORS.sky}30, ${ACCENT_COLORS.blue}30)`,
                     }}
                   >
-                    <ThunderboltOutlined
-                      className="text-lg"
+                    <Zap
+                      className="h-5 w-5"
                       style={{ color: ACCENT_COLORS.sky }}
                     />
                   </div>
                   <span>DRBD Resource Status</span>
                 </div>
               }
-              style={{
-                borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
-                marginBottom: '24px',
-              }}
             >
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div
-                  className={`p-3 rounded-lg ${
-                    currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50'
-                  }`}
-                >
-                  <div
-                    className={`text-xs mb-1 ${
-                      currentTheme === 'dark'
-                        ? 'text-slate-400'
-                        : 'text-slate-500'
-                    }`}
-                  >
-                    Resource
-                  </div>
+                <div className={cn('p-3 rounded-lg', cellBg)}>
+                  <div className={cn('text-xs mb-1', subText)}>Resource</div>
                   <div className="font-medium">{statusData.drbd.resource}</div>
                 </div>
                 {statusData.drbd_device && (
-                  <div
-                    className={`p-3 rounded-lg ${
-                      currentTheme === 'dark'
-                        ? 'bg-slate-700/50'
-                        : 'bg-slate-50'
-                    }`}
-                  >
-                    <div
-                      className={`text-xs mb-1 ${
-                        currentTheme === 'dark'
-                          ? 'text-slate-400'
-                          : 'text-slate-500'
-                      }`}
-                    >
+                  <div className={cn('p-3 rounded-lg', cellBg)}>
+                    <div className={cn('text-xs mb-1', subText)}>
                       DRBD Device
                     </div>
                     <div className="font-medium">{statusData.drbd_device}</div>
                   </div>
                 )}
-                <div
-                  className={`p-3 rounded-lg ${
-                    currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50'
-                  }`}
-                >
-                  <div
-                    className={`text-xs mb-1 ${
-                      currentTheme === 'dark'
-                        ? 'text-slate-400'
-                        : 'text-slate-500'
-                    }`}
-                  >
-                    Role
-                  </div>
+                <div className={cn('p-3 rounded-lg', cellBg)}>
+                  <div className={cn('text-xs mb-1', subText)}>Role</div>
                   <Tag color={roleColor[statusData.drbd.role] || 'default'}>
                     {statusData.drbd.role}
                   </Tag>
                 </div>
-                <div
-                  className={`p-3 rounded-lg ${
-                    currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50'
-                  }`}
-                >
-                  <div
-                    className={`text-xs mb-1 ${
-                      currentTheme === 'dark'
-                        ? 'text-slate-400'
-                        : 'text-slate-500'
-                    }`}
-                  >
-                    Disk State
-                  </div>
+                <div className={cn('p-3 rounded-lg', cellBg)}>
+                  <div className={cn('text-xs mb-1', subText)}>Disk State</div>
                   <Tag
                     color={
                       statusData.drbd.disk === 'UpToDate' ? 'green' : 'orange'
@@ -506,11 +439,12 @@ export function DeploymentStatusStep({
               {statusData.drbd.peers && statusData.drbd.peers.length > 0 && (
                 <div className="mt-4">
                   <div
-                    className={`text-sm font-medium mb-3 ${
+                    className={cn(
+                      'text-sm font-medium mb-3',
                       currentTheme === 'dark'
                         ? 'text-slate-300'
-                        : 'text-slate-700'
-                    }`}
+                        : 'text-slate-700',
+                    )}
                   >
                     Connection States
                   </div>
@@ -518,11 +452,10 @@ export function DeploymentStatusStep({
                     {statusData.drbd.peers.map((peer: any, idx: number) => (
                       <div
                         key={idx}
-                        className={`flex items-center justify-between p-3 rounded-lg ${
-                          currentTheme === 'dark'
-                            ? 'bg-slate-700/50'
-                            : 'bg-slate-50'
-                        }`}
+                        className={cn(
+                          'flex items-center justify-between p-3 rounded-lg',
+                          cellBg,
+                        )}
                       >
                         <div className="flex items-center gap-3">
                           <div
@@ -546,12 +479,8 @@ export function DeploymentStatusStep({
                         </div>
                         {peer.sync_percent !== undefined && (
                           <Progress
-                            percent={Math.round(peer.sync_percent)}
-                            status={
-                              peer.sync_percent >= 100 ? 'success' : 'active'
-                            }
+                            value={Math.round(peer.sync_percent)}
                             style={{ width: '150px' }}
-                            size="small"
                           />
                         )}
                       </div>
@@ -559,12 +488,12 @@ export function DeploymentStatusStep({
                   </div>
                 </div>
               )}
-            </Card>
+            </PanelCard>
           )}
 
           {/* DRBD Reactor Status JSON */}
           {statusData.reactor_status_raw && (
-            <Card
+            <PanelCard
               title={
                 <div className="flex items-center gap-3">
                   <div
@@ -573,8 +502,8 @@ export function DeploymentStatusStep({
                       background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}30, ${ACCENT_COLORS.gold}30)`,
                     }}
                   >
-                    <FileTextOutlined
-                      className="text-lg"
+                    <FileText
+                      className="h-5 w-5"
                       style={{ color: ACCENT_COLORS.orange }}
                     />
                   </div>
@@ -582,32 +511,30 @@ export function DeploymentStatusStep({
                 </div>
               }
               className="shadow-sm"
-              style={{
-                borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
-                marginBottom: '24px',
-              }}
+              style={{ borderColor, marginBottom: '24px' }}
             >
               <pre
-                className={`p-4 rounded-lg overflow-x-auto text-xs font-mono ${
+                className={cn(
+                  'p-4 rounded-lg overflow-x-auto text-xs font-mono',
                   currentTheme === 'dark'
                     ? 'bg-slate-900 text-slate-300'
-                    : 'bg-white text-slate-700'
-                }`}
+                    : 'bg-white text-slate-700',
+                )}
                 style={{
-                  border: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
+                  border: `1px solid ${borderColor}`,
                   maxHeight: '300px',
                   overflowY: 'auto',
                 }}
               >
                 {formatJsonForDisplay(statusData.reactor_status_raw)}
               </pre>
-            </Card>
+            </PanelCard>
           )}
 
           {/* Service Status */}
           {statusData.service_statuses &&
             statusData.service_statuses.length > 0 && (
-              <Card
+              <PanelCard
                 title={
                   <div className="flex items-center gap-3">
                     <div
@@ -616,8 +543,8 @@ export function DeploymentStatusStep({
                         background: `linear-gradient(135deg, ${ACCENT_COLORS.mint}30, ${ACCENT_COLORS.cyan}30)`,
                       }}
                     >
-                      <CheckCircleOutlined
-                        className="text-lg"
+                      <CheckCircle2
+                        className="h-5 w-5"
                         style={{ color: ACCENT_COLORS.mint }}
                       />
                     </div>
@@ -625,32 +552,22 @@ export function DeploymentStatusStep({
                   </div>
                 }
                 className="shadow-sm"
-                style={{
-                  borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
-                  marginBottom: '24px',
-                }}
+                style={{ borderColor, marginBottom: '24px' }}
               >
                 <div className="space-y-3">
                   {statusData.service_statuses.map((svc: any, idx: number) => (
                     <div
                       key={idx}
-                      className={`flex items-center justify-between p-4 rounded-xl ${
-                        currentTheme === 'dark'
-                          ? 'bg-slate-700/50'
-                          : 'bg-slate-50'
-                      }`}
+                      className={cn(
+                        'flex items-center justify-between p-4 rounded-xl',
+                        cellBg,
+                      )}
                     >
                       <div className="flex-1">
                         <div className="font-medium text-base mb-1">
                           {svc.name}
                         </div>
-                        <div
-                          className={`text-sm ${
-                            currentTheme === 'dark'
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                          }`}
-                        >
+                        <div className={cn('text-sm', subText)}>
                           {svc.state}
                           {svc.enabled !== undefined && (
                             <span className="ml-2">
@@ -661,13 +578,13 @@ export function DeploymentStatusStep({
                       </div>
                       <div className="flex items-center gap-3">
                         {svc.active ? (
-                          <CheckCircleOutlined
-                            className="text-2xl"
+                          <CheckCircle2
+                            className="h-6 w-6"
                             style={{ color: ACCENT_COLORS.mint }}
                           />
                         ) : (
-                          <ExclamationCircleOutlined
-                            className="text-2xl"
+                          <AlertCircle
+                            className="h-6 w-6"
                             style={{ color: ACCENT_COLORS.pink }}
                           />
                         )}
@@ -681,13 +598,13 @@ export function DeploymentStatusStep({
                     </div>
                   ))}
                 </div>
-              </Card>
+              </PanelCard>
             )}
 
           {/* Configured Nodes */}
           {statusData.configured_nodes &&
             statusData.configured_nodes.length > 0 && (
-              <Card
+              <PanelCard
                 title={
                   <div className="flex items-center gap-3">
                     <div
@@ -696,8 +613,8 @@ export function DeploymentStatusStep({
                         background: `linear-gradient(135deg, ${ACCENT_COLORS.purple}30, ${ACCENT_COLORS.purple}20)`,
                       }}
                     >
-                      <FileTextOutlined
-                        className="text-lg"
+                      <FileText
+                        className="h-5 w-5"
                         style={{ color: ACCENT_COLORS.purple }}
                       />
                     </div>
@@ -705,47 +622,39 @@ export function DeploymentStatusStep({
                   </div>
                 }
                 className="shadow-sm"
-                style={{
-                  borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
-                  marginBottom: '24px',
-                }}
+                style={{ borderColor, marginBottom: '24px' }}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {statusData.configured_nodes.map((node: any, idx: number) => (
-                    <div
-                      key={idx}
-                      className={`flex items-center justify-between p-4 rounded-xl ${
-                        currentTheme === 'dark'
-                          ? 'bg-slate-700/50'
-                          : 'bg-slate-50'
-                      }`}
-                    >
-                      <div className="flex-1">
-                        <div className="font-medium text-base mb-1">
-                          {node.hostname}
+                  {statusData.configured_nodes.map(
+                    (node: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className={cn(
+                          'flex items-center justify-between p-4 rounded-xl',
+                          cellBg,
+                        )}
+                      >
+                        <div className="flex-1">
+                          <div className="font-medium text-base mb-1">
+                            {node.hostname}
+                          </div>
+                          <div className={cn('text-sm', subText)}>
+                            {node.ip}
+                          </div>
                         </div>
-                        <div
-                          className={`text-sm ${
-                            currentTheme === 'dark'
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                          }`}
-                        >
-                          {node.ip}
-                        </div>
+                        {node.peer_role && (
+                          <Tag
+                            color={roleColor[node.peer_role] || 'default'}
+                            className="text-base px-3 py-1"
+                          >
+                            {node.peer_role}
+                          </Tag>
+                        )}
                       </div>
-                      {node.peer_role && (
-                        <Tag
-                          color={roleColor[node.peer_role] || 'default'}
-                          className="text-base px-3 py-1"
-                        >
-                          {node.peer_role}
-                        </Tag>
-                      )}
-                    </div>
-                  ))}
+                    ),
+                  )}
                 </div>
-              </Card>
+              </PanelCard>
             )}
         </div>
       )}
