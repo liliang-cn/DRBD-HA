@@ -1,8 +1,8 @@
-import type { FormInstance } from 'antd';
 import { useEffect, useRef } from 'react';
+import type { WizardFormInstance } from '@/lib/wizard-form';
 
 interface PersistOptions {
-  form: FormInstance;
+  form: WizardFormInstance;
   storageKey: string;
   enabled?: boolean;
   onSave?: (data: any) => void;

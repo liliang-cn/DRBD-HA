@@ -1,4 +1,20 @@
-import { Form, Input, Modal, Select } from 'antd';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { ResourceAgentsByProvider } from '@/api/ha-profiles';
 
 interface AddAgentModalProps {
@@ -33,103 +49,126 @@ export function AddAgentModal({
   currentTheme,
 }: AddAgentModalProps) {
   return (
-    <Modal
-      title="Add New Agent"
+    <Dialog
       open={visible}
-      onOk={onOk}
-      onCancel={onCancel}
-      width={600}
-      okText="Add"
-      cancelText="Cancel"
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
     >
-      <Form layout="vertical" style={{ marginTop: '16px' }}>
-        <Form.Item label="Agent Type">
-          <Select
-            value={agentType}
-            onChange={onAgentTypeChange}
-            options={[
-              { label: 'OCF Agent', value: 'ocf' },
-              { label: 'Systemd Unit', value: 'systemd' },
-            ]}
-          />
-        </Form.Item>
+      <DialogContent className="max-w-[600px]">
+        <DialogHeader>
+          <DialogTitle>Add New Agent</DialogTitle>
+        </DialogHeader>
 
-        {agentType === 'systemd' && (
-          <Form.Item
-            label="Systemd Unit"
-            help="e.g., nginx.service, var-lib-mysql.mount"
-          >
-            <Input
-              placeholder="Enter systemd unit name"
-              value={systemdUnit}
-              onChange={(e) => onSystemdUnitChange(e.target.value)}
-              onPressEnter={onOk}
-            />
-          </Form.Item>
-        )}
+        <div className="mt-4 flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label>Agent Type</Label>
+            <Select
+              value={agentType}
+              onValueChange={(v) => onAgentTypeChange(v as 'ocf' | 'systemd')}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ocf">OCF Agent</SelectItem>
+                <SelectItem value="systemd">Systemd Unit</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-        {agentType === 'ocf' && (
-          <>
-            <Form.Item label="Provider">
-              <Select
-                placeholder="Select provider"
-                value={selectedProvider || undefined}
-                onChange={onProviderChange}
-                options={
-                  allAgents
-                    ? Object.keys(allAgents.providers)
-                        .sort()
-                        .map((p) => ({
-                          label: p,
-                          value: p,
-                        }))
-                    : []
-                }
+          {agentType === 'systemd' && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Systemd Unit</Label>
+              <Input
+                placeholder="Enter systemd unit name"
+                value={systemdUnit}
+                onChange={(e) => onSystemdUnitChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') onOk();
+                }}
               />
-            </Form.Item>
+              <p className="text-xs text-muted-foreground">
+                e.g., nginx.service, var-lib-mysql.mount
+              </p>
+            </div>
+          )}
 
-            <Form.Item label="Agent">
-              <Select
-                placeholder="Select agent"
-                value={selectedAgent || undefined}
-                onChange={onAgentChange}
-                disabled={!selectedProvider}
-                options={
-                  selectedProvider && allAgents
-                    ? allAgents.providers[selectedProvider]?.map((a) => ({
-                        label: `${a.name} - ${a.shortdesc || ''}`,
-                        value: a.name,
-                      }))
-                    : []
-                }
-                showSearch
-                filterOption={(input, option) =>
-                  (option?.label ?? '')
-                    .toLowerCase()
-                    .includes(input.toLowerCase())
-                }
-              />
-            </Form.Item>
-
-            {selectedAgent && selectedProvider && allAgents && (
-              <Form.Item label="Description">
-                <div
-                  style={{
-                    padding: '12px',
-                    background: currentTheme === 'dark' ? '#1e293b' : '#f8fafc',
-                    borderRadius: '4px',
-                    fontSize: '13px',
-                  }}
+          {agentType === 'ocf' && (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Label>Provider</Label>
+                <Select
+                  value={selectedProvider || undefined}
+                  onValueChange={onProviderChange}
                 >
-                  {allAgents.providers[selectedProvider]?.find(
-                    (a) => a.name === selectedAgent,
-                  )?.longdesc || 'No description available'}
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allAgents
+                      ? Object.keys(allAgents.providers)
+                          .sort()
+                          .map((p) => (
+                            <SelectItem key={p} value={p}>
+                              {p}
+                            </SelectItem>
+                          ))
+                      : null}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label>Agent</Label>
+                <Select
+                  value={selectedAgent || undefined}
+                  onValueChange={onAgentChange}
+                  disabled={!selectedProvider}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select agent" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectedProvider && allAgents
+                      ? allAgents.providers[selectedProvider]?.map((a) => (
+                          <SelectItem key={a.name} value={a.name}>
+                            {`${a.name} - ${a.shortdesc || ''}`}
+                          </SelectItem>
+                        ))
+                      : null}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {selectedAgent && selectedProvider && allAgents && (
+                <div className="flex flex-col gap-1.5">
+                  <Label>Description</Label>
+                  <div
+                    className="rounded text-[13px]"
+                    style={{
+                      padding: '12px',
+                      background:
+                        currentTheme === 'dark' ? '#1e293b' : '#f8fafc',
+                    }}
+                  >
+                    {allAgents.providers[selectedProvider]?.find(
+                      (a) => a.name === selectedAgent,
+                    )?.longdesc || 'No description available'}
+                  </div>
                 </div>
-              </Form.Item>
-            )}
-          </>
-        )}
-      </Form>
-    </Modal>
+              )}
+            </>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button onClick={onOk}>Add</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

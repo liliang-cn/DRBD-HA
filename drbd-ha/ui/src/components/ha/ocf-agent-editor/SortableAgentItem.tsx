@@ -1,33 +1,30 @@
-import {
-  CaretRightOutlined,
-  DeleteOutlined,
-  HolderOutlined,
-  MinusCircleOutlined,
-  PlusOutlined,
-  QuestionCircleOutlined,
-} from '@ant-design/icons';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
-  Button,
-  Card,
-  Form,
-  Input,
-  InputNumber,
-  Popconfirm,
-  Space,
-  Switch,
-  Tag,
+  ChevronRight,
+  GripVertical,
+  HelpCircle,
+  MinusCircle,
+  Plus,
+  Trash2,
+} from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
   Tooltip,
-  Typography,
-} from 'antd';
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import type {
   OcfAgentWithMetadata,
   ParamEntry,
   ResourceAgent,
 } from '@/api/ha-profiles';
-
-const { Text } = Typography;
+import type { WizardFormInstance } from '@/lib/wizard-form';
+import { useWizardWatch } from '@/lib/wizard-form';
 
 // Helper to get param value from ParamEntry[]
 function getParamValue(
@@ -49,6 +46,8 @@ export interface SortableItemProps {
   metadata: ResourceAgent | null;
   isLoadingMetadata: boolean;
   currentTheme: string;
+  form: WizardFormInstance;
+  onFieldChange: (index: number, field: 'params' | 'original') => void;
   onDelete: (index: number) => void;
   onExpand: (key: string) => void;
   expandedKeys: Set<string>;
@@ -64,6 +63,8 @@ export function SortableAgentItem({
   metadata,
   isLoadingMetadata,
   currentTheme,
+  form,
+  onFieldChange,
   onDelete,
   onExpand,
   expandedKeys,
@@ -89,6 +90,10 @@ export function SortableAgentItem({
     opacity: isDragging ? 0.5 : 1,
   };
 
+  // Subscribe once to form changes so all controlled fields below re-render
+  // when any value changes (the render functions read via form.getFieldValue).
+  useWizardWatch(['agents', index], form);
+
   const { item } = agentWithMeta;
   // Use instanceId for stable panel key across reorders
   const instanceId = (agentWithMeta as any).instanceId ?? index;
@@ -102,21 +107,22 @@ export function SortableAgentItem({
   // Render form field for plain systemd unit
   const renderPlainUnitField = () => {
     const fieldName = ['agents', index, 'original'];
+    const value = form.getFieldValue(fieldName) ?? item.original ?? '';
 
     return (
-      <Form.Item
-        name={fieldName}
-        label="Systemd Unit"
-        initialValue={item.original}
-        rules={[
-          {
-            required: true,
-            message: 'Unit name is required',
-          },
-        ]}
-      >
-        <Input placeholder="e.g., var-lib-linstor.mount" />
-      </Form.Item>
+      <div className="mt-2 flex flex-col gap-1.5">
+        <Label>
+          Systemd Unit <span className="text-destructive">*</span>
+        </Label>
+        <Input
+          placeholder="e.g., var-lib-linstor.mount"
+          value={value}
+          onChange={(e) => {
+            form.setFieldValue(fieldName, e.target.value);
+            onFieldChange(index, 'original');
+          }}
+        />
+      </div>
     );
   };
 
@@ -124,96 +130,94 @@ export function SortableAgentItem({
   const renderFormField = (param: any) => {
     if (!ocfAgent) return null;
 
-    const fieldName = [`agents`, index, `params`, param.name];
-    const currentValue = getParamValue(ocfAgent.params, param.name);
+    const fieldName = ['agents', index, 'params', param.name];
+    const fallback = getParamValue(ocfAgent.params, param.name);
+    const watched = form.getFieldValue(fieldName);
+    const currentValue = watched ?? fallback;
 
     const label = (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-        <span style={{ fontSize: '13px', color: '#333' }}>{param.name}</span>
+      <div className="flex items-center gap-1">
+        <span className="text-[13px]">{param.name}</span>
+        {param.required && <span className="text-destructive">*</span>}
         {(param.longdesc || param.shortdesc) && (
-          <Tooltip
-            title={
-              <div style={{ whiteSpace: 'pre-wrap', maxWidth: '400px' }}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <HelpCircle className="h-3 w-3 text-muted-foreground" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <div className="max-w-[400px] whitespace-pre-wrap">
                 {param.longdesc || param.shortdesc}
               </div>
-            }
-          >
-            <QuestionCircleOutlined
-              style={{ color: '#999', fontSize: '12px' }}
-            />
+            </TooltipContent>
           </Tooltip>
         )}
       </div>
     );
 
+    const setValue = (v: string) => {
+      form.setFieldValue(fieldName, v);
+      onFieldChange(index, 'params');
+    };
+
     switch (param.type) {
       case 'integer':
         return (
-          <Form.Item
-            key={param.name}
-            name={fieldName}
-            label={label}
-            initialValue={currentValue}
-            rules={[
-              {
-                required: param.required,
-                message: `${param.name} is required`,
-              },
-            ]}
-          >
-            <InputNumber style={{ width: '100%' }} />
-          </Form.Item>
+          <div className="flex flex-col gap-1.5">
+            <Label asChild>
+              <div>{label}</div>
+            </Label>
+            <Input
+              type="number"
+              className="w-full"
+              value={currentValue ?? ''}
+              onChange={(e) => setValue(e.target.value)}
+            />
+          </div>
         );
 
-      case 'boolean':
+      case 'boolean': {
+        const checked =
+          currentValue === 'true' ||
+          currentValue === '1' ||
+          currentValue === 'yes' ||
+          currentValue === true;
         return (
-          <Form.Item
-            key={param.name}
-            name={fieldName}
-            label={label}
-            valuePropName="checked"
-            getValueFrom={(value: boolean) => (value ? 'true' : 'false')}
-            getValueProps={(value: string) => ({
-              checked:
-                value === 'true' ||
-                value === '1' ||
-                value === 'yes' ||
-                value === true,
-            })}
-            initialValue={
-              typeof currentValue === 'boolean'
-                ? currentValue
-                  ? 'true'
-                  : 'false'
-                : currentValue
-            }
-            rules={[
-              {
-                required: param.required,
-                message: `${param.name} is required`,
-              },
-            ]}
-          >
-            <Switch />
-          </Form.Item>
+          <div className="flex flex-col gap-1.5">
+            <Label asChild>
+              <div>{label}</div>
+            </Label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={checked}
+              onClick={() => setValue(checked ? 'false' : 'true')}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                checked ? 'bg-primary' : 'bg-muted'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${
+                  checked ? 'translate-x-4' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
         );
+      }
 
       default:
         return (
-          <Form.Item
-            key={param.name}
-            name={fieldName}
-            label={label}
-            initialValue={currentValue}
-            rules={[
-              {
-                required: param.required,
-                message: `${param.name} is required`,
-              },
-            ]}
-          >
-            <Input />
-          </Form.Item>
+          <div className="flex flex-col gap-1.5">
+            <Label asChild>
+              <div>{label}</div>
+            </Label>
+            <Input
+              value={currentValue ?? ''}
+              onChange={(e) => setValue(e.target.value)}
+            />
+          </div>
         );
     }
   };
@@ -223,18 +227,14 @@ export function SortableAgentItem({
     if (isOcf && ocfAgent) {
       return {
         typeLabel: ocfAgent.agent_type,
-        typeColor: 'purple' as const,
         instanceLabel: ocfAgent.instance_name,
-        instanceColor: 'orange' as const,
       };
     } else {
       // Plain systemd unit
       const name = item.original.split(' ')[0]; // Take first part as name
       return {
         typeLabel: 'systemd',
-        typeColor: 'blue' as const,
         instanceLabel: name,
-        instanceColor: 'green' as const,
       };
     }
   };
@@ -244,107 +244,77 @@ export function SortableAgentItem({
   return (
     <div ref={setNodeRef} style={style} className="sortable-agent-item">
       <Card
-        size="small"
+        className="mb-2 cursor-grab rounded-lg border p-0"
         style={{
           background: currentTheme === 'dark' ? '#1e293b' : '#f8fafc',
-          marginBottom: '8px',
-          borderRadius: '8px',
-          border: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
-          cursor: 'grab',
+          borderColor: currentTheme === 'dark' ? '#334155' : '#e2e8f0',
         }}
-        bodyStyle={{ padding: 0 }}
       >
         {/* Header - always visible */}
         <div
-          style={{
-            padding: '12px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            cursor: 'pointer',
-          }}
+          className="flex cursor-pointer items-center gap-3 px-4 py-3"
           onClick={() => onExpand(panelKey)}
           {...attributes}
         >
           {/* Drag handle - only this element is draggable */}
           <div
             {...listeners}
-            style={{ cursor: 'grab', display: 'flex', alignItems: 'center' }}
+            className="flex cursor-grab items-center"
             onClick={(e) => e.stopPropagation()}
           >
-            <HolderOutlined
-              style={{
-                color: '#999',
-                fontSize: '16px',
-              }}
-            />
+            <GripVertical className="h-4 w-4 text-muted-foreground" />
           </div>
 
           {/* Expand/Collapse icon */}
-          <CaretRightOutlined
+          <ChevronRight
+            className="h-3 w-3 text-muted-foreground transition-transform"
             style={{
-              color: '#999',
-              fontSize: '12px',
-              transition: 'transform 0.2s',
               transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
             }}
           />
 
           {/* Item info */}
-          <Space size="small" style={{ flex: 1 }}>
-            <Tag color="blue">#{index + 1}</Tag>
-            {isOcf && <Tag color="cyan">OCF</Tag>}
-            <Tag color={displayInfo.typeColor}>{displayInfo.typeLabel}</Tag>
-            {isOcf && ocfAgent && (
-              <Tag color={displayInfo.instanceColor}>
-                {displayInfo.instanceLabel}
-              </Tag>
-            )}
-            {!isOcf && (
-              <Tag color={displayInfo.instanceColor}>
-                {displayInfo.instanceLabel}
-              </Tag>
-            )}
+          <div className="flex flex-1 items-center gap-2">
+            <Badge variant="secondary">#{index + 1}</Badge>
+            {isOcf && <Badge variant="secondary">OCF</Badge>}
+            <Badge variant="secondary">{displayInfo.typeLabel}</Badge>
+            <Badge variant="secondary">{displayInfo.instanceLabel}</Badge>
             {isOcf && isLoadingMetadata && (
-              <Tag color="processing">Loading metadata...</Tag>
+              <Badge variant="outline">Loading metadata...</Badge>
             )}
             {isOcf && !metadata && !isLoadingMetadata && (
-              <Tag color="warning">Metadata not found</Tag>
+              <Badge variant="destructive">Metadata not found</Badge>
             )}
-          </Space>
+          </div>
 
           {/* Delete button */}
-          <Popconfirm
-            title="Delete this item?"
-            onConfirm={(e) => {
-              e?.stopPropagation();
-              onDelete(index);
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-destructive"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (window.confirm('Delete this item?')) {
+                onDelete(index);
+              }
             }}
-            okText="Yes"
-            cancelText="No"
           >
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </Popconfirm>
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
 
         {/* Expanded content */}
         <div
+          className="p-4"
           style={{
-            padding: '16px',
             borderTop: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
             display: isExpanded ? 'block' : 'none',
           }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Original string (for reference) */}
-          <div style={{ marginBottom: '16px' }}>
-            <Text type="secondary">Original:</Text>
+          <div className="mb-4">
+            <span className="text-sm text-muted-foreground">Original:</span>
             <div
               style={{
                 marginTop: '4px',
@@ -363,21 +333,19 @@ export function SortableAgentItem({
           {/* Plain systemd unit - simple input */}
           {!isOcf && (
             <div>
-              <Text strong>Systemd Unit Configuration</Text>
+              <span className="text-sm font-semibold">
+                Systemd Unit Configuration
+              </span>
               {renderPlainUnitField()}
             </div>
           )}
 
           {/* OCF Agent with metadata */}
           {isOcf && metadata && (
-            <div style={{ marginBottom: '16px' }}>
-              <Text strong style={{ fontSize: '14px' }}>
-                {metadata.name}
-              </Text>
+            <div className="mb-4">
+              <span className="text-sm font-semibold">{metadata.name}</span>
               {metadata.shortdesc && (
-                <div
-                  style={{ color: '#666', fontSize: '12px', marginTop: '4px' }}
-                >
+                <div className="mt-1 text-xs text-muted-foreground">
                   {metadata.shortdesc}
                 </div>
               )}
@@ -386,21 +354,15 @@ export function SortableAgentItem({
 
           {/* Form fields with metadata */}
           {isOcf && metadata && (
-            <div style={{ marginBottom: '16px' }}>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '12px',
-                }}
-              >
-                <Text strong>Parameters</Text>
+            <div className="mb-4">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-sm font-semibold">Parameters</span>
                 <Button
-                  size="small"
-                  icon={<PlusOutlined />}
+                  variant="outline"
+                  size="sm"
                   onClick={() => onAddParam?.(stableKey)}
                 >
+                  <Plus className="mr-1 h-4 w-4" />
                   Add Parameter
                 </Button>
               </div>
@@ -415,21 +377,21 @@ export function SortableAgentItem({
                 return (
                   <div
                     key={paramEntry.key}
-                    style={{ position: 'relative', paddingRight: '40px' }}
+                    className="relative"
+                    style={{ paddingRight: '40px' }}
                   >
                     {renderFormField(param)}
                     <Button
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<MinusCircleOutlined />}
-                      onClick={() => onRemoveParam(stableKey, paramEntry.key)}
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 h-7 w-7 text-destructive"
                       style={{
-                        position: 'absolute',
-                        right: '0',
-                        top: param.type === 'boolean' ? '0' : '32px',
+                        top: param.type === 'boolean' ? '0' : '24px',
                       }}
-                    />
+                      onClick={() => onRemoveParam(stableKey, paramEntry.key)}
+                    >
+                      <MinusCircle className="h-4 w-4" />
+                    </Button>
                   </div>
                 );
               })}
@@ -445,21 +407,21 @@ export function SortableAgentItem({
                 return (
                   <div
                     key={paramName}
-                    style={{ position: 'relative', paddingRight: '40px' }}
+                    className="relative"
+                    style={{ paddingRight: '40px' }}
                   >
                     {renderFormField(param)}
                     <Button
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<MinusCircleOutlined />}
-                      onClick={() => onRemoveParam(stableKey, paramName)}
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 h-7 w-7 text-destructive"
                       style={{
-                        position: 'absolute',
-                        right: '0',
-                        top: param.type === 'boolean' ? '0' : '32px',
+                        top: param.type === 'boolean' ? '0' : '24px',
                       }}
-                    />
+                      onClick={() => onRemoveParam(stableKey, paramName)}
+                    >
+                      <MinusCircle className="h-4 w-4" />
+                    </Button>
                   </div>
                 );
               })}
@@ -469,7 +431,7 @@ export function SortableAgentItem({
           {/* OCF Agent without metadata */}
           {isOcf && !metadata && ocfAgent && (
             <div>
-              <Text strong>Parsed Parameters:</Text>
+              <span className="text-sm font-semibold">Parsed Parameters:</span>
               <div
                 style={{
                   marginTop: '8px',
