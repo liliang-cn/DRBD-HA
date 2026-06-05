@@ -57,6 +57,9 @@ fn parse_reactor_status_json(
 
     if let Some(promoters) = obj.get("promoter").and_then(Value::as_array) {
         for promoter in promoters {
+            if !is_enabled(promoter) {
+                continue;
+            }
             let Some(path) = promoter.get("path").and_then(Value::as_str) else {
                 continue;
             };
@@ -95,6 +98,9 @@ fn parse_reactor_status_json(
         };
 
         for item in items {
+            if !is_enabled(item) {
+                continue;
+            }
             let Some(path) = item.get("path").and_then(Value::as_str) else {
                 continue;
             };
@@ -131,6 +137,9 @@ fn parse_reactor_services_json(output: &str) -> Option<Vec<ReactorServiceStatus>
     let mut services = Vec::new();
 
     for promoter in promoters {
+        if !is_enabled(promoter) {
+            continue;
+        }
         let Some(dependencies) = promoter.get("dependencies").and_then(Value::as_array) else {
             continue;
         };
@@ -175,6 +184,16 @@ fn push_json_service(entry: &Value, services: &mut Vec<ReactorServiceStatus>) {
     });
 }
 
+/// Whether a drbd-reactorctl status entry represents an enabled plugin.
+///
+/// From the next drbd-reactorctl release, `status --json` outputs both enabled
+/// (`foo.toml`) and disabled (`foo.toml.disabled`) plugins, distinguished by an
+/// `enabled` boolean. Older releases omit the field and only ever list enabled
+/// plugins, so a missing field is treated as `enabled: true`.
+fn is_enabled(entry: &Value) -> bool {
+    entry.get("enabled").and_then(Value::as_bool).unwrap_or(true)
+}
+
 fn profile_name_from_path(path: &str) -> Option<String> {
     let file_name = Path::new(path).file_name()?.to_str()?;
     let profile_name = file_name
@@ -201,6 +220,74 @@ mod tests {
         let output = "not-json";
         let statuses = parse_reactor_status(output, None);
         assert!(statuses.is_empty());
+    }
+
+    #[test]
+    fn test_parse_reactor_status_skips_disabled() {
+        // Next release of drbd-reactorctl emits both enabled and disabled
+        // plugins, distinguished by an `enabled` field. A missing field means
+        // enabled: true (current releases). Only enabled ones must be shown.
+        let output = r#"{
+  "promoter": [
+    {
+      "path": "/etc/drbd-reactor.d/enabled-explicit.toml",
+      "primary_on": "node-a",
+      "status": "active",
+      "enabled": true
+    },
+    {
+      "path": "/etc/drbd-reactor.d/disabled.toml.disabled",
+      "status": "inactive",
+      "enabled": false
+    },
+    {
+      "path": "/etc/drbd-reactor.d/enabled-implicit.toml",
+      "primary_on": "node-c",
+      "status": "active"
+    }
+  ],
+  "prometheus": [
+    {
+      "path": "/etc/drbd-reactor.d/prometheus.toml",
+      "status": "active",
+      "enabled": false
+    }
+  ]
+}"#;
+
+        let statuses = parse_reactor_status(output, None);
+        let names: Vec<&str> = statuses.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"enabled-explicit"));
+        assert!(names.contains(&"enabled-implicit"));
+        assert!(
+            !names.contains(&"disabled"),
+            "disabled promoter must be filtered out"
+        );
+        assert!(
+            !names.contains(&"prometheus"),
+            "disabled plugin must be filtered out"
+        );
+        assert_eq!(statuses.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_reactor_services_skips_disabled_promoter() {
+        let output = r#"{
+  "promoter": [
+    {
+      "path": "/etc/drbd-reactor.d/disabled.toml.disabled",
+      "enabled": false,
+      "dependencies": [
+        { "name": "service_ip_x.service", "status": "active" }
+      ]
+    }
+  ]
+}"#;
+        let services = parse_reactor_services(output);
+        assert!(
+            services.is_empty(),
+            "disabled promoter must contribute no services"
+        );
     }
 
     #[test]
