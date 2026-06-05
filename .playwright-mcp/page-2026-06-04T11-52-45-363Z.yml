@@ -1,0 +1,62 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - link "DRBD HA DRBD HA Manager" [ref=e6] [cursor=pointer]:
+          - /url: /
+          - img "DRBD HA" [ref=e7]
+          - generic [ref=e8]: DRBD HA Manager
+        - generic [ref=e9]:
+          - button [ref=e10]:
+            - img
+          - button [ref=e11]:
+            - img
+    - generic [ref=e15]:
+      - button "Show logs" [ref=e16]:
+        - img
+      - heading "Configuration Wizard" [level=1] [ref=e18]
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e22]: "1"
+          - generic [ref=e24]: Nodes
+        - generic [ref=e26]:
+          - generic [ref=e28]: "2"
+          - generic [ref=e30]: Storage
+        - generic [ref=e32]:
+          - generic [ref=e34]: "3"
+          - generic [ref=e36]: Services
+        - generic [ref=e38]:
+          - generic [ref=e40]: "4"
+          - generic [ref=e42]: Preview
+        - generic [ref=e44]:
+          - generic [ref=e46]: "5"
+          - generic [ref=e48]: Status
+      - generic [ref=e50]:
+        - generic [ref=e52]:
+          - generic [ref=e53]: "Step 1: Select or Add Cluster Nodes"
+          - button "Add Node" [ref=e54]:
+            - img
+            - text: Add Node
+        - generic [ref=e56]:
+          - generic [ref=e57]:
+            - img [ref=e58]
+            - generic [ref=e60]:
+              - generic [ref=e61]: Remote access requirements
+              - generic [ref=e62]: "Each selected node must allow passwordless SSH. If the SSH user is not root, it must also allow passwordless sudo (`sudo -n`). The Check action only reports online when these validations pass."
+          - generic [ref=e63]:
+            - img [ref=e64]
+            - generic [ref=e66]:
+              - generic [ref=e67]: No nodes available
+              - generic [ref=e69]:
+                - paragraph [ref=e70]: Please add at least 2 nodes to configure HA.
+                - button "Add Node" [ref=e71]:
+                  - img
+                  - text: Add Node
+      - generic [ref=e72]:
+        - button "Cancel" [ref=e73]:
+          - img
+          - text: Cancel
+        - button "Next" [ref=e74]:
+          - img
+          - text: Next
+  - region "Notifications alt+T"

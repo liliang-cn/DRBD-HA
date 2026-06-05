@@ -1,11 +1,15 @@
-import { Card, Spin, Typography } from 'antd';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
 import type {
   OcfAgentWithMetadata,
   ParamEntry,
   ParsedOcfAgent,
 } from '@/api/ha-profiles';
-
-const { Text } = Typography;
 
 // Helper function to generate OCF string from agent data
 function generateOcfString(
@@ -80,41 +84,39 @@ export function AgentPreview({
       }}
     >
       <Card
-        title={<Text strong>Live Preview (TOML)</Text>}
-        bordered={false}
-        style={{
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          boxShadow: 'none',
-        }}
-        bodyStyle={{
-          padding: '16px',
-          flex: 1,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
+        className="flex h-full flex-col border-0 shadow-none"
       >
-        <Spin spinning={loading} tip="Generating preview...">
-          <div
-            style={{
-              background: currentTheme === 'dark' ? '#0f172a' : '#f1f5f9',
-              borderRadius: '8px',
-              padding: '16px',
-              fontFamily: 'monospace',
-              fontSize: '13px',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              border: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
-              overflow: 'auto',
-              flex: 1,
-              maxHeight: '100%',
-            }}
-          >
-            {generateTomlPreview()}
-          </div>
-        </Spin>
+        <CardHeader className="px-4 py-3">
+          <CardTitle className="text-sm font-semibold">
+            Live Preview (TOML)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-1 flex-col overflow-hidden p-4">
+          {loading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Spinner className="h-4 w-4" />
+              Generating preview...
+            </div>
+          ) : (
+            <div
+              style={{
+                background: currentTheme === 'dark' ? '#0f172a' : '#f1f5f9',
+                borderRadius: '8px',
+                padding: '16px',
+                fontFamily: 'monospace',
+                fontSize: '13px',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                border: `1px solid ${currentTheme === 'dark' ? '#334155' : '#e2e8f0'}`,
+                overflow: 'auto',
+                flex: 1,
+                maxHeight: '100%',
+              }}
+            >
+              {generateTomlPreview()}
+            </div>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

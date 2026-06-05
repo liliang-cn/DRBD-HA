@@ -1,32 +1,37 @@
-import {
-  CheckCircleOutlined,
-  DeleteOutlined,
-  EditOutlined,
-  ExclamationCircleOutlined,
-  FileTextOutlined,
-  LoadingOutlined,
-  PauseCircleOutlined,
-  PlusOutlined,
-  StopOutlined,
-  ThunderboltOutlined,
-} from '@ant-design/icons';
-import {
-  Button,
-  Checkbox,
-  Modal,
-  message,
-  Popconfirm,
-  Space,
-  Table,
-  Tag,
-  Tooltip,
-  Typography,
-} from 'antd';
 import gsap from 'gsap';
-import { useEffect, useRef, useState } from 'react';
+import {
+  AlertCircle,
+  Ban,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Loader2,
+  PauseCircle,
+  Pencil,
+  Plus,
+  Trash2,
+  Zap,
+} from 'lucide-react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { haProfilesApi } from '@/api';
-import { ImportProfilesModal } from '@/components/ha/ImportProfilesModal';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Spinner } from '@/components/ui/spinner';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useHaProfilesStore } from '@/stores/ha-profiles';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useResourcesStore } from '@/stores/resources';
@@ -35,22 +40,23 @@ import { ACCENT_COLORS } from '@/theme/colors';
 import type { HaProfile, HaProfileStatus } from '@/types';
 import { formatJsonForDisplay } from '@/utils/json';
 
-const { Title, Text } = Typography;
-
-const statusColor: Record<string, string> = {
-  active: 'green',
-  standby: 'blue',
-  stopped: 'default',
-  error: 'red',
-  unknown: 'default',
+const statusBadgeVariant: Record<
+  string,
+  'default' | 'secondary' | 'destructive' | 'outline'
+> = {
+  active: 'default',
+  standby: 'secondary',
+  stopped: 'outline',
+  error: 'destructive',
+  unknown: 'outline',
 };
 
 const statusIcons: Record<string, React.ReactNode> = {
-  active: <CheckCircleOutlined className="text-green-500" />,
-  standby: <PauseCircleOutlined className="text-orange-500" />,
-  stopped: <ExclamationCircleOutlined className="text-gray-400" />,
-  error: <ExclamationCircleOutlined className="text-red-500" />,
-  unknown: <LoadingOutlined className="text-gray-400" />,
+  active: <CheckCircle2 className="text-green-500" />,
+  standby: <PauseCircle className="text-orange-500" />,
+  stopped: <AlertCircle className="text-gray-400" />,
+  error: <AlertCircle className="text-red-500" />,
+  unknown: <Loader2 className="text-gray-400 animate-spin" />,
 };
 
 export function HaProfiles() {
@@ -74,7 +80,6 @@ export function HaProfiles() {
   );
   const [deleteResource, setDeleteResource] = useState(true);
   const [deleting, setDeleting] = useState(false);
-  const [importModalOpen, setImportModalOpen] = useState(false);
 
   // Deletion Progress State
   const [progressModalOpen, setProgressModalOpen] = useState(false);
@@ -308,7 +313,7 @@ export function HaProfiles() {
         ...prev,
         `[${new Date().toLocaleTimeString()}] ERROR: Failed to send delete request: ${errMsg}`,
       ]);
-      message.error(errMsg);
+      toast.error(errMsg);
       setDeleting(false);
     }
   };
@@ -333,7 +338,7 @@ export function HaProfiles() {
           const status = await haProfilesApi.getStatus(record.id);
           setProfileStatuses((prev) => ({ ...prev, [record.id]: status }));
         } catch (err) {
-          message.error((err as { message: string }).message);
+          toast.error((err as { message: string }).message);
         } finally {
           setStatusLoading((prev) => ({ ...prev, [record.id]: false }));
         }
@@ -343,14 +348,19 @@ export function HaProfiles() {
     }
   };
 
+  const toggleExpand = (record: HaProfile) => {
+    if (record.is_builtin_plugin) return;
+    handleRowExpand(expandedProfileId !== record.id, record);
+  };
+
   const handleEvict = async (id: string) => {
     setEvicting((prev) => ({ ...prev, [id]: true }));
     try {
       const result = await haProfilesApi.evict(id);
       if (result.success) {
-        message.success(result.message || 'Eviction completed successfully');
+        toast.success(result.message || 'Eviction completed successfully');
       } else {
-        message.warning(
+        toast.warning(
           result.message || 'Eviction command sent but may have failed',
         );
       }
@@ -370,16 +380,17 @@ export function HaProfiles() {
         }
       }
     } catch (err) {
-      message.error((err as { message: string }).message);
+      toast.error((err as { message: string }).message);
     } finally {
       setEvicting((prev) => ({ ...prev, [id]: false }));
     }
   };
 
   const handleDisableNode = async (profileId: string, node: string) => {
+    if (!window.confirm(`Disable this profile on ${node}?`)) return;
     try {
       await haProfilesApi.disableNode(profileId, node);
-      message.success(`Profile disabled on ${node}`);
+      toast.success(`Profile disabled on ${node}`);
       fetch();
 
       // Refresh status if this profile is expanded
@@ -389,20 +400,20 @@ export function HaProfiles() {
           const status = await haProfilesApi.getStatus(profileId);
           setProfileStatuses((prev) => ({ ...prev, [profileId]: status }));
         } catch (err) {
-          message.error((err as { message: string }).message);
+          toast.error((err as { message: string }).message);
         } finally {
           setStatusLoading((prev) => ({ ...prev, [profileId]: false }));
         }
       }
     } catch (err) {
-      message.error((err as { message: string }).message);
+      toast.error((err as { message: string }).message);
     }
   };
 
   const handleEnableNode = async (profileId: string, node: string) => {
     try {
       await haProfilesApi.enableNode(profileId, node);
-      message.success(`Profile enabled on ${node}`);
+      toast.success(`Profile enabled on ${node}`);
       fetch();
 
       // Refresh status if this profile is expanded
@@ -412,13 +423,13 @@ export function HaProfiles() {
           const status = await haProfilesApi.getStatus(profileId);
           setProfileStatuses((prev) => ({ ...prev, [profileId]: status }));
         } catch (err) {
-          message.error((err as { message: string }).message);
+          toast.error((err as { message: string }).message);
         } finally {
           setStatusLoading((prev) => ({ ...prev, [profileId]: false }));
         }
       }
     } catch (err) {
-      message.error((err as { message: string }).message);
+      toast.error((err as { message: string }).message);
     }
   };
 
@@ -433,217 +444,6 @@ export function HaProfiles() {
     { from: ACCENT_COLORS.mint, to: ACCENT_COLORS.cyan }, // Active
     { from: ACCENT_COLORS.sky, to: ACCENT_COLORS.blue }, // Standby
     { from: ACCENT_COLORS.pink, to: '#ff4757' }, // Errors
-  ];
-
-  const columns = [
-    {
-      title: 'Profile',
-      dataIndex: 'name',
-      key: 'name',
-      render: (name: string, record: HaProfile) => (
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div
-              className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                record.status === 'active'
-                  ? 'bg-gradient-to-br from-green-400 to-green-600'
-                  : record.status === 'error'
-                    ? 'bg-gradient-to-br from-red-400 to-red-600'
-                    : currentTheme === 'dark'
-                      ? 'bg-gradient-to-br from-slate-600 to-slate-700'
-                      : 'bg-gradient-to-br from-slate-300 to-slate-400'
-              }`}
-            >
-              <ThunderboltOutlined className="text-white text-lg" />
-            </div>
-            {record.status === 'active' && (
-              <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white animate-pulse" />
-            )}
-          </div>
-          <div>
-            <div
-              className={`font-semibold ${
-                currentTheme === 'dark' ? 'text-slate-100' : 'text-slate-800'
-              }`}
-            >
-              {name}
-            </div>
-            <div
-              className={`text-xs ${
-                currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
-              }`}
-            >
-              {record.resource_name}
-            </div>
-          </div>
-        </div>
-      ),
-    },
-    {
-      title: 'Type',
-      dataIndex: 'ha_type',
-      key: 'ha_type',
-      render: (_: unknown, record: HaProfile) => (
-        <Space>
-          <Tag className="px-3 py-1 rounded-full font-medium">
-            {(record.ha_type || 'generic').toUpperCase()}
-          </Tag>
-          {record.is_builtin_plugin && (
-            <Tag color="cyan" className="px-2 py-1 rounded text-xs">
-              Built-in
-            </Tag>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: 'Services',
-      key: 'services',
-      render: (_: unknown, record: HaProfile) => (
-        <Space wrap>
-          {record.promoter.services.slice(0, 2).map((s) => (
-            <Tag key={s}>{s}</Tag>
-          ))}
-          {record.promoter.services.length > 2 && (
-            <Tag>+{record.promoter.services.length - 2}</Tag>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: 'Service IP',
-      key: 'vip',
-      render: (_: unknown, record: HaProfile) => {
-        // Built-in plugins don't have VIP
-        if (record.is_builtin_plugin) {
-          return (
-            <span
-              className={
-                currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'
-              }
-            >
-              N/A
-            </span>
-          );
-        }
-        if (record.vip) {
-          return (
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              <span
-                className="font-medium"
-                style={{ color: ACCENT_COLORS.sky }}
-              >
-                {record.vip.address}/{record.vip.netmask}
-              </span>
-            </div>
-          );
-        }
-        return (
-          <span
-            className={
-              currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'
-            }
-          >
-            Not Enabled
-          </span>
-        );
-      },
-    },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => (
-        <div className="flex items-center gap-2">
-          {statusIcons[status] || statusIcons.unknown}
-          <Tag
-            color={statusColor[status] || 'default'}
-            className="px-3 py-1 rounded-full font-medium"
-          >
-            {status.toUpperCase()}
-          </Tag>
-        </div>
-      ),
-    },
-    {
-      title: 'Active Node',
-      dataIndex: 'active_node',
-      key: 'active_node',
-      render: (node: string | undefined, record: HaProfile) => {
-        const isActive = record.status === 'active';
-        return (
-          <Space>
-            {node ? (
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="font-medium">{node}</span>
-              </div>
-            ) : (
-              <span
-                className={
-                  currentTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'
-                }
-              >
-                -
-              </span>
-            )}
-            {isActive && node && !record.is_builtin_plugin && (
-              <Popconfirm
-                title="Evict Profile"
-                description={`Are you sure you want to evict the HA profile from ${node}?`}
-                onConfirm={() => handleEvict(record.id)}
-                okText="Evict"
-                cancelText="Cancel"
-                okButtonProps={{ danger: true, loading: evicting[record.id] }}
-                icon={<ExclamationCircleOutlined style={{ color: 'red' }} />}
-                disabled={evicting[record.id]}
-              >
-                <Button
-                  size="small"
-                  danger
-                  loading={evicting[record.id]}
-                  className="!text-red-600 hover:!bg-red-50 hover:!border-red-300"
-                >
-                  Evict
-                </Button>
-              </Popconfirm>
-            )}
-          </Space>
-        );
-      },
-    },
-    {
-      title: 'Actions',
-      key: 'actions',
-      render: (_: unknown, record: HaProfile) => (
-        <Space>
-          {!record.is_builtin_plugin && (
-            <>
-              <Tooltip title="Edit OCF Agents">
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<EditOutlined />}
-                  onClick={() => navigate(`/profiles/${record.name}/ocf-edit`)}
-                  className="hover:!bg-purple-50"
-                />
-              </Tooltip>
-              <Tooltip title="Delete">
-                <Button
-                  size="small"
-                  type="text"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() => openDeleteModal(record)}
-                  className="hover:!bg-red-50"
-                />
-              </Tooltip>
-            </>
-          )}
-        </Space>
-      ),
-    },
   ];
 
   // Render expanded row content
@@ -678,8 +478,8 @@ export function HaProfiles() {
                 background: `linear-gradient(135deg, ${ACCENT_COLORS.sky}20, ${ACCENT_COLORS.blue}20)`,
               }}
             >
-              <LoadingOutlined
-                className="text-3xl"
+              <Loader2
+                className="text-3xl animate-spin"
                 style={{ color: ACCENT_COLORS.sky }}
               />
             </div>
@@ -763,9 +563,9 @@ export function HaProfiles() {
                 }}
               >
                 {record.status === 'active' ? (
-                  <CheckCircleOutlined className="text-2xl text-white" />
+                  <CheckCircle2 className="text-2xl text-white" />
                 ) : (
-                  <ExclamationCircleOutlined className="text-2xl text-white" />
+                  <AlertCircle className="text-2xl text-white" />
                 )}
               </div>
               <div>
@@ -801,7 +601,7 @@ export function HaProfiles() {
                   >
                     DRBD Device
                   </div>
-                  <Tag color="blue">{status.drbd_device}</Tag>
+                  <Badge variant="secondary">{status.drbd_device}</Badge>
                 </div>
               )}
               {status?.vip_active !== null && (
@@ -815,9 +615,9 @@ export function HaProfiles() {
                   >
                     VIP Status
                   </div>
-                  <Tag color={status?.vip_active ? 'green' : 'default'}>
+                  <Badge variant={status?.vip_active ? 'default' : 'outline'}>
                     {status?.vip_active ? 'Active' : 'Inactive'}
-                  </Tag>
+                  </Badge>
                 </div>
               )}
               {status?.service_statuses &&
@@ -834,13 +634,13 @@ export function HaProfiles() {
                     </div>
                     <div className="flex flex-wrap gap-1 justify-end">
                       {status?.service_statuses.map((s: any, idx: number) => (
-                        <Tag
+                        <Badge
                           key={idx}
-                          color={s.active ? 'green' : 'red'}
+                          variant={s.active ? 'default' : 'destructive'}
                           className="mb-0"
                         >
                           {s.name}
-                        </Tag>
+                        </Badge>
                       ))}
                     </div>
                   </div>
@@ -865,7 +665,7 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.sky}30, ${ACCENT_COLORS.blue}30)`,
                 }}
               >
-                <ThunderboltOutlined
+                <Zap
                   className="text-xl"
                   style={{ color: ACCENT_COLORS.sky }}
                 />
@@ -905,9 +705,13 @@ export function HaProfiles() {
                 >
                   Role
                 </div>
-                <Tag color={status.drbd.role === 'Primary' ? 'green' : 'blue'}>
+                <Badge
+                  variant={
+                    status.drbd.role === 'Primary' ? 'default' : 'secondary'
+                  }
+                >
                   {status.drbd.role}
-                </Tag>
+                </Badge>
               </div>
               <div
                 className={`p-3 rounded-lg text-center ${
@@ -923,11 +727,13 @@ export function HaProfiles() {
                 >
                   Disk State
                 </div>
-                <Tag
-                  color={status.drbd.disk === 'UpToDate' ? 'green' : 'orange'}
+                <Badge
+                  variant={
+                    status.drbd.disk === 'UpToDate' ? 'default' : 'secondary'
+                  }
                 >
                   {status.drbd.disk}
-                </Tag>
+                </Badge>
               </div>
               {status.drbd.peers && status.drbd.peers.length > 0 && (
                 <div
@@ -986,12 +792,13 @@ export function HaProfiles() {
                         >
                           {peer.name}
                         </div>
-                        <Tag
-                          color={peer.role === 'Primary' ? 'green' : 'blue'}
-                          size="small"
+                        <Badge
+                          variant={
+                            peer.role === 'Primary' ? 'default' : 'secondary'
+                          }
                         >
                           {peer.role}
-                        </Tag>
+                        </Badge>
                       </div>
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between items-center">
@@ -1004,16 +811,15 @@ export function HaProfiles() {
                           >
                             Connection:
                           </span>
-                          <Tag
-                            color={
+                          <Badge
+                            variant={
                               peer.connection === 'Connected'
-                                ? 'green'
-                                : 'orange'
+                                ? 'default'
+                                : 'secondary'
                             }
-                            size="small"
                           >
                             {peer.connection || 'Unknown'}
-                          </Tag>
+                          </Badge>
                         </div>
                         <div className="flex justify-between items-center">
                           <span
@@ -1025,9 +831,9 @@ export function HaProfiles() {
                           >
                             Replication:
                           </span>
-                          <Tag color="blue" size="small">
+                          <Badge variant="secondary">
                             {peer.replication || 'N/A'}
-                          </Tag>
+                          </Badge>
                         </div>
                         <div className="flex justify-between items-center">
                           <span
@@ -1039,14 +845,15 @@ export function HaProfiles() {
                           >
                             Peer Disk:
                           </span>
-                          <Tag
-                            color={
-                              peer.peer_disk === 'UpToDate' ? 'green' : 'orange'
+                          <Badge
+                            variant={
+                              peer.peer_disk === 'UpToDate'
+                                ? 'default'
+                                : 'secondary'
                             }
-                            size="small"
                           >
                             {peer.peer_disk}
-                          </Tag>
+                          </Badge>
                         </div>
                       </div>
                     </div>
@@ -1073,7 +880,7 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.purple}30, ${ACCENT_COLORS.purple}20)`,
                 }}
               >
-                <FileTextOutlined
+                <FileText
                   className="text-xl"
                   style={{ color: ACCENT_COLORS.purple }}
                 />
@@ -1120,33 +927,26 @@ export function HaProfiles() {
                     <div className="absolute top-3 right-3">
                       {isNodeDisabled ? (
                         <Button
-                          size="small"
-                          type="primary"
-                          icon={<CheckCircleOutlined />}
+                          size="sm"
                           onClick={() =>
                             handleEnableNode(record.id, node.hostname)
                           }
                           className="!bg-green-500 !border-green-500 hover:!bg-green-600"
                           title={`Enable ${node.hostname}`}
-                        />
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                        </Button>
                       ) : (
-                        <Popconfirm
-                          title="Disable Profile"
-                          description={`Disable this profile on ${node.hostname}?`}
-                          onConfirm={() =>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() =>
                             handleDisableNode(record.id, node.hostname)
                           }
-                          okText="Disable"
-                          cancelText="Cancel"
-                          okButtonProps={{ danger: true }}
+                          title={`Disable ${node.hostname}`}
                         >
-                          <Button
-                            size="small"
-                            danger
-                            icon={<StopOutlined />}
-                            title={`Disable ${node.hostname}`}
-                          />
-                        </Popconfirm>
+                          <Ban className="h-4 w-4" />
+                        </Button>
                       )}
                     </div>
 
@@ -1163,25 +963,22 @@ export function HaProfiles() {
                           {node.hostname}
                         </div>
                         {isActive && !isNodeDisabled && (
-                          <Tag color="green" size="small">
-                            Active
-                          </Tag>
+                          <Badge variant="default">Active</Badge>
                         )}
                         {isNodeDisabled && (
-                          <Tag color="default" size="small">
-                            Disabled
-                          </Tag>
+                          <Badge variant="outline">Disabled</Badge>
                         )}
                       </div>
                       {node.peer_role && (
-                        <Tag
-                          color={
-                            node.peer_role === 'Primary' ? 'green' : 'blue'
+                        <Badge
+                          variant={
+                            node.peer_role === 'Primary'
+                              ? 'default'
+                              : 'secondary'
                           }
-                          size="small"
                         >
                           {node.peer_role}
-                        </Tag>
+                        </Badge>
                       )}
                     </div>
 
@@ -1218,7 +1015,7 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.blue}30, ${ACCENT_COLORS.sky}30)`,
                 }}
               >
-                <ThunderboltOutlined
+                <Zap
                   className="text-base"
                   style={{ color: ACCENT_COLORS.blue }}
                 />
@@ -1260,7 +1057,7 @@ export function HaProfiles() {
                 >
                   Filesystem
                 </div>
-                <Tag>{record.fs_type}</Tag>
+                <Badge variant="secondary">{record.fs_type}</Badge>
               </div>
             </div>
           </div>
@@ -1278,7 +1075,7 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}30, ${ACCENT_COLORS.gold}30)`,
                 }}
               >
-                <FileTextOutlined
+                <FileText
                   className="text-base"
                   style={{ color: ACCENT_COLORS.orange }}
                 />
@@ -1296,7 +1093,9 @@ export function HaProfiles() {
                 >
                   Type
                 </div>
-                <Tag>{(record.ha_type || 'generic').toUpperCase()}</Tag>
+                <Badge variant="secondary">
+                  {(record.ha_type || 'generic').toUpperCase()}
+                </Badge>
               </div>
               <div>
                 <div
@@ -1308,7 +1107,9 @@ export function HaProfiles() {
                 >
                   Mount Strategy
                 </div>
-                <div className="font-medium">{record.mount_strategy}</div>
+                <div className="font-medium">
+                  {(record as { mount_strategy?: string }).mount_strategy}
+                </div>
               </div>
               {record.vip && (
                 <div>
@@ -1345,7 +1146,7 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.mint}30, ${ACCENT_COLORS.cyan}30)`,
                 }}
               >
-                <CheckCircleOutlined
+                <CheckCircle2
                   className="text-base"
                   style={{ color: ACCENT_COLORS.mint }}
                 />
@@ -1365,9 +1166,9 @@ export function HaProfiles() {
                 </div>
                 <div className="flex flex-wrap gap-1 mt-1">
                   {record.promoter.services.map((s) => (
-                    <Tag key={s} color="blue" size="small">
+                    <Badge key={s} variant="secondary">
                       {s}
-                    </Tag>
+                    </Badge>
                   ))}
                 </div>
               </div>
@@ -1382,12 +1183,13 @@ export function HaProfiles() {
                   >
                     Stop on Demote
                   </div>
-                  <Tag
-                    color={record.promoter.stop_on_demote ? 'green' : 'default'}
-                    size="small"
+                  <Badge
+                    variant={
+                      record.promoter.stop_on_demote ? 'default' : 'outline'
+                    }
                   >
                     {record.promoter.stop_on_demote ? 'Yes' : 'No'}
-                  </Tag>
+                  </Badge>
                 </div>
                 <div>
                   <div
@@ -1443,9 +1245,9 @@ export function HaProfiles() {
                     </div>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {record.promoter.preferred_nodes.map((node, idx) => (
-                        <Tag key={idx} size="small">
+                        <Badge key={idx} variant="secondary">
                           {node}
-                        </Tag>
+                        </Badge>
                       ))}
                     </div>
                   </div>
@@ -1526,7 +1328,7 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.gold}30, ${ACCENT_COLORS.orange}30)`,
                 }}
               >
-                <FileTextOutlined
+                <FileText
                   className="text-base"
                   style={{ color: ACCENT_COLORS.gold }}
                 />
@@ -1544,13 +1346,13 @@ export function HaProfiles() {
                 >
                   Promoter Config
                 </div>
-                <Tag
-                  color={
-                    status.config.promoter_config_exists ? 'green' : 'default'
+                <Badge
+                  variant={
+                    status.config.promoter_config_exists ? 'default' : 'outline'
                   }
                 >
                   {status.config.promoter_config_exists ? 'Exists' : 'Missing'}
-                </Tag>
+                </Badge>
               </div>
               <div>
                 <div
@@ -1562,9 +1364,13 @@ export function HaProfiles() {
                 >
                   DRBD Reactor
                 </div>
-                <Tag color={status.config.reactor_running ? 'green' : 'red'}>
+                <Badge
+                  variant={
+                    status.config.reactor_running ? 'default' : 'destructive'
+                  }
+                >
                   {status.config.reactor_running ? 'Running' : 'Stopped'}
-                </Tag>
+                </Badge>
               </div>
               {status.config.promoter_config_path && (
                 <div className="col-span-2">
@@ -1602,7 +1408,7 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}30, ${ACCENT_COLORS.gold}30)`,
                 }}
               >
-                <FileTextOutlined
+                <FileText
                   className="text-xl"
                   style={{ color: ACCENT_COLORS.orange }}
                 />
@@ -1650,7 +1456,7 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.sky}30, ${ACCENT_COLORS.blue}30)`,
                 }}
               >
-                <ThunderboltOutlined
+                <Zap
                   className="text-xl"
                   style={{ color: ACCENT_COLORS.sky }}
                 />
@@ -1698,7 +1504,7 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.orange}30, ${ACCENT_COLORS.gold}30)`,
                 }}
               >
-                <FileTextOutlined
+                <FileText
                   className="text-xl"
                   style={{ color: ACCENT_COLORS.orange }}
                 />
@@ -1745,7 +1551,7 @@ export function HaProfiles() {
       {loading ? (
         <div className="flex items-center justify-center h-full">
           <div className="flex flex-col items-center gap-4">
-            <LoadingOutlined
+            <Loader2
               className="text-4xl animate-spin"
               style={{ color: ACCENT_COLORS.orange }}
             />
@@ -1766,7 +1572,7 @@ export function HaProfiles() {
             className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
           >
             <div>
-              <Title level={2} className="!mb-1 !text-2xl">
+              <h2 className="mb-1 text-2xl font-semibold">
                 <span
                   className="bg-clip-text text-transparent"
                   style={{
@@ -1775,21 +1581,20 @@ export function HaProfiles() {
                 >
                   HA Profiles
                 </span>
-              </Title>
-              <Text
+              </h2>
+              <span
                 className={
                   currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
                 }
               >
                 Manage your high availability configurations
-              </Text>
+              </span>
             </div>
             <Button
-              type="primary"
-              icon={<PlusOutlined />}
               onClick={() => navigate('/service-ha/create?step=1')}
               className="!h-10 !px-5"
             >
+              <Plus className="h-4 w-4" />
               Create Service HA
             </Button>
           </div>
@@ -1800,27 +1605,29 @@ export function HaProfiles() {
               {
                 label: 'Total Profiles',
                 value: profiles.length,
-                icon: <ThunderboltOutlined className="text-2xl" />,
+                icon: <Zap className="text-2xl" />,
               },
               {
                 label: 'Active',
                 value: activeCount,
-                icon: <CheckCircleOutlined className="text-2xl" />,
+                icon: <CheckCircle2 className="text-2xl" />,
               },
               {
                 label: 'Standby',
                 value: standbyCount,
-                icon: <PauseCircleOutlined className="text-2xl" />,
+                icon: <PauseCircle className="text-2xl" />,
               },
               {
                 label: 'Errors',
                 value: errorCount,
-                icon: <ExclamationCircleOutlined className="text-2xl" />,
+                icon: <AlertCircle className="text-2xl" />,
               },
             ].map((stat, index) => (
               <div
                 key={index}
-                ref={(el) => (cardRefs.current[index] = el)}
+                ref={(el) => {
+                  cardRefs.current[index] = el;
+                }}
                 className="rounded-xl p-5 text-white shadow-lg"
                 style={{
                   background: `linear-gradient(135deg, ${cardColors[index].from}, ${cardColors[index].to})`,
@@ -1844,158 +1651,428 @@ export function HaProfiles() {
 
           {/* Table */}
           <div ref={tableRef}>
-            <Table
-              dataSource={profiles}
-              columns={columns}
-              rowKey="id"
-              pagination={false}
-              expandable={{
-                expandedRowRender: (record: HaProfile) => {
-                  // Built-in plugins don't support expand
-                  if (record.is_builtin_plugin) {
-                    return null;
-                  }
-                  return expandedRowRender(record);
-                },
-                onExpand: (expanded, record) => {
-                  // Built-in plugins don't support expand
-                  if (record.is_builtin_plugin) {
-                    return false;
-                  }
-                  return handleRowExpand(expanded, record);
-                },
-                expandedRowKeys: expandedProfileId ? [expandedProfileId] : [],
-                rowExpandable: (record: HaProfile) => !record.is_builtin_plugin,
-              }}
-              className="shadow-lg rounded-xl overflow-hidden"
-            />
+            <div className="shadow-lg rounded-xl overflow-hidden border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted text-muted-foreground text-left">
+                    <th className="px-4 py-3 font-medium w-10" />
+                    <th className="px-4 py-3 font-medium">Profile</th>
+                    <th className="px-4 py-3 font-medium">Type</th>
+                    <th className="px-4 py-3 font-medium">Services</th>
+                    <th className="px-4 py-3 font-medium">Service IP</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium">Active Node</th>
+                    <th className="px-4 py-3 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {profiles.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={8}
+                        className="px-4 py-10 text-center text-muted-foreground"
+                      >
+                        No data
+                      </td>
+                    </tr>
+                  ) : (
+                    profiles.map((record) => {
+                      const expandable = !record.is_builtin_plugin;
+                      const isExpanded = expandedProfileId === record.id;
+                      return (
+                        <Fragment key={record.id}>
+                          <tr className="border-t border-border align-middle">
+                            <td className="px-4 py-3">
+                              {expandable && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExpand(record)}
+                                  className="text-muted-foreground hover:text-foreground"
+                                  aria-label="Toggle details"
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4" />
+                                  )}
+                                </button>
+                              )}
+                            </td>
+                            {/* Profile */}
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div className="relative">
+                                  <div
+                                    className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                                      record.status === 'active'
+                                        ? 'bg-gradient-to-br from-green-400 to-green-600'
+                                        : record.status === 'error'
+                                          ? 'bg-gradient-to-br from-red-400 to-red-600'
+                                          : currentTheme === 'dark'
+                                            ? 'bg-gradient-to-br from-slate-600 to-slate-700'
+                                            : 'bg-gradient-to-br from-slate-300 to-slate-400'
+                                    }`}
+                                  >
+                                    <Zap className="text-white text-lg" />
+                                  </div>
+                                  {record.status === 'active' && (
+                                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white animate-pulse" />
+                                  )}
+                                </div>
+                                <div>
+                                  <div
+                                    className={`font-semibold ${
+                                      currentTheme === 'dark'
+                                        ? 'text-slate-100'
+                                        : 'text-slate-800'
+                                    }`}
+                                  >
+                                    {record.name}
+                                  </div>
+                                  <div
+                                    className={`text-xs ${
+                                      currentTheme === 'dark'
+                                        ? 'text-slate-400'
+                                        : 'text-slate-500'
+                                    }`}
+                                  >
+                                    {record.resource_name}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            {/* Type */}
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <Badge
+                                  variant="secondary"
+                                  className="px-3 py-1 rounded-full font-medium"
+                                >
+                                  {(record.ha_type || 'generic').toUpperCase()}
+                                </Badge>
+                                {record.is_builtin_plugin && (
+                                  <Badge
+                                    variant="outline"
+                                    className="px-2 py-1 rounded text-xs"
+                                  >
+                                    Built-in
+                                  </Badge>
+                                )}
+                              </div>
+                            </td>
+                            {/* Services */}
+                            <td className="px-4 py-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {record.promoter.services
+                                  .slice(0, 2)
+                                  .map((s) => (
+                                    <Badge key={s} variant="secondary">
+                                      {s}
+                                    </Badge>
+                                  ))}
+                                {record.promoter.services.length > 2 && (
+                                  <Badge variant="secondary">
+                                    +{record.promoter.services.length - 2}
+                                  </Badge>
+                                )}
+                              </div>
+                            </td>
+                            {/* Service IP */}
+                            <td className="px-4 py-3">
+                              {record.is_builtin_plugin ? (
+                                <span
+                                  className={
+                                    currentTheme === 'dark'
+                                      ? 'text-slate-500'
+                                      : 'text-slate-400'
+                                  }
+                                >
+                                  N/A
+                                </span>
+                              ) : record.vip ? (
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                                  <span
+                                    className="font-medium"
+                                    style={{ color: ACCENT_COLORS.sky }}
+                                  >
+                                    {record.vip.address}/{record.vip.netmask}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span
+                                  className={
+                                    currentTheme === 'dark'
+                                      ? 'text-slate-500'
+                                      : 'text-slate-400'
+                                  }
+                                >
+                                  Not Enabled
+                                </span>
+                              )}
+                            </td>
+                            {/* Status */}
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                {statusIcons[record.status] ||
+                                  statusIcons.unknown}
+                                <Badge
+                                  variant={
+                                    statusBadgeVariant[record.status] ||
+                                    'outline'
+                                  }
+                                  className="px-3 py-1 rounded-full font-medium"
+                                >
+                                  {record.status.toUpperCase()}
+                                </Badge>
+                              </div>
+                            </td>
+                            {/* Active Node */}
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                {record.active_node ? (
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                                    <span className="font-medium">
+                                      {record.active_node}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span
+                                    className={
+                                      currentTheme === 'dark'
+                                        ? 'text-slate-500'
+                                        : 'text-slate-400'
+                                    }
+                                  >
+                                    -
+                                  </span>
+                                )}
+                                {record.status === 'active' &&
+                                  record.active_node &&
+                                  !record.is_builtin_plugin && (
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      disabled={evicting[record.id]}
+                                      onClick={() => {
+                                        if (
+                                          window.confirm(
+                                            `Are you sure you want to evict the HA profile from ${record.active_node}?`,
+                                          )
+                                        ) {
+                                          handleEvict(record.id);
+                                        }
+                                      }}
+                                    >
+                                      {evicting[record.id] && (
+                                        <Spinner className="mr-2 h-4 w-4" />
+                                      )}
+                                      Evict
+                                    </Button>
+                                  )}
+                              </div>
+                            </td>
+                            {/* Actions */}
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                {!record.is_builtin_plugin && (
+                                  <>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-8 w-8 hover:!bg-purple-50"
+                                          onClick={() =>
+                                            navigate(
+                                              `/profiles/${record.name}/ocf-edit`,
+                                            )
+                                          }
+                                        >
+                                          <Pencil className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        Edit OCF Agents
+                                      </TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-8 w-8 text-destructive hover:!bg-red-50"
+                                          onClick={() => openDeleteModal(record)}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Delete</TooltipContent>
+                                    </Tooltip>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                          {expandable && isExpanded && (
+                            <tr className="border-t border-border">
+                              <td colSpan={8} className="p-0">
+                                {expandedRowRender(record)}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
       {/* Delete Confirmation Modal */}
-      <Modal
-        title={
-          <span className="flex items-center gap-2">
-            <ExclamationCircleOutlined style={{ color: '#faad14' }} />
-            Delete HA Profile
-          </span>
-        }
-        open={deleteModalOpen}
-        onCancel={() => setDeleteModalOpen(false)}
-        onOk={handleDelete}
-        okText="Delete"
-        okButtonProps={{ danger: true, loading: deleting }}
-        cancelButtonProps={{ disabled: deleting }}
-        className="!rounded-2xl"
-      >
-        {profileToDelete && (
-          <div className="space-y-4">
-            <p>
-              Are you sure you want to delete the HA profile{' '}
-              <strong>{profileToDelete.name}</strong>?
-            </p>
-            <div
-              className={`p-4 rounded-xl border ${
-                currentTheme === 'dark'
-                  ? 'bg-slate-700 border-slate-600'
-                  : 'bg-slate-50 border-slate-200'
-              }`}
-            >
-              <Checkbox
-                checked={deleteResource}
-                onChange={(e) => setDeleteResource(e.target.checked)}
-              >
-                Also delete DRBD resource{' '}
-                <strong>{profileToDelete.resource_name}</strong>
-              </Checkbox>
-              <p
-                className={`text-sm mt-2 ml-6 ${
-                  currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
-                }`}
-              >
-                This will remove the DRBD configuration files from all nodes.
-                The underlying disk data will NOT be erased.
+      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              <span className="flex items-center gap-2">
+                <AlertCircle style={{ color: '#faad14' }} className="h-5 w-5" />
+                Delete HA Profile
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          {profileToDelete && (
+            <div className="space-y-4">
+              <p>
+                Are you sure you want to delete the HA profile{' '}
+                <strong>{profileToDelete.name}</strong>?
               </p>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* Deletion Progress Modal */}
-      <Modal
-        title={
-          <span className="flex items-center gap-2">
-            <LoadingOutlined />
-            Deleting Profile {deletingProfileName}
-          </span>
-        }
-        open={progressModalOpen}
-        onCancel={handleCloseProgressModal}
-        footer={[
-          <Button
-            key="close"
-            onClick={handleCloseProgressModal}
-            disabled={deleting}
-          >
-            Close
-          </Button>,
-        ]}
-        width={600}
-        closable={!deleting}
-        maskClosable={!deleting}
-      >
-        <div className="space-y-4">
-          {/* Progress Steps */}
-          {deletionProgressSteps.length > 0 && (
-            <div className="space-y-2">
               <div
-                className={`text-sm font-medium mb-2 ${
-                  currentTheme === 'dark' ? 'text-slate-300' : 'text-slate-700'
+                className={`p-4 rounded-xl border ${
+                  currentTheme === 'dark'
+                    ? 'bg-slate-700 border-slate-600'
+                    : 'bg-slate-50 border-slate-200'
                 }`}
               >
-                Deletion Progress:
-              </div>
-              {deletionProgressSteps.map((step, idx) => (
-                <div key={idx} className="flex items-start gap-2 text-sm">
-                  {step.done ? (
-                    <CheckCircleOutlined className="text-green-500 mt-1 shrink-0" />
-                  ) : (
-                    <LoadingOutlined className="text-orange-500 mt-1 shrink-0" />
-                  )}
-                  <span
-                    className={
-                      step.done
-                        ? currentTheme === 'dark'
-                          ? 'text-slate-300'
-                          : 'text-slate-700'
-                        : 'text-orange-600 font-medium'
-                    }
-                  >
-                    {step.message}
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input"
+                    checked={deleteResource}
+                    onChange={(e) => setDeleteResource(e.target.checked)}
+                  />
+                  <span>
+                    Also delete DRBD resource{' '}
+                    <strong>{profileToDelete.resource_name}</strong>
                   </span>
-                </div>
-              ))}
+                </label>
+                <p
+                  className={`text-sm mt-2 ml-6 ${
+                    currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                  }`}
+                >
+                  This will remove the DRBD configuration files from all nodes.
+                  The underlying disk data will NOT be erased.
+                </p>
+              </div>
             </div>
           )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteModalOpen(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting && <Spinner className="mr-2 h-4 w-4" />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-          {/* Logs */}
-          <div className="h-[200px] overflow-y-auto bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs border border-slate-700">
-            {deletionLogs.length === 0 ? (
-              <div className="text-slate-500 text-center mt-20">
-                Waiting for logs...
-              </div>
-            ) : (
-              deletionLogs.map((log, i) => (
-                <div key={i} className="mb-1">
-                  {log}
+      {/* Deletion Progress Modal */}
+      <Dialog
+        open={progressModalOpen}
+        onOpenChange={(open) => {
+          if (!open && !deleting) handleCloseProgressModal();
+        }}
+      >
+        <DialogContent className="max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Deleting Profile {deletingProfileName}
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Progress Steps */}
+            {deletionProgressSteps.length > 0 && (
+              <div className="space-y-2">
+                <div
+                  className={`text-sm font-medium mb-2 ${
+                    currentTheme === 'dark' ? 'text-slate-300' : 'text-slate-700'
+                  }`}
+                >
+                  Deletion Progress:
                 </div>
-              ))
+                {deletionProgressSteps.map((step, idx) => (
+                  <div key={idx} className="flex items-start gap-2 text-sm">
+                    {step.done ? (
+                      <CheckCircle2 className="text-green-500 mt-1 shrink-0 h-4 w-4" />
+                    ) : (
+                      <Loader2 className="text-orange-500 mt-1 shrink-0 h-4 w-4 animate-spin" />
+                    )}
+                    <span
+                      className={
+                        step.done
+                          ? currentTheme === 'dark'
+                            ? 'text-slate-300'
+                            : 'text-slate-700'
+                          : 'text-orange-600 font-medium'
+                      }
+                    >
+                      {step.message}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
-            <div ref={logsEndRef} />
+
+            {/* Logs */}
+            <div className="h-[200px] overflow-y-auto bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs border border-slate-700">
+              {deletionLogs.length === 0 ? (
+                <div className="text-slate-500 text-center mt-20">
+                  Waiting for logs...
+                </div>
+              ) : (
+                deletionLogs.map((log, i) => (
+                  <div key={i} className="mb-1">
+                    {log}
+                  </div>
+                ))
+              )}
+              <div ref={logsEndRef} />
+            </div>
           </div>
-        </div>
-      </Modal>
+          <DialogFooter>
+            <Button onClick={handleCloseProgressModal} disabled={deleting}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

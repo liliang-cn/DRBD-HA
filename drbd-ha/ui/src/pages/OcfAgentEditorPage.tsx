@@ -1,6 +1,8 @@
-import { ArrowLeftOutlined } from '@ant-design/icons';
-import { Button, Result, Spin } from 'antd';
+import { ArrowLeft } from 'lucide-react';
 import { useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { Result } from '@/components/ui/result';
+import { Spinner } from '@/components/ui/spinner';
 import { useNavigate, useParams } from 'react-router-dom';
 import { OcfAgentEditor } from '@/components/ha/OcfAgentEditor';
 import { useHaProfilesStore } from '@/stores/ha-profiles';
@@ -34,7 +36,10 @@ export function OcfAgentEditorPage() {
           height: '100vh',
         }}
       >
-        <Spin size="large" tip="Loading profile..." />
+        <div className="flex flex-col items-center gap-2">
+          <Spinner size={32} />
+          <span className="text-muted-foreground">Loading profile...</span>
+        </div>
       </div>
     );
   }
@@ -43,11 +48,11 @@ export function OcfAgentEditorPage() {
     return (
       <div style={{ padding: '24px' }}>
         <Result
-          status="404"
+          status="error"
           title="Profile Not Found"
           subTitle={`The profile ${profileId} does not exist.`}
           extra={
-            <Button type="primary" onClick={() => navigate('/')}>
+            <Button onClick={() => navigate('/')}>
               Go Back
             </Button>
           }
@@ -73,7 +78,8 @@ export function OcfAgentEditorPage() {
           flexShrink: 0,
         }}
       >
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
+        <Button variant="outline" onClick={() => navigate('/')}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Profiles
         </Button>
       </div>

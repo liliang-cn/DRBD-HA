@@ -40,7 +40,7 @@ ui/src/
 
 **Props:**
 
-- `form: FormInstance` - Ant Design 表单实例
+- `form: WizardFormInstance` - 向导表单实例（见 `@/lib/wizard-form`）
 - `storageStrategy: "raw" | "lvm"` - 当前选择的存储策略
 - `onStrategyChange: (strategy) => void` - 策略变更回调
 - `nodes: Node[]` - 节点列表

@@ -1,47 +1,70 @@
-import {
-  DeleteOutlined,
-  DownOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
-import {
-  Button,
-  Dropdown,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  message,
-  Popconfirm,
-  Select,
-  Space,
-  Table,
-  Tag,
-} from 'antd';
+import { Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { nodesApi, resourcesApi } from '@/api';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Spinner } from '@/components/ui/spinner';
 import { useNodesStore } from '@/stores/nodes';
 import { useResourcesStore } from '@/stores/resources';
 import type { BlockDevice, CreateResourceRequest, DrbdResource } from '@/types';
 
-const roleColor: Record<string, string> = {
-  Primary: 'green',
-  Secondary: 'blue',
-  Unknown: 'default',
+const roleVariant: Record<
+  string,
+  'default' | 'secondary' | 'destructive' | 'outline'
+> = {
+  Primary: 'default',
+  Secondary: 'secondary',
+  Unknown: 'outline',
 };
 
-const diskStateColor: Record<string, string> = {
-  UpToDate: 'green',
-  Inconsistent: 'orange',
-  Diskless: 'red',
-  DUnknown: 'default',
+const diskStateVariant: Record<
+  string,
+  'default' | 'secondary' | 'destructive' | 'outline'
+> = {
+  UpToDate: 'default',
+  Inconsistent: 'secondary',
+  Diskless: 'destructive',
+  DUnknown: 'outline',
+};
+
+interface ResourceFormState {
+  name: string;
+  port: number;
+  minor: number;
+  auto_promote: boolean;
+  node_disks: Record<string, string>;
+}
+
+const initialForm: ResourceFormState = {
+  name: '',
+  port: 7789,
+  minor: 0,
+  auto_promote: false,
+  node_disks: {},
 };
 
 export function Resources() {
   const { resources, loading, fetch } = useResourcesStore();
   const { nodes, fetch: fetchNodes } = useNodesStore();
   const [modalOpen, setModalOpen] = useState(false);
-  const [form] = Form.useForm<CreateResourceRequest>();
+  const [form, setForm] = useState<ResourceFormState>(initialForm);
   const [submitting, setSubmitting] = useState(false);
   const [availableDisks, setAvailableDisks] = useState<
     Record<string, BlockDevice[]>
@@ -64,16 +87,28 @@ export function Resources() {
     });
   }, [nodes, availableDisks]);
 
-  const handleCreate = async (values: CreateResourceRequest) => {
+  const resetForm = () => setForm(initialForm);
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(form.name)) {
+      toast.error('Enter a valid resource name');
+      return;
+    }
+    const missingDisk = nodes.find((node) => !form.node_disks[node.id]);
+    if (missingDisk) {
+      toast.error(`Select a disk for ${missingDisk.hostname}`);
+      return;
+    }
     setSubmitting(true);
     try {
-      await resourcesApi.create(values);
-      message.success('Resource created');
+      await resourcesApi.create(form as unknown as CreateResourceRequest);
+      toast.success('Resource created');
       setModalOpen(false);
-      form.resetFields();
+      resetForm();
       fetch();
     } catch (err) {
-      message.error((err as { message: string }).message);
+      toast.error((err as { message: string }).message);
     } finally {
       setSubmitting(false);
     }
@@ -86,33 +121,34 @@ export function Resources() {
         force,
       });
       if (result.success) {
-        message.success(`${action} completed`);
+        toast.success(`${action} completed`);
       } else {
-        message.error(result.message || `${action} failed`);
+        toast.error(result.message || `${action} failed`);
       }
       fetch();
     } catch (err) {
-      message.error((err as { message: string }).message);
+      toast.error((err as { message: string }).message);
     }
   };
 
   const handleDelete = async (name: string) => {
+    if (!window.confirm('Delete this resource?')) return;
     try {
       await resourcesApi.delete(name);
-      message.success('Resource deleted');
+      toast.success('Resource deleted');
       fetch();
     } catch (err) {
-      message.error((err as { message: string }).message);
+      toast.error((err as { message: string }).message);
     }
   };
 
   const handleInit = async (name: string) => {
     try {
       await resourcesApi.init(name);
-      message.success('Resource initialized');
+      toast.success('Resource initialized');
       fetch();
     } catch (err) {
-      message.error((err as { message: string }).message);
+      toast.error((err as { message: string }).message);
     }
   };
 
@@ -125,190 +161,250 @@ export function Resources() {
       } catch {}
     }
     setAvailableDisks(disksMap);
-    message.success('Available disks refreshed');
+    toast.success('Available disks refreshed');
   };
 
-  const getActionItems = (record: DrbdResource) => [
-    { key: 'up', label: 'Up', onClick: () => handleAction(record.name, 'up') },
-    {
-      key: 'down',
-      label: 'Down',
-      onClick: () => handleAction(record.name, 'down'),
-    },
-    { type: 'divider' as const },
-    {
-      key: 'primary',
-      label: 'Primary',
-      onClick: () => handleAction(record.name, 'primary'),
-    },
-    {
-      key: 'primary-force',
-      label: 'Primary (Force)',
-      onClick: () => handleAction(record.name, 'primary', true),
-    },
-    {
-      key: 'secondary',
-      label: 'Secondary',
-      onClick: () => handleAction(record.name, 'secondary'),
-    },
-    { type: 'divider' as const },
-    {
-      key: 'init',
-      label: 'Initialize',
-      onClick: () => handleInit(record.name),
-    },
-  ];
-
-  const columns = [
-    { title: 'Name', dataIndex: 'name', key: 'name' },
-    {
-      title: 'Role',
-      dataIndex: 'role',
-      key: 'role',
-      render: (role: string) => (
-        <Tag color={roleColor[role] || 'default'}>{role}</Tag>
-      ),
-    },
-    {
-      title: 'Disk State',
-      key: 'disk_state',
-      render: (_: unknown, record: DrbdResource) => {
-        const state = record.devices[0]?.disk_state || 'Unknown';
-        return <Tag color={diskStateColor[state] || 'default'}>{state}</Tag>;
-      },
-    },
-    {
-      title: 'Connections',
-      key: 'connections',
-      render: (_: unknown, record: DrbdResource) => (
-        <Space>
-          {record.connections.map((c) => (
-            <Tag
-              key={c.name}
-              color={c.connection_state === 'Connected' ? 'green' : 'orange'}
-            >
-              {c.name}: {c.connection_state}
-            </Tag>
-          ))}
-        </Space>
-      ),
-    },
-    {
-      title: 'Actions',
-      key: 'actions',
-      render: (_: unknown, record: DrbdResource) => (
-        <Space>
-          <Dropdown menu={{ items: getActionItems(record) }}>
-            <Button size="small">
-              Actions <DownOutlined />
-            </Button>
-          </Dropdown>
-          <Popconfirm
-            title="Delete this resource?"
-            onConfirm={() => handleDelete(record.name)}
-          >
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
+  const runResourceAction = (record: DrbdResource, value: string) => {
+    switch (value) {
+      case 'up':
+        return handleAction(record.name, 'up');
+      case 'down':
+        return handleAction(record.name, 'down');
+      case 'primary':
+        return handleAction(record.name, 'primary');
+      case 'primary-force':
+        return handleAction(record.name, 'primary', true);
+      case 'secondary':
+        return handleAction(record.name, 'secondary');
+      case 'init':
+        return handleInit(record.name);
+    }
+  };
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-semibold">DRBD Resources</h2>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={refreshAvailableDisks}>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={refreshAvailableDisks}>
+            <RefreshCw className="h-4 w-4" />
             Refresh Disks
           </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setModalOpen(true)}
-          >
+          <Button onClick={() => setModalOpen(true)}>
+            <Plus className="h-4 w-4" />
             Create Resource
           </Button>
-        </Space>
+        </div>
       </div>
 
-      <Table
-        dataSource={resources}
-        columns={columns}
-        rowKey="name"
-        loading={loading}
-        pagination={false}
-      />
+      <div className="rounded-md border border-border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted text-muted-foreground text-left">
+              <th className="px-4 py-2 font-medium">Name</th>
+              <th className="px-4 py-2 font-medium">Role</th>
+              <th className="px-4 py-2 font-medium">Disk State</th>
+              <th className="px-4 py-2 font-medium">Connections</th>
+              <th className="px-4 py-2 font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center">
+                  <Spinner className="mx-auto h-5 w-5" />
+                </td>
+              </tr>
+            ) : resources.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={5}
+                  className="px-4 py-10 text-center text-muted-foreground"
+                >
+                  No data
+                </td>
+              </tr>
+            ) : (
+              resources.map((record: DrbdResource) => {
+                const diskState = record.devices[0]?.disk_state || 'Unknown';
+                return (
+                  <tr key={record.name} className="border-t border-border">
+                    <td className="px-4 py-2">{record.name}</td>
+                    <td className="px-4 py-2">
+                      <Badge variant={roleVariant[record.role] || 'outline'}>
+                        {record.role}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2">
+                      <Badge
+                        variant={diskStateVariant[diskState] || 'outline'}
+                      >
+                        {diskState}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex flex-wrap gap-2">
+                        {record.connections.map((c) => (
+                          <Badge
+                            key={c.name}
+                            variant={
+                              c.connection_state === 'Connected'
+                                ? 'default'
+                                : 'secondary'
+                            }
+                          >
+                            {c.name}: {c.connection_state}
+                          </Badge>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value=""
+                          onValueChange={(value) =>
+                            runResourceAction(record, value)
+                          }
+                        >
+                          <SelectTrigger className="h-8 w-32 text-xs">
+                            <SelectValue placeholder="Actions" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="up">Up</SelectItem>
+                            <SelectItem value="down">Down</SelectItem>
+                            <SelectSeparator />
+                            <SelectItem value="primary">Primary</SelectItem>
+                            <SelectItem value="primary-force">
+                              Primary (Force)
+                            </SelectItem>
+                            <SelectItem value="secondary">
+                              Secondary
+                            </SelectItem>
+                            <SelectSeparator />
+                            <SelectItem value="init">Initialize</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleDelete(record.name)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
 
-      <Modal
-        title="Create DRBD Resource"
+      <Dialog
         open={modalOpen}
-        onCancel={() => setModalOpen(false)}
-        footer={null}
-        width={600}
-        destroyOnClose
+        onOpenChange={(open) => {
+          setModalOpen(open);
+          if (!open) resetForm();
+        }}
       >
-        <Form form={form} layout="vertical" onFinish={handleCreate}>
-          <Form.Item
-            name="name"
-            label="Resource Name"
-            rules={[{ required: true, pattern: /^[a-zA-Z][a-zA-Z0-9_-]*$/ }]}
-          >
-            <Input placeholder="r0" />
-          </Form.Item>
-          <Form.Item
-            name="port"
-            label="DRBD Port"
-            rules={[{ required: true }]}
-            initialValue={7789}
-          >
-            <InputNumber min={7000} max={8000} className="w-full" />
-          </Form.Item>
-          <Form.Item
-            name="minor"
-            label="Minor Number"
-            rules={[{ required: true }]}
-            initialValue={0}
-          >
-            <InputNumber min={0} className="w-full" />
-          </Form.Item>
-          <Form.Item
-            name="auto_promote"
-            label="Auto Promote"
-            initialValue={false}
-          >
-            <Select
-              options={[
-                { value: true, label: 'Yes (Standard DRBD)' },
-                { value: false, label: 'No (For HA/drbd-reactor)' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item label="Node Disks" required>
-            {nodes.map((node) => (
-              <Form.Item
-                key={node.id}
-                name={['node_disks', node.id]}
-                label={`${node.hostname} (${node.ip})`}
-                rules={[{ required: true, message: 'Select a disk' }]}
+        <DialogContent className="max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Create DRBD Resource</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="res-name">Resource Name</Label>
+              <Input
+                id="res-name"
+                placeholder="r0"
+                value={form.name}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, name: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="res-port">DRBD Port</Label>
+              <Input
+                id="res-port"
+                type="number"
+                min={7000}
+                max={8000}
+                value={form.port}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, port: Number(e.target.value) }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="res-minor">Minor Number</Label>
+              <Input
+                id="res-minor"
+                type="number"
+                min={0}
+                value={form.minor}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, minor: Number(e.target.value) }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Auto Promote</Label>
+              <Select
+                value={form.auto_promote ? 'true' : 'false'}
+                onValueChange={(value) =>
+                  setForm((f) => ({ ...f, auto_promote: value === 'true' }))
+                }
               >
-                <Select
-                  placeholder="Select disk"
-                  options={(availableDisks[node.id] || []).map((d) => ({
-                    value: d.path,
-                    label: `${d.path} (${d.size_human})`,
-                  }))}
-                />
-              </Form.Item>
-            ))}
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" loading={submitting} block>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="true">Yes (Standard DRBD)</SelectItem>
+                  <SelectItem value="false">
+                    No (For HA/drbd-reactor)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-3">
+              <Label>Node Disks</Label>
+              {nodes.map((node) => (
+                <div key={node.id} className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">
+                    {node.hostname} ({node.ip})
+                  </Label>
+                  <Select
+                    value={form.node_disks[node.id] ?? ''}
+                    onValueChange={(value) =>
+                      setForm((f) => ({
+                        ...f,
+                        node_disks: { ...f.node_disks, [node.id]: value },
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select disk" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(availableDisks[node.id] || []).map((d) => (
+                        <SelectItem key={d.path} value={d.path}>
+                          {d.path} ({d.size_human})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+            <Button type="submit" disabled={submitting} className="w-full">
+              {submitting && <Spinner className="mr-2 h-4 w-4" />}
               Create Resource
             </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
