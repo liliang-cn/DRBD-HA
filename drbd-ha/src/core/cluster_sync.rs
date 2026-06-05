@@ -372,18 +372,32 @@ impl ClusterSync {
             content.len()
         );
 
+        // Ensure the destination directory exists on the remote node before
+        // writing (e.g. /etc/systemd/system/<svc>.service.d), otherwise tee/cat
+        // fails with "No such file or directory".
+        let parent_dir = std::path::Path::new(path)
+            .parent()
+            .and_then(|p| p.to_str())
+            .filter(|p| !p.is_empty());
+
         // Use sudo tee for non-root users to write files requiring root permissions
         let cmd = if node.ssh_user != "root" {
             // Escape single quotes in content
             let escaped_content = content.replace('\'', "'\\''");
+            let mkdir = parent_dir
+                .map(|d| format!("sudo mkdir -p '{}' && ", d))
+                .unwrap_or_default();
             // Use sudo tee to write with root privileges
             format!(
-                "echo '{}' | sudo tee '{}' > /dev/null",
-                escaped_content, path
+                "{}echo '{}' | sudo tee '{}' > /dev/null",
+                mkdir, escaped_content, path
             )
         } else {
+            let mkdir = parent_dir
+                .map(|d| format!("mkdir -p '{}' && ", d))
+                .unwrap_or_default();
             // For root user, use cat with heredoc for better handling of special characters
-            format!("cat > '{}' << 'EOF'\n{}\nEOF", path, content)
+            format!("{}cat > '{}' << 'EOF'\n{}\nEOF", mkdir, path, content)
         };
 
         let result = self

@@ -152,7 +152,6 @@ export function HaConfigStep({
     const prefNodes = preferredNodes;
     const prefPolicy = preferredNodesPolicy;
     const quorumLoss = onQuorumLoss;
-    const demoteFailure = onDemoteFailure || 'continue';
     const stopOnExit = stopOnDemote !== false;
     const depsAs = dependenciesAs;
     const tgtAs = targetAs;
@@ -236,9 +235,7 @@ ${startArrayContent}
 [[promoter]]
 [promoter.resources.${resName}]
 ${startArray}
-runner = "systemd"
-stop-services-on-exit = ${stopOnExit}
-on-drbd-demote-failure = "${demoteFailure}"${advancedSection}${mountStrategyComment}
+stop-services-on-exit = ${stopOnExit}${advancedSection}${mountStrategyComment}
 `;
   }, [
     resourceName,
@@ -265,8 +262,26 @@ on-drbd-demote-failure = "${demoteFailure}"${advancedSection}${mountStrategyComm
     : [];
   const [serviceInput, setServiceInput] = useState('');
   const addService = (name: string) => {
-    const v = name.trim();
+    let v = name.trim();
     if (!v) return;
+    // Normalize to a full systemd unit name; the backend rejects bare names.
+    // Default to .service when no known unit-type suffix is present.
+    const unitSuffixes = [
+      '.service',
+      '.target',
+      '.socket',
+      '.mount',
+      '.timer',
+      '.path',
+      '.slice',
+      '.scope',
+      '.device',
+      '.swap',
+      '.automount',
+    ];
+    if (!unitSuffixes.some((s) => v.endsWith(s))) {
+      v = `${v}.service`;
+    }
     if (servicesValue.includes(v)) return;
     set('services', [...servicesValue, v]);
     setServiceInput('');
@@ -378,22 +393,31 @@ on-drbd-demote-failure = "${demoteFailure}"${advancedSection}${mountStrategyComm
                 <>
                   <div className="space-y-1.5">
                     <FieldLabel>Systemd Services</FieldLabel>
-                    <div className="flex flex-wrap gap-2">
-                      {servicesValue.map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => removeService(s)}
-                          className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs text-primary"
-                        >
-                          {s}
-                          <span className="opacity-70">×</span>
-                        </button>
-                      ))}
-                    </div>
+                    {/* Dropdown to pick a discovered service; opens directly below the field */}
+                    <Select value="" onValueChange={(v) => addService(v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a service…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {services.filter((s) => !servicesValue.includes(s.name))
+                          .length === 0 ? (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No services available
+                          </div>
+                        ) : (
+                          services
+                            .filter((s) => !servicesValue.includes(s.name))
+                            .map((s) => (
+                              <SelectItem key={s.name} value={s.name}>
+                                {s.name}
+                              </SelectItem>
+                            ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {/* Optional free-text for a custom unit name */}
                     <Input
-                      list="service-options"
-                      placeholder="Select or type service names, press Enter"
+                      placeholder="…or type a custom unit name, press Enter"
                       value={serviceInput}
                       onChange={(e) => setServiceInput(e.target.value)}
                       onKeyDown={(e) => {
@@ -404,11 +428,21 @@ on-drbd-demote-failure = "${demoteFailure}"${advancedSection}${mountStrategyComm
                       }}
                       onBlur={() => addService(serviceInput)}
                     />
-                    <datalist id="service-options">
-                      {services.map((s) => (
-                        <option key={s.name} value={s.name} />
-                      ))}
-                    </datalist>
+                    {servicesValue.length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {servicesValue.map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => removeService(s)}
+                            className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs text-primary"
+                          >
+                            {s}
+                            <span className="opacity-70">×</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">

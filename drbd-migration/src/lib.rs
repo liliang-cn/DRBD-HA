@@ -87,9 +87,11 @@ impl DataMigration {
             Self::format_device(&device_path, &config.fs_type).await?;
         }
 
-        // Step 5: Create temporary mount point and mount
+        // Step 5: Create temporary mount point and mount.
+        // The mount point must be created on the node where the mount executes
+        // (which may be a remote primary), so do it over the same command
+        // channel as mount_device rather than on the controller's local fs.
         let temp_mount = format!("/tmp/drbd-migrate-{}", config.resource_name);
-        tokio::fs::create_dir_all(&temp_mount).await?;
 
         report_progress(
             MigrationStage::MountingDevice,
@@ -112,7 +114,11 @@ impl DataMigration {
 
         // Ensure we unmount even if rsync fails
         let unmount_result = Self::unmount_device(&temp_mount).await;
-        let _ = tokio::fs::remove_dir(&temp_mount).await;
+        let _ = run_shell_command(
+            &format!("rmdir {}", temp_mount),
+            &format!("Remove temp mount point {}", temp_mount),
+        )
+        .await;
 
         // Handle rsync result after cleanup
         let bytes_transferred = rsync_result?;
@@ -275,7 +281,13 @@ impl DataMigration {
 
     /// Mount a device to a directory
     async fn mount_device(device: &str, mount_point: &str, fs_type: &str) -> MigrationResult<()> {
-        let cmd = format!("mount -t {} {} {}", fs_type, device, mount_point);
+        // Create the mount point on the same node the mount runs on (mkdir -p is
+        // idempotent), then mount. Avoids "mount point does not exist" when the
+        // command channel targets a remote node.
+        let cmd = format!(
+            "mkdir -p {} && mount -t {} {} {}",
+            mount_point, fs_type, device, mount_point
+        );
         let output =
             run_shell_command(&cmd, &format!("Mount device {} to {}", device, mount_point))
                 .await

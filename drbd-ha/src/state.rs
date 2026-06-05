@@ -332,7 +332,17 @@ impl AppState {
             let (host, port, user, credential) = self.controller_target()?;
             let escaped_from = Self::shell_escape_single_quotes(from);
             let escaped_to = Self::shell_escape_single_quotes(to);
-            let cmd = format!("mv '{}' '{}'", escaped_from, escaped_to);
+            // Ensure the destination directory exists on the controller node
+            // (e.g. /etc/systemd/system/<svc>.service.d) before moving into it.
+            let cmd = match std::path::Path::new(to).parent().and_then(|p| p.to_str()) {
+                Some(parent) if !parent.is_empty() => format!(
+                    "mkdir -p '{}' && mv '{}' '{}'",
+                    Self::shell_escape_single_quotes(parent),
+                    escaped_from,
+                    escaped_to
+                ),
+                _ => format!("mv '{}' '{}'", escaped_from, escaped_to),
+            };
             let output = self
                 .ssh_manager
                 .execute(&host, port, &user, &credential, &cmd)
@@ -346,6 +356,17 @@ impl AppState {
             }
             Ok(())
         } else {
+            if let Some(parent) = std::path::Path::new(to).parent() {
+                if !parent.as_os_str().is_empty() {
+                    tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                        AppError::Config(format!(
+                            "Failed to create destination directory '{}': {}",
+                            parent.display(),
+                            e
+                        ))
+                    })?;
+                }
+            }
             tokio::fs::rename(from, to).await.map_err(|e| {
                 AppError::Config(format!(
                     "Failed to rename controller file '{}' to '{}': {}",

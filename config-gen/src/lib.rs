@@ -245,9 +245,7 @@ start = [
     "{{ service }}",
 {% endfor %}
 ]
-runner = "systemd"
 stop-services-on-exit = {{ promoter.stop_services_on_exit }}
-on-drbd-demote-failure = "{{ promoter.on_drbd_demote_failure }}"
 {% if promoter.dependencies_as %}dependencies-as = "{{ promoter.dependencies_as }}"{% endif %}
 {% if promoter.target_as %}target-as = "{{ promoter.target_as }}"{% endif %}
 {% if promoter.on_quorum_loss %}on-quorum-loss = "{{ promoter.on_quorum_loss }}"{% endif %}
@@ -537,8 +535,9 @@ mod tests {
         assert!(output.contains("var-lib-mysql.mount"));
         assert!(output.contains("mysqld.service"));
         assert!(output.contains("stop-services-on-exit = true"));
-        assert!(output.contains("on-drbd-demote-failure = \"continue\""));
-        assert!(output.contains("runner = \"systemd\""));
+        // runner / on-drbd-demote-failure are intentionally not emitted
+        assert!(!output.contains("runner ="));
+        assert!(!output.contains("on-drbd-demote-failure"));
         assert!(output.contains("# drbd-reactor promoter configuration"));
     }
 
@@ -769,7 +768,7 @@ mod tests {
         assert!(
             output.contains("ocf:heartbeat:IPaddr2 mysql_ha_vip ip=192.168.1.100 cidr_netmask=24")
         );
-        assert!(output.contains("runner = \"systemd\""));
+        assert!(!output.contains("runner ="));
 
         // All advanced options
         assert!(output.contains("dependencies-as = \"Wants\""));

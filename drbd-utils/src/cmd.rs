@@ -153,15 +153,20 @@ impl DrbdCmd {
     /// Create filesystem on DRBD device
     pub fn mkfs_cmd(device: &str, fstype: &str) -> DrbdResult<String> {
         validator::validate_block_device(device)?;
-        // Validate fstype
-        let allowed_fstypes = ["ext4", "xfs", "btrfs"];
-        if !allowed_fstypes.contains(&fstype) {
-            return Err(DrbdError::Validation(format!(
-                "Invalid filesystem type '{}'. Allowed: {:?}",
-                fstype, allowed_fstypes
-            )));
-        }
-        Ok(format!("mkfs.{} {}", fstype, device))
+        // Validate fstype and pick the force flag for that filesystem so an
+        // existing signature on the (freshly created) DRBD device does not abort
+        // mkfs. ext4 uses -F; xfs and btrfs use -f.
+        let force_flag = match fstype {
+            "ext4" => "-F",
+            "xfs" | "btrfs" => "-f",
+            _ => {
+                return Err(DrbdError::Validation(format!(
+                    "Invalid filesystem type '{}'. Allowed: [\"ext4\", \"xfs\", \"btrfs\"]",
+                    fstype
+                )));
+            }
+        };
+        Ok(format!("mkfs.{} {} {}", fstype, force_flag, device))
     }
 
     /// Mount DRBD device

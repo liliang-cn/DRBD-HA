@@ -285,8 +285,22 @@ impl SshManager {
             )));
         }
 
-        // Step 2: Move temp file to target location with sudo
-        let move_cmd = format!("mv '{}' '{}'", safe_temp_path, safe_path);
+        // Step 2: Move temp file to target location. Ensure the destination
+        // directory exists first (e.g. /etc/systemd/system/<svc>.service.d),
+        // otherwise mv fails with "No such file or directory".
+        let move_cmd = match std::path::Path::new(path)
+            .parent()
+            .and_then(|p| p.to_str())
+            .filter(|p| !p.is_empty())
+        {
+            Some(parent) => format!(
+                "mkdir -p '{}' && mv '{}' '{}'",
+                escape_single_quotes(parent),
+                safe_temp_path,
+                safe_path
+            ),
+            None => format!("mv '{}' '{}'", safe_temp_path, safe_path),
+        };
 
         tracing::debug!(
             "write_file step 2: host={}, from={}, to={}",
