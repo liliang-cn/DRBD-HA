@@ -1123,9 +1123,14 @@ pub async fn init_resource(
         }));
     }
 
-    // Create metadata on remote nodes
+    // Create metadata on remote nodes. Track peers that fail so a degraded
+    // cluster (peers without metadata / not brought up) is surfaced instead of
+    // being silently reported as a fully-created resource.
+    let mut peer_warnings: Vec<String> = Vec::new();
     let mut progress = 25;
-    let create_md_cmd = format!("{} 2>&1 || true", DrbdCmd::create_md_cmd(&name)?);
+    // NOTE: no "2>&1 || true" here — that would force exit 0 and discard stderr,
+    // making the success check below dead code and hiding real peer failures.
+    let create_md_cmd = DrbdCmd::create_md_cmd(&name)?;
     info!("init_resource: Creating metadata on remote nodes");
 
     for node in &remote_nodes {
@@ -1169,6 +1174,8 @@ pub async fn init_resource(
                         node.hostname,
                         result.stderr
                     );
+                    peer_warnings
+                        .push(format!("{} (create-md: {})", node.hostname, result.stderr.trim()));
                 }
             }
             Err(e) => {
@@ -1177,6 +1184,7 @@ pub async fn init_resource(
                     node.hostname,
                     e
                 );
+                peer_warnings.push(format!("{} (create-md: {})", node.hostname, e));
             }
         }
     }
@@ -1231,9 +1239,9 @@ pub async fn init_resource(
         }));
     }
 
-    // Bring up resource on remote nodes
+    // Bring up resource on remote nodes (no "2>&1 || true" — see create-md note).
     info!("init_resource: Bringing up resource on remote nodes");
-    let up_remote_cmd = format!("{} 2>&1 || true", DrbdCmd::up_cmd(&name)?);
+    let up_remote_cmd = DrbdCmd::up_cmd(&name)?;
     progress = 60;
 
     for node in &remote_nodes {
@@ -1270,12 +1278,18 @@ pub async fn init_resource(
                     result.stdout.trim(),
                     result.stderr.trim()
                 );
-                if !result.success() {
+                // Re-running `drbdadm up` on an already-configured resource is
+                // benign; only treat genuinely failed bring-ups as warnings.
+                let benign =
+                    result.stderr.contains("already") || result.stderr.contains("is configured");
+                if !result.success() && !benign {
                     tracing::warn!(
                         "init_resource: Failed to bring up on {}: {}",
                         node.hostname,
                         result.stderr
                     );
+                    peer_warnings
+                        .push(format!("{} (up: {})", node.hostname, result.stderr.trim()));
                 }
             }
             Err(e) => {
@@ -1284,6 +1298,7 @@ pub async fn init_resource(
                     node.hostname,
                     e
                 );
+                peer_warnings.push(format!("{} (up: {})", node.hostname, e));
             }
         }
     }
@@ -1292,27 +1307,57 @@ pub async fn init_resource(
         "init_resource: Completed initialization for resource '{}'",
         name
     );
-    state.send_progress(
-        &operation_id,
-        "init_resource",
-        Some(&name),
-        100,
-        "Resource initialized on all nodes",
-        true,
-        Some(true),
-    );
-    state.send_notification(
-        NotificationLevel::Success,
-        "Resource Initialized",
-        &format!("DRBD resource '{}' initialized on all nodes", name),
-    );
+    if peer_warnings.is_empty() {
+        state.send_progress(
+            &operation_id,
+            "init_resource",
+            Some(&name),
+            100,
+            "Resource initialized on all nodes",
+            true,
+            Some(true),
+        );
+        state.send_notification(
+            NotificationLevel::Success,
+            "Resource Initialized",
+            &format!("DRBD resource '{}' initialized on all nodes", name),
+        );
 
-    Ok(Json(ResourceActionResponse {
-        resource: name,
-        action: "init".to_string(),
-        success: true,
-        message: Some("Resource initialized and brought up on all nodes".to_string()),
-    }))
+        Ok(Json(ResourceActionResponse {
+            resource: name,
+            action: "init".to_string(),
+            success: true,
+            message: Some("Resource initialized and brought up on all nodes".to_string()),
+        }))
+    } else {
+        // The local node was initialized, but one or more peers failed — the
+        // resource exists yet replication is degraded. Surface this loudly.
+        let detail = peer_warnings.join("; ");
+        state.send_progress(
+            &operation_id,
+            "init_resource",
+            Some(&name),
+            100,
+            &format!("Initialized locally, but some peers failed: {}", detail),
+            true,
+            Some(false),
+        );
+        state.send_notification(
+            NotificationLevel::Warning,
+            "Resource Initialized With Warnings",
+            &format!(
+                "DRBD resource '{}' was initialized locally, but these peers failed (replication degraded): {}",
+                name, detail
+            ),
+        );
+
+        Ok(Json(ResourceActionResponse {
+            resource: name,
+            action: "init".to_string(),
+            success: false,
+            message: Some(format!("Initialized locally; peers failed: {}", detail)),
+        }))
+    }
 }
 
 /// POST /api/v1/resources/:name/mkfs
