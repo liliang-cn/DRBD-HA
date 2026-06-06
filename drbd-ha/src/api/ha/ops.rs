@@ -165,73 +165,34 @@ pub async fn evict_profile(
         request.force
     );
 
-    // Execute evict command on the target (active) node
-    let (success, stdout, stderr) = if state.is_controller_node(&target_node) {
-        // Local node - execute directly
-        let output = run_shell_command(
-            &evict_cmd,
-            &format!("Evict HA profile {} from local node", profile.name),
-        )
-        .await?;
-        (output.success(), Some(output.stdout), Some(output.stderr))
-    } else {
-        // Remote node - execute via SSH with sudo
-        let credential = Some(crate::core::SshCredential::Password("ignored".to_string()));
-
-        if let Some(cred) = credential {
-            // Add sudo if user is not root
-            let remote_cmd = if target_node.ssh_user != "root" {
-                format!("sudo {}", evict_cmd)
-            } else {
-                evict_cmd.clone()
-            };
-
-            tracing::info!(
-                "Executing evict command on remote node {}: {}",
-                target_node.hostname,
-                remote_cmd
-            );
-
-            match state
-                .ssh_manager
-                .execute(
-                    &target_node.ip,
-                    target_node.ssh_port,
-                    &target_node.ssh_user,
-                    &cred,
-                    &remote_cmd,
-                )
-                .await
-            {
-                Ok(output) => {
-                    tracing::info!(
-                        "Evict command on {} completed with exit code: {}",
-                        target_node.hostname,
-                        output.exit_code
-                    );
-                    if !output.stdout.is_empty() {
-                        tracing::debug!("stdout: {}", output.stdout);
-                    }
-                    if !output.stderr.is_empty() {
-                        tracing::debug!("stderr: {}", output.stderr);
-                    }
-                    (output.success(), Some(output.stdout), Some(output.stderr))
-                }
-                Err(e) => {
-                    tracing::error!("Failed to execute evict on {}: {}", target_node.hostname, e);
-                    return Err(AppError::Ssh(format!(
-                        "Failed to execute evict on {}: {}",
-                        target_node.hostname, e
-                    )));
-                }
+    // Execute the evict directly on the target (active) node via dispatch.
+    // It must run *on the node being evicted* — never through the global
+    // shell-cmd proxy, which would run it on the wrong node and silently
+    // no-op ("nothing to do on this node").
+    tracing::info!(
+        "Executing evict on node {} ({}): {}",
+        target_node.hostname,
+        target_node.ip,
+        evict_cmd
+    );
+    let (success, stdout, stderr) =
+        match crate::core::dispatch_client::DispatchClient::exec(&target_node, &evict_cmd).await {
+            Ok(hr) => {
+                tracing::info!(
+                    "Evict on {} completed with exit code {}",
+                    target_node.hostname,
+                    hr.exit_code
+                );
+                (hr.success, Some(hr.stdout), Some(hr.stderr))
             }
-        } else {
-            return Err(AppError::Ssh(format!(
-                "No credentials available for node {}",
-                target_node.hostname
-            )));
-        }
-    };
+            Err(e) => {
+                tracing::error!("Failed to execute evict on {}: {}", target_node.hostname, e);
+                return Err(AppError::Ssh(format!(
+                    "Failed to execute evict on {}: {}",
+                    target_node.hostname, e
+                )));
+            }
+        };
 
     let message = if success {
         state.send_progress(
