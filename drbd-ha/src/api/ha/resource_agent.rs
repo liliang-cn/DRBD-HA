@@ -115,7 +115,7 @@ pub async fn list_resource_agents() -> AppResult<Json<Vec<AgentSummary>>> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/usr/lib/ocf"));
 
-    let agents = list_agents(&ocf_root).map_err(|e| AppError::Internal(e.to_string()))?;
+    let agents = list_agents(&ocf_root).await.map_err(|e| AppError::Internal(e.to_string()))?;
 
     let summary = agents
         .into_iter()
@@ -152,7 +152,7 @@ pub async fn get_resource_agent_metadata(
 
     let agent_path = ocf_root.join("resource.d").join(&provider).join(&agent);
 
-    let (meta, _) = get_agent_metadata(&agent_path).map_err(|e| {
+    let (meta, _) = get_agent_metadata(&agent_path).await.map_err(|e| {
         AppError::NotFound(format!(
             "Agent {}/{} not found or metadata fetch failed: {}",
             provider, agent, e
@@ -191,14 +191,14 @@ pub async fn list_all_resource_agents() -> AppResult<Json<ResourceAgentsByProvid
     let mut providers_map: HashMap<String, Vec<ResourceAgent>> = HashMap::new();
 
     let discovered_agents =
-        list_agents(&ocf_root).map_err(|e| AppError::Internal(e.to_string()))?;
+        list_agents(&ocf_root).await.map_err(|e| AppError::Internal(e.to_string()))?;
 
     for (provider_name, agent_name) in discovered_agents {
         let agent_path = ocf_root
             .join("resource.d")
             .join(&provider_name)
             .join(&agent_name);
-        let (ra_metadata, _) = match get_agent_metadata(&agent_path) {
+        let (ra_metadata, _) = match get_agent_metadata(&agent_path).await {
             Ok(meta) => meta,
             Err(e) => {
                 tracing::warn!(

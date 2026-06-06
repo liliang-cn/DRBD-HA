@@ -2,7 +2,6 @@ use crate::models::{DrbdPeerStatus, DrbdResourceStatus, ResourceStatus};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 fn controller_proxy_from_env() -> Option<(String, u16, String)> {
     let host = std::env::var("DRBD_HA_REMOTE_EXEC_HOST").ok()?;
@@ -179,12 +178,32 @@ pub fn parse_res_file_for_minors(content: &str) -> HashSet<u32> {
 
 /// Get all used minor numbers from existing .res files in /etc/drbd.d/
 /// Returns a HashSet of used minor numbers
-pub fn get_used_minors_from_config() -> HashSet<u32> {
+/// Run a proxied command via dispatch, returning stdout (Err(()) on any failure).
+async fn proxy_ssh_stdout(host: &str, port: u16, user: &str, remote_cmd: String) -> Result<String, ()> {
+    let cfg = dispatch::Config {
+        ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
+        config_path: Some(std::path::PathBuf::from("/dev/null")),
+        host_key_checking: dispatch::HostKeyChecking::AcceptAny,
+        known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
+        connect_timeout: Some(std::time::Duration::from_secs(5)),
+        ..Default::default()
+    };
+    let client = dispatch::Dispatch::new(cfg).map_err(|_| ())?;
+    let dest = format!("ssh://{}@{}:{}", user, host, port);
+    let result = client.exec([dest], remote_cmd).run().await.map_err(|_| ())?;
+    let hr = result.hosts.into_values().next().ok_or(())?;
+    if hr.success {
+        Ok(hr.stdout)
+    } else {
+        Err(())
+    }
+}
+
+pub async fn get_used_minors_from_config() -> HashSet<u32> {
     let mut used_minors = HashSet::new();
     let config_dir = Path::new("/etc/drbd.d");
 
     if let Some((host, port, user)) = controller_proxy_from_env() {
-        let target = format!("{}@{}", user, host);
         let escaped_dir = shell_escape_single_quotes(&config_dir.to_string_lossy());
         let list_cmd = if user == "root" {
             format!(
@@ -198,57 +217,22 @@ pub fn get_used_minors_from_config() -> HashSet<u32> {
             )
         };
 
-        let list_output = Command::new("ssh")
-            .arg("-p")
-            .arg(port.to_string())
-            .arg("-o")
-            .arg("StrictHostKeyChecking=no")
-            .arg("-o")
-            .arg("UserKnownHostsFile=/dev/null")
-            .arg("-o")
-            .arg("BatchMode=yes")
-            .arg("-o")
-            .arg("ConnectTimeout=5")
-            .arg(&target)
-            .arg(&list_cmd)
-            .output();
+        if let Ok(list_stdout) = proxy_ssh_stdout(&host, port, &user, list_cmd).await {
+            for file_path in list_stdout.lines() {
+                let file_path = file_path.trim();
+                if file_path.is_empty() {
+                    continue;
+                }
 
-        if let Ok(output) = list_output {
-            if output.status.success() {
-                for file_path in String::from_utf8_lossy(&output.stdout).lines() {
-                    let file_path = file_path.trim();
-                    if file_path.is_empty() {
-                        continue;
-                    }
+                let escaped_path = shell_escape_single_quotes(file_path);
+                let cat_cmd = if user == "root" {
+                    format!("cat '{}'", escaped_path)
+                } else {
+                    format!("sudo -n cat '{}'", escaped_path)
+                };
 
-                    let escaped_path = shell_escape_single_quotes(file_path);
-                    let cat_cmd = if user == "root" {
-                        format!("cat '{}'", escaped_path)
-                    } else {
-                        format!("sudo -n cat '{}'", escaped_path)
-                    };
-
-                    if let Ok(content_output) = Command::new("ssh")
-                        .arg("-p")
-                        .arg(port.to_string())
-                        .arg("-o")
-                        .arg("StrictHostKeyChecking=no")
-                        .arg("-o")
-                        .arg("UserKnownHostsFile=/dev/null")
-                        .arg("-o")
-                        .arg("BatchMode=yes")
-                        .arg("-o")
-                        .arg("ConnectTimeout=5")
-                        .arg(&target)
-                        .arg(&cat_cmd)
-                        .output()
-                    {
-                        if content_output.status.success() {
-                            let content = String::from_utf8_lossy(&content_output.stdout);
-                            let minors = parse_res_file_for_minors(&content);
-                            used_minors.extend(minors);
-                        }
-                    }
+                if let Ok(content) = proxy_ssh_stdout(&host, port, &user, cat_cmd).await {
+                    used_minors.extend(parse_res_file_for_minors(&content));
                 }
             }
         }
@@ -279,9 +263,9 @@ pub fn get_used_minors_from_config() -> HashSet<u32> {
 /// Allocate a new minor number for a DRBD resource
 /// System-created resources start from 2000 and increment
 /// Returns the next available minor number
-pub fn allocate_minor() -> u32 {
+pub async fn allocate_minor() -> u32 {
     const SYSTEM_MINOR_START: u32 = 2000;
-    let used_minors = get_used_minors_from_config();
+    let used_minors = get_used_minors_from_config().await;
 
     // Start from 2000 and find the first available minor
     let mut minor = SYSTEM_MINOR_START;

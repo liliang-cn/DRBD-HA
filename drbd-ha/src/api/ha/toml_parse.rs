@@ -671,7 +671,7 @@ pub async fn parse_profile_toml(
             .join(&ocf_agent.agent_type);
 
         if agent_path.exists() {
-            match get_agent_metadata(&agent_path) {
+            match get_agent_metadata(&agent_path).await {
                 Ok((ra_metadata, _)) => {
                     // Convert to flattened format
                     let metadata: ResourceAgent = ResourceAgent::from(&ra_metadata);

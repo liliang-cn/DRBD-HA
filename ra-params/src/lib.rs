@@ -7,7 +7,7 @@ use models::ResourceAgent;
 use quick_xml::de::from_str;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use tokio::process::Command;
 
 fn controller_proxy_from_env() -> Option<(String, u16, String)> {
     let host = std::env::var("DRBD_HA_REMOTE_EXEC_HOST").ok()?;
@@ -23,45 +23,45 @@ fn shell_escape_single_quotes(value: &str) -> String {
     value.replace('\'', "'\"'\"'")
 }
 
-fn run_proxy_command(command: &str) -> Result<String> {
+async fn run_proxy_command(command: &str) -> Result<String> {
     let (host, port, user) =
         controller_proxy_from_env().context("proxy execution requested but no proxy configured")?;
-    let target = format!("{}@{}", user, host);
+    // Keep login shell + sudo exactly as before; transport via dispatch.
     let remote_cmd = if user == "root" {
         format!("sh -lc '{}'", shell_escape_single_quotes(command))
     } else {
         format!("sudo -n sh -lc '{}'", shell_escape_single_quotes(command))
     };
 
-    let output = Command::new("ssh")
-        .arg("-p")
-        .arg(port.to_string())
-        .arg("-o")
-        .arg("StrictHostKeyChecking=no")
-        .arg("-o")
-        .arg("UserKnownHostsFile=/dev/null")
-        .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
-        .arg("ConnectTimeout=5")
-        .arg(target)
-        .arg(remote_cmd)
-        .output()?;
-
-    if !output.status.success() {
-        anyhow::bail!("{}", String::from_utf8_lossy(&output.stderr));
+    let cfg = dispatch::Config {
+        ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
+        config_path: Some(std::path::PathBuf::from("/dev/null")),
+        host_key_checking: dispatch::HostKeyChecking::AcceptAny,
+        known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
+        connect_timeout: Some(std::time::Duration::from_secs(5)),
+        ..Default::default()
+    };
+    let client = dispatch::Dispatch::new(cfg)?;
+    let dest = format!("ssh://{}@{}:{}", user, host, port);
+    let result = client.exec([dest], remote_cmd).run().await?;
+    let hr = result
+        .hosts
+        .into_values()
+        .next()
+        .context("dispatch returned no host result")?;
+    if !hr.success {
+        anyhow::bail!("{}", hr.stderr);
     }
-
-    String::from_utf8(output.stdout).context("Invalid UTF-8 output")
+    Ok(hr.stdout)
 }
 
-pub fn get_agent_metadata(agent_path: &Path) -> Result<(ResourceAgent, String)> {
+pub async fn get_agent_metadata(agent_path: &Path) -> Result<(ResourceAgent, String)> {
     if controller_proxy_from_env().is_some() {
         let command = format!(
             "OCF_ROOT=/usr/lib/ocf '{}' meta-data",
             shell_escape_single_quotes(&agent_path.to_string_lossy())
         );
-        let xml_content = run_proxy_command(&command)?;
+        let xml_content = run_proxy_command(&command).await?;
         let ra: ResourceAgent = from_str(&xml_content).context("Failed to parse XML")?;
         return Ok((ra, xml_content));
     }
@@ -70,7 +70,8 @@ pub fn get_agent_metadata(agent_path: &Path) -> Result<(ResourceAgent, String)> 
     let output = Command::new(agent_path)
         .arg("meta-data")
         .env("OCF_ROOT", "/usr/lib/ocf")
-        .output()?;
+        .output()
+        .await?;
 
     if !output.status.success() {
         anyhow::bail!(
@@ -85,16 +86,16 @@ pub fn get_agent_metadata(agent_path: &Path) -> Result<(ResourceAgent, String)> 
     Ok((ra, xml_content))
 }
 
-pub fn get_agent_metadata_with_provider(
+pub async fn get_agent_metadata_with_provider(
     agent_path: &Path,
     provider: &str,
 ) -> Result<(ResourceAgent, String)> {
-    let (mut ra, xml_content) = get_agent_metadata(agent_path)?;
+    let (mut ra, xml_content) = get_agent_metadata(agent_path).await?;
     ra.provider = provider.to_string();
     Ok((ra, xml_content))
 }
 
-pub fn list_agents(ocf_root: &Path) -> Result<Vec<(String, String)>> {
+pub async fn list_agents(ocf_root: &Path) -> Result<Vec<(String, String)>> {
     let mut agents = Vec::new();
     let resource_d = ocf_root.join("resource.d");
 
@@ -103,7 +104,7 @@ pub fn list_agents(ocf_root: &Path) -> Result<Vec<(String, String)>> {
             "find '{}' -mindepth 2 -maxdepth 2 -type f -executable -printf '%P\n'",
             shell_escape_single_quotes(&resource_d.to_string_lossy())
         );
-        let output = run_proxy_command(&command)?;
+        let output = run_proxy_command(&command).await?;
 
         for line in output.lines() {
             let trimmed = line.trim();

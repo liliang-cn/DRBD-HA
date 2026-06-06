@@ -148,13 +148,13 @@ pub async fn create_resource(
 
     // Auto-allocate minor number if not provided or is 0
     let minor = if req.minor == 0 {
-        let allocated = allocate_minor();
+        let allocated = allocate_minor().await;
         validator::validate_minor(allocated)?;
         allocated
     } else {
         // User specified a minor, validate it's available
         validator::validate_minor(req.minor)?;
-        validator::validate_minor_available(req.minor)?;
+        validator::validate_minor_available(req.minor).await?;
         req.minor
     };
 

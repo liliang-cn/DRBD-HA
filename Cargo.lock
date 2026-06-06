@@ -902,6 +902,7 @@ name = "drbd-utils"
 version = "0.1.0"
 dependencies = [
  "config-gen",
+ "dispatch-rs",
  "regex",
  "serde",
  "serde_json",
@@ -1653,6 +1654,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 name = "lvm-utils"
 version = "0.1.0"
 dependencies = [
+ "dispatch-rs",
  "regex",
  "serde",
  "serde_json",
@@ -2198,6 +2200,7 @@ dependencies = [
  "quick-xml",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -3891,6 +3894,7 @@ dependencies = [
 name = "zfs-utils"
 version = "0.1.0"
 dependencies = [
+ "dispatch-rs",
  "regex",
  "serde",
  "serde_json",

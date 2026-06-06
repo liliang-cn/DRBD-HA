@@ -48,7 +48,8 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -71,7 +72,7 @@ fn main() -> Result<()> {
             }
 
             println!("Scanning OCF agents in: {}", resource_d.display());
-            scan_and_process(&ocf_root, &output_dir, save_xml, combine)?;
+            scan_and_process(&ocf_root, &output_dir, save_xml, combine).await?;
         }
         Commands::Verify { xml, ts } => {
             verify_files(&xml, &ts)?;
@@ -115,7 +116,7 @@ fn verify_files(xml_path: &Path, ts_path: &Path) -> Result<()> {
     }
 }
 
-fn scan_and_process(
+async fn scan_and_process(
     ocf_root: &Path,
     output_dir: &Path,
     save_xml: bool,
@@ -126,7 +127,7 @@ fn scan_and_process(
     let mut fail_count = 0;
     let mut failures: Vec<(String, String)> = Vec::new();
 
-    let agents = list_agents(ocf_root)?;
+    let agents = list_agents(ocf_root).await?;
 
     for (provider, agent_name) in agents {
         let provider_output_dir = output_dir.join(&provider);
@@ -138,7 +139,7 @@ fn scan_and_process(
             .join(&provider)
             .join(&agent_name);
 
-        match process_agent(&agent_path, &provider_output_dir, save_xml, &provider) {
+        match process_agent(&agent_path, &provider_output_dir, save_xml, &provider).await {
             Ok(agent) => {
                 success_count += 1;
                 if combine {
@@ -172,7 +173,7 @@ fn scan_and_process(
     Ok(())
 }
 
-fn process_agent(
+async fn process_agent(
     agent_path: &Path,
     output_dir: &Path,
     save_xml: bool,
@@ -181,7 +182,7 @@ fn process_agent(
     let agent_name = agent_path.file_name().unwrap().to_string_lossy();
     println!("Processing Agent: {} (provider: {})", agent_name, provider);
 
-    let (ra, xml_content) = get_agent_metadata_with_provider(agent_path, provider)?;
+    let (ra, xml_content) = get_agent_metadata_with_provider(agent_path, provider).await?;
 
     // Optional: Save XML
     if save_xml {

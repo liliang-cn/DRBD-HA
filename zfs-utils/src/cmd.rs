@@ -89,33 +89,40 @@ impl ZfsCmd {
 pub async fn run_local_command(command: &str, description: &str) -> ZfsResult<CommandOutput> {
     tracing::info!("Executing: {} ({})", command, description);
 
-    let output = if let Some(proxy) = proxy_target_from_env() {
-        let target = format!("{}@{}", proxy.user, proxy.host);
+    if let Some(proxy) = proxy_target_from_env() {
+        // Remote: keep login shell + sudo, run via dispatch.
         let escaped_cmd = shell_escape_single_quotes(command);
         let remote_cmd = if proxy.user == "root" {
             format!("sh -lc '{}'", escaped_cmd)
         } else {
             format!("sudo -n sh -lc '{}'", escaped_cmd)
         };
-
-        Command::new("ssh")
-            .arg("-p")
-            .arg(proxy.port.to_string())
-            .arg("-o")
-            .arg("StrictHostKeyChecking=no")
-            .arg("-o")
-            .arg("UserKnownHostsFile=/dev/null")
-            .arg("-o")
-            .arg("BatchMode=yes")
-            .arg("-o")
-            .arg("ConnectTimeout=5")
-            .arg(target)
-            .arg(remote_cmd)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
+        let cfg = dispatch::Config {
+            ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
+            config_path: Some(std::path::PathBuf::from("/dev/null")),
+            host_key_checking: dispatch::HostKeyChecking::AcceptAny,
+            known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
+            connect_timeout: Some(std::time::Duration::from_secs(5)),
+            ..Default::default()
+        };
+        let client = dispatch::Dispatch::new(cfg)
+            .map_err(|e| ZfsError::Execution(format!("dispatch init failed: {}", e)))?;
+        let dest = format!("ssh://{}@{}:{}", proxy.user, proxy.host, proxy.port);
+        let result = client
+            .exec([dest], remote_cmd)
+            .run()
             .await
-            .map_err(|e| ZfsError::Execution(format!("Failed to execute proxied command: {}", e)))?
+            .map_err(|e| ZfsError::Execution(format!("dispatch exec failed: {}", e)))?;
+        let hr = result
+            .hosts
+            .into_values()
+            .next()
+            .ok_or_else(|| ZfsError::Execution("dispatch returned no host result".to_string()))?;
+        Ok(CommandOutput {
+            stdout: hr.stdout,
+            stderr: hr.stderr,
+            exit_code: hr.exit_code,
+        })
     } else {
         let parts = shlex::split(command)
             .ok_or_else(|| ZfsError::Execution(format!("Failed to parse command: {}", command)))?;
@@ -125,19 +132,16 @@ pub async fn run_local_command(command: &str, description: &str) -> ZfsResult<Co
             cmd.args(&parts[1..]);
         }
 
-        cmd.stdout(Stdio::piped())
+        let output = cmd
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
             .await
-            .map_err(|e| ZfsError::Execution(format!("Failed to execute command: {}", e)))?
-    };
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    Ok(CommandOutput {
-        stdout,
-        stderr,
-        exit_code: output.status.code().unwrap_or(-1),
-    })
+            .map_err(|e| ZfsError::Execution(format!("Failed to execute command: {}", e)))?;
+        Ok(CommandOutput {
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            exit_code: output.status.code().unwrap_or(-1),
+        })
+    }
 }

@@ -164,8 +164,8 @@ pub fn validate_minor(minor: u32) -> AppResult<()> {
 }
 
 /// Check if a minor number is already in use by existing resources
-pub fn validate_minor_available(minor: u32) -> AppResult<()> {
-    let used_minors = get_used_minors_from_config();
+pub async fn validate_minor_available(minor: u32) -> AppResult<()> {
+    let used_minors = get_used_minors_from_config().await;
 
     if used_minors.contains(&minor) {
         return Err(AppError::Validation(format!(
@@ -329,7 +329,7 @@ pub fn check_device_in_use(holders_output: &str) -> bool {
 }
 
 /// Validate OCF agents configuration
-pub fn validate_ocf_agents(agents: &[OcfAgentConfig]) -> AppResult<()> {
+pub async fn validate_ocf_agents(agents: &[OcfAgentConfig]) -> AppResult<()> {
     if agents.is_empty() {
         return Ok(());
     }
@@ -358,7 +358,7 @@ pub fn validate_ocf_agents(agents: &[OcfAgentConfig]) -> AppResult<()> {
             )));
         }
 
-        match ra_params::get_agent_metadata(&agent_path) {
+        match ra_params::get_agent_metadata(&agent_path).await {
             Ok((metadata, _)) => {
                 for param in metadata.parameters.parameters {
                     if (param.required == "1" || param.required == "true")
