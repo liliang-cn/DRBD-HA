@@ -20,6 +20,10 @@ fn target(node: &Node) -> String {
 fn client_for(node: &Node) -> AppResult<Dispatch> {
     let cfg = Config {
         sudo: node.ssh_user != "root",
+        // The cluster manages host trust out-of-band and re-images nodes, so
+        // match the previous `StrictHostKeyChecking=no` + `/dev/null` behavior.
+        host_key_checking: dispatch::HostKeyChecking::AcceptAny,
+        known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
         ..Default::default()
     };
     Dispatch::new(cfg).map_err(|e| AppError::Ssh(e.to_string()))

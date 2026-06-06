@@ -26,7 +26,7 @@ toml_edit = "0.25"
 # SSH
 async-trait = "0.1"
 base64 = "0.22"
-dispatch-rs = "0.2"
+dispatch-rs = "0.3"
 ssh-cmd = { path = "../ssh-cmd" }
 config-gen = { path = "../config-gen" }
 lvm-utils = { path = "../lvm-utils" }

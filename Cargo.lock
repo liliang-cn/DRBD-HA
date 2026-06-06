@@ -788,9 +788,9 @@ dependencies = [
 
 [[package]]
 name = "dispatch-rs"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b290203dff262497b00c892e0e104f4be90c20de173e7412f0c653240f7f469b"
+checksum = "53021ca40487e74e20eab2fe1670771ce390da5dfc445571d0c37ce3919245c6"
 dependencies = [
  "base64",
  "dirs",
@@ -2723,6 +2723,7 @@ name = "ssh-cmd"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "dispatch-rs",
  "serde",
  "serde_json",
  "serial_test",
