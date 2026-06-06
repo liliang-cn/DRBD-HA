@@ -50,7 +50,7 @@ pub async fn get_summary(State(state): State<Arc<AppState>>) -> AppResult<Json<D
     };
 
     // 3. HA Service Stats
-    let profiles = ReactorDiscovery::scan_profiles()?;
+    let profiles = ReactorDiscovery::scan_profiles().await?;
     let active = profiles
         .iter()
         .filter(|p| p.status == HaProfileStatus::Active)

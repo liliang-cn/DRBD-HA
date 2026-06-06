@@ -56,44 +56,53 @@ pub async fn run_shell_command(cmd_str: &str, description: &str) -> ShellResult<
         debug!("Executing command: '{}' ({})", cmd_str, description);
     }
 
-    let output = if let Some(proxy) = proxy_target_from_env() {
-        let target = format!("{}@{}", proxy.user, proxy.host);
+    let cmd_output = if let Some(proxy) = proxy_target_from_env() {
+        // Remote: keep the login shell + sudo exactly as before, run via dispatch.
         let escaped_cmd = shell_escape_single_quotes(cmd_str);
         let remote_cmd = if proxy.user == "root" {
             format!("sh -lc '{}'", escaped_cmd)
         } else {
             format!("sudo -n sh -lc '{}'", escaped_cmd)
         };
-
-        Command::new("ssh")
-            .arg("-p")
-            .arg(proxy.port.to_string())
-            .arg("-o")
-            .arg("StrictHostKeyChecking=no")
-            .arg("-o")
-            .arg("UserKnownHostsFile=/dev/null")
-            .arg("-o")
-            .arg("BatchMode=yes")
-            .arg("-o")
-            .arg("ConnectTimeout=5")
-            .arg(target)
-            .arg(remote_cmd)
-            .output()
+        let cfg = dispatch::Config {
+            ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
+            config_path: Some(std::path::PathBuf::from("/dev/null")),
+            host_key_checking: dispatch::HostKeyChecking::AcceptAny,
+            known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
+            connect_timeout: Some(std::time::Duration::from_secs(5)),
+            ..Default::default()
+        };
+        let client = dispatch::Dispatch::new(cfg)
+            .map_err(|e| ShellError::Execution(format!("dispatch init failed: {}", e)))?;
+        let dest = format!("ssh://{}@{}:{}", proxy.user, proxy.host, proxy.port);
+        let result = client
+            .exec([dest], remote_cmd)
+            .run()
             .await
-            .map_err(ShellError::Io)?
+            .map_err(|e| ShellError::Execution(format!("dispatch exec failed: {}", e)))?;
+        let hr = result
+            .hosts
+            .into_values()
+            .next()
+            .ok_or_else(|| ShellError::Execution("dispatch returned no host result".into()))?;
+        CommandOutput {
+            stdout: hr.stdout,
+            stderr: hr.stderr,
+            exit_code: hr.exit_code,
+        }
     } else {
-        Command::new("sh")
+        // Local execution stays a local process.
+        let output = Command::new("sh")
             .arg("-c")
             .arg(cmd_str)
             .output()
             .await
-            .map_err(ShellError::Io)?
-    };
-
-    let cmd_output = CommandOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        exit_code: output.status.code().unwrap_or(-1),
+            .map_err(ShellError::Io)?;
+        CommandOutput {
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            exit_code: output.status.code().unwrap_or(-1),
+        }
     };
 
     if !cmd_output.success() {

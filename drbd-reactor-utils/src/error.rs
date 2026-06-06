@@ -46,8 +46,8 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub async fn run_command(cmd: &str, args: &[&str]) -> Result<String> {
-    let output = if let Some(proxy) = proxy_target_from_env() {
-        let target = format!("{}@{}", proxy.user, proxy.host);
+    let (stdout, stderr, success) = if let Some(proxy) = proxy_target_from_env() {
+        // Remote: keep login shell + sudo exactly as before, run via dispatch.
         let full_cmd = std::iter::once(shell_quote_arg(cmd))
             .chain(args.iter().map(|arg| shell_quote_arg(arg)))
             .collect::<Vec<_>>()
@@ -57,43 +57,51 @@ pub async fn run_command(cmd: &str, args: &[&str]) -> Result<String> {
         } else {
             format!("sudo -n sh -lc {}", shell_quote_arg(&full_cmd))
         };
-
-        Command::new("ssh")
-            .arg("-p")
-            .arg(proxy.port.to_string())
-            .arg("-o")
-            .arg("StrictHostKeyChecking=no")
-            .arg("-o")
-            .arg("UserKnownHostsFile=/dev/null")
-            .arg("-o")
-            .arg("BatchMode=yes")
-            .arg("-o")
-            .arg("ConnectTimeout=5")
-            .arg(target)
-            .arg(remote_cmd)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await?
+        let cfg = dispatch::Config {
+            ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
+            config_path: Some(std::path::PathBuf::from("/dev/null")),
+            host_key_checking: dispatch::HostKeyChecking::AcceptAny,
+            known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
+            connect_timeout: Some(std::time::Duration::from_secs(5)),
+            ..Default::default()
+        };
+        let client = dispatch::Dispatch::new(cfg)
+            .map_err(|e| Error::Command(format!("dispatch init failed: {}", e)))?;
+        let dest = format!("ssh://{}@{}:{}", proxy.user, proxy.host, proxy.port);
+        let result = client
+            .exec([dest], remote_cmd)
+            .run()
+            .await
+            .map_err(|e| Error::Command(format!("dispatch exec failed: {}", e)))?;
+        let hr = result
+            .hosts
+            .into_values()
+            .next()
+            .ok_or_else(|| Error::Command("dispatch returned no host result".into()))?;
+        (hr.stdout, hr.stderr, hr.success)
     } else {
-        Command::new(cmd)
+        let output = Command::new(cmd)
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
-            .await?
+            .await?;
+        (
+            String::from_utf8_lossy(&output.stdout).to_string(),
+            String::from_utf8_lossy(&output.stderr).to_string(),
+            output.status.success(),
+        )
     };
 
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    if success {
+        Ok(stdout)
     } else {
         Err(Error::Command(format!(
             "Command '{} {}' failed: {}",
             cmd,
             args.join(" "),
-            String::from_utf8_lossy(&output.stderr)
+            stderr
         )))
     }
 }

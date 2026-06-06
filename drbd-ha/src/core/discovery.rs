@@ -9,7 +9,6 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 use tracing::warn;
 
 #[derive(Deserialize, Debug)]
@@ -62,40 +61,48 @@ fn shell_escape_single_quotes(value: &str) -> String {
     value.replace('\'', "'\"'\"'")
 }
 
-fn controller_dir_exists(path: &Path) -> Result<bool> {
+/// Run a controller-proxy command via dispatch, returning (stdout, stderr, success).
+async fn proxy_ssh(host: &str, port: u16, user: &str, remote_cmd: String) -> Result<(String, String, bool)> {
+    let cfg = dispatch::Config {
+        ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
+        config_path: Some(std::path::PathBuf::from("/dev/null")),
+        host_key_checking: dispatch::HostKeyChecking::AcceptAny,
+        known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
+        connect_timeout: Some(std::time::Duration::from_secs(5)),
+        ..Default::default()
+    };
+    let client = dispatch::Dispatch::new(cfg).map_err(|e| anyhow!("dispatch init failed: {}", e))?;
+    let dest = format!("ssh://{}@{}:{}", user, host, port);
+    let r = client
+        .exec([dest], remote_cmd)
+        .run()
+        .await
+        .map_err(|e| anyhow!("dispatch exec failed: {}", e))?;
+    let hr = r
+        .hosts
+        .into_values()
+        .next()
+        .ok_or_else(|| anyhow!("dispatch returned no host result"))?;
+    Ok((hr.stdout, hr.stderr, hr.success))
+}
+
+async fn controller_dir_exists(path: &Path) -> Result<bool> {
     if let Some((host, port, user)) = controller_proxy_from_env() {
-        let target = format!("{}@{}", user, host);
         let escaped_path = shell_escape_single_quotes(&path.to_string_lossy());
         let remote_cmd = if user == "root" {
             format!("test -d '{}'", escaped_path)
         } else {
             format!("sudo -n test -d '{}'", escaped_path)
         };
-
-        let output = Command::new("ssh")
-            .arg("-p")
-            .arg(port.to_string())
-            .arg("-o")
-            .arg("StrictHostKeyChecking=no")
-            .arg("-o")
-            .arg("UserKnownHostsFile=/dev/null")
-            .arg("-o")
-            .arg("BatchMode=yes")
-            .arg("-o")
-            .arg("ConnectTimeout=5")
-            .arg(target)
-            .arg(remote_cmd)
-            .output()?;
-
-        return Ok(output.status.success());
+        let (_, _, success) = proxy_ssh(&host, port, &user, remote_cmd).await?;
+        return Ok(success);
     }
 
     Ok(path.exists())
 }
 
-fn read_controller_dir_files(path: &Path) -> Result<Vec<String>> {
+async fn read_controller_dir_files(path: &Path) -> Result<Vec<String>> {
     if let Some((host, port, user)) = controller_proxy_from_env() {
-        let target = format!("{}@{}", user, host);
         let escaped_path = shell_escape_single_quotes(&path.to_string_lossy());
         let remote_cmd = if user == "root" {
             format!("find '{}' -maxdepth 1 -type f -printf '%f\n'", escaped_path)
@@ -105,31 +112,15 @@ fn read_controller_dir_files(path: &Path) -> Result<Vec<String>> {
                 escaped_path
             )
         };
-
-        let output = Command::new("ssh")
-            .arg("-p")
-            .arg(port.to_string())
-            .arg("-o")
-            .arg("StrictHostKeyChecking=no")
-            .arg("-o")
-            .arg("UserKnownHostsFile=/dev/null")
-            .arg("-o")
-            .arg("BatchMode=yes")
-            .arg("-o")
-            .arg("ConnectTimeout=5")
-            .arg(target)
-            .arg(remote_cmd)
-            .output()?;
-
-        if !output.status.success() {
+        let (stdout, stderr, success) = proxy_ssh(&host, port, &user, remote_cmd).await?;
+        if !success {
             return Err(anyhow!(
                 "Failed to list controller directory {}: {}",
                 path.display(),
-                String::from_utf8_lossy(&output.stderr)
+                stderr
             ));
         }
-
-        return Ok(String::from_utf8_lossy(&output.stdout)
+        return Ok(stdout
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())
@@ -143,40 +134,23 @@ fn read_controller_dir_files(path: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
-fn read_controller_file(path: &Path) -> Result<String> {
+async fn read_controller_file(path: &Path) -> Result<String> {
     if let Some((host, port, user)) = controller_proxy_from_env() {
-        let target = format!("{}@{}", user, host);
         let escaped_path = shell_escape_single_quotes(&path.to_string_lossy());
         let remote_cmd = if user == "root" {
             format!("cat '{}'", escaped_path)
         } else {
             format!("sudo -n cat '{}'", escaped_path)
         };
-
-        let output = Command::new("ssh")
-            .arg("-p")
-            .arg(port.to_string())
-            .arg("-o")
-            .arg("StrictHostKeyChecking=no")
-            .arg("-o")
-            .arg("UserKnownHostsFile=/dev/null")
-            .arg("-o")
-            .arg("BatchMode=yes")
-            .arg("-o")
-            .arg("ConnectTimeout=5")
-            .arg(target)
-            .arg(remote_cmd)
-            .output()?;
-
-        if !output.status.success() {
+        let (stdout, stderr, success) = proxy_ssh(&host, port, &user, remote_cmd).await?;
+        if !success {
             return Err(anyhow!(
                 "Failed to read controller file {}: {}",
                 path.display(),
-                String::from_utf8_lossy(&output.stderr)
+                stderr
             ));
         }
-
-        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        return Ok(stdout);
     }
 
     Ok(fs::read_to_string(path)?)
@@ -187,12 +161,12 @@ impl ReactorDiscovery {
     pub const DRBD_CONFIG_DIR: &'static str = "/etc/drbd.d";
 
     /// Scan for profiles in the configuration directory
-    pub fn scan_profiles() -> Result<Vec<HaProfile>> {
+    pub async fn scan_profiles() -> Result<Vec<HaProfile>> {
         let dir = Self::REACTOR_CONFIG_DIR;
         let path = Path::new(dir);
         let mut discovered = Vec::new();
 
-        if !controller_dir_exists(path)? {
+        if !controller_dir_exists(path).await? {
             return Ok(discovered);
         }
 
@@ -206,11 +180,11 @@ impl ReactorDiscovery {
         .unwrap();
         let agent_regex = Regex::new(r"^(\S+)\s+(\S+)(?:\s+(.*))?$").unwrap();
 
-        for file_name in read_controller_dir_files(path)? {
+        for file_name in read_controller_dir_files(path).await? {
             let path = path.join(&file_name);
 
             if path.extension().is_some_and(|ext| ext == "toml") {
-                let content = match read_controller_file(&path) {
+                let content = match read_controller_file(&path).await {
                     Ok(c) => c,
                     Err(e) => {
                         warn!("Failed to read {}: {}", path.display(), e);
@@ -367,12 +341,12 @@ impl ReactorDiscovery {
     }
 
     /// Scan DRBD resource files to discover nodes
-    pub fn scan_nodes() -> Result<Vec<Node>> {
+    pub async fn scan_nodes() -> Result<Vec<Node>> {
         let dir = Self::DRBD_CONFIG_DIR;
         let path = Path::new(dir);
         let mut nodes = HashMap::new();
 
-        if !controller_dir_exists(path)? {
+        if !controller_dir_exists(path).await? {
             return Ok(Vec::new());
         }
 
@@ -383,11 +357,11 @@ impl ReactorDiscovery {
         let node_regex =
             Regex::new(r"on\s+([a-zA-Z0-9\-\.]+)\s+\{[^}]*address\s+([0-9\.]+):(\d+);").unwrap();
 
-        for file_name in read_controller_dir_files(path)? {
+        for file_name in read_controller_dir_files(path).await? {
             let path = path.join(&file_name);
 
             if path.extension().is_some_and(|ext| ext == "res") {
-                let content = match read_controller_file(&path) {
+                let content = match read_controller_file(&path).await {
                     Ok(c) => c,
                     Err(e) => {
                         warn!("Failed to read {}: {}", path.display(), e);
@@ -426,14 +400,14 @@ impl ReactorDiscovery {
     }
 
     /// Get a specific profile by name
-    pub fn get_profile(name: &str) -> Result<Option<HaProfile>> {
-        let profiles = Self::scan_profiles()?;
+    pub async fn get_profile(name: &str) -> Result<Option<HaProfile>> {
+        let profiles = Self::scan_profiles().await?;
         Ok(profiles.into_iter().find(|p| p.name == name))
     }
 
     /// Check if a profile exists
-    pub fn profile_exists(name: &str) -> Result<bool> {
-        let profiles = Self::scan_profiles()?;
+    pub async fn profile_exists(name: &str) -> Result<bool> {
+        let profiles = Self::scan_profiles().await?;
         Ok(profiles.iter().any(|p| p.name == name))
     }
 }

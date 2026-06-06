@@ -888,6 +888,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config-gen",
+ "dispatch-rs",
  "gethostname",
  "serde",
  "serde_json",
@@ -2193,6 +2194,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dispatch-rs",
  "quick-xml",
  "serde",
  "serde_json",
@@ -2640,6 +2642,7 @@ dependencies = [
 name = "shell-cmd"
 version = "0.1.0"
 dependencies = [
+ "dispatch-rs",
  "serial_test",
  "thiserror 2.0.18",
  "tokio",

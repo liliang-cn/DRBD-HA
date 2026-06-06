@@ -1,6 +1,5 @@
 use crate::error::{AppError, AppResult};
 pub use shell_cmd::CommandOutput;
-use tokio::process::Command;
 
 #[derive(Debug, Clone)]
 pub struct CommandProxyConfig {
@@ -44,7 +43,8 @@ async fn run_shell_command_via_proxy(
     proxy: &CommandProxyConfig,
     cmd_str: &str,
 ) -> AppResult<CommandOutput> {
-    let target = format!("{}@{}", proxy.user, proxy.host);
+    // Keep the login shell + sudo exactly as before; only the transport changes
+    // from a raw `ssh` spawn to the `dispatch` library.
     let escaped_cmd = shell_escape_single_quotes(cmd_str);
     let remote_cmd = if proxy.user == "root" {
         format!("sh -lc '{}'", escaped_cmd)
@@ -52,29 +52,35 @@ async fn run_shell_command_via_proxy(
         format!("sudo -n sh -lc '{}'", escaped_cmd)
     };
 
-    let output = Command::new("ssh")
-        .arg("-p")
-        .arg(proxy.port.to_string())
-        .arg("-o")
-        .arg("StrictHostKeyChecking=no")
-        .arg("-o")
-        .arg("UserKnownHostsFile=/dev/null")
-        .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
-        .arg("ConnectTimeout=5")
-        .arg(target)
-        .arg(remote_cmd)
-        .output()
+    let cfg = dispatch::Config {
+        ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
+        config_path: Some(std::path::PathBuf::from("/dev/null")),
+        // sudo is already baked into remote_cmd above; don't double-wrap.
+        host_key_checking: dispatch::HostKeyChecking::AcceptAny,
+        known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
+        connect_timeout: Some(std::time::Duration::from_secs(5)),
+        ..Default::default()
+    };
+    let client = dispatch::Dispatch::new(cfg)
+        .map_err(|e| AppError::Internal(format!("dispatch init failed: {}", e)))?;
+    let dest = format!("ssh://{}@{}:{}", proxy.user, proxy.host, proxy.port);
+    let result = client
+        .exec([dest], remote_cmd)
+        .run()
         .await
         .map_err(|e| {
             AppError::Internal(format!("Failed to execute proxied shell command: {}", e))
         })?;
+    let hr = result
+        .hosts
+        .into_values()
+        .next()
+        .ok_or_else(|| AppError::Internal("dispatch returned no host result".into()))?;
 
     Ok(CommandOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        exit_code: output.status.code().unwrap_or(-1),
+        stdout: hr.stdout,
+        stderr: hr.stderr,
+        exit_code: hr.exit_code,
     })
 }
 
