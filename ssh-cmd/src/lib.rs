@@ -5,10 +5,6 @@ pub mod mock;
 
 use crate::config::SshConfig;
 use crate::error::{SshError, SshResult};
-#[cfg(not(test))]
-use std::process::Stdio;
-#[cfg(not(test))]
-use tokio::process::Command;
 
 /// Command execution output
 #[derive(Debug, Clone)]
@@ -86,130 +82,85 @@ impl SshManager {
 
         #[cfg(not(test))]
         {
-            // We use the system ssh command.
+            // Engine: the `dispatch` library (wraps system ssh). Credential is
+            // ignored — auth comes from the environment (ssh-agent / default
+            // keys), same as before.
 
-            // Assumes keys are set up in the environment (e.g. ssh-agent or default keys).
-
-            // Ignores credential.
-
-            let target = format!("{}@{}", user, host);
-
-            // For non-root users, wrap privileged commands with sudo
-
-            let final_command = if user != "root" && Self::needs_sudo(command) {
-                format!("sudo -n {}", command)
-            } else {
-                command.to_string()
-            };
+            // Connect as the configured user. If that user is not root, run
+            // everything through `sudo -n` (the whole command, so pipes and
+            // redirects also run as root). Root connects directly. This needs
+            // passwordless sudo for non-root users.
+            let sudo = user != "root";
 
             tracing::info!(
-                "SSH execute: host={}, port={}, user={}, command='{}'",
+                "SSH execute via dispatch: host={}, port={}, user={}, sudo={}, command='{}'",
                 host,
                 port,
                 user,
-                final_command
+                sudo,
+                command
             );
 
-            // Build the command
-
-            // ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes <target> <command>
-
-            let mut cmd = Command::new("ssh");
-
-            cmd.arg("-p")
-                .arg(port.to_string())
-                .arg("-o")
-                .arg("StrictHostKeyChecking=no")
-                .arg("-o")
-                .arg("UserKnownHostsFile=/dev/null")
-                .arg("-o")
-                .arg("BatchMode=yes")
-                .arg("-o")
-                .arg("ConnectTimeout=5")
-                .arg(&target)
-                .arg(&final_command);
-
-            // Set timeout from config if needed, but here we use a flag or tokio timeout
-
-            // Using tokio timeout for the whole operation
-
-            let child = cmd
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .map_err(|e| SshError::Execution(format!("Failed to spawn ssh command: {}", e)))?;
-
-            let output =
-                tokio::time::timeout(self.config.connection_timeout(), child.wait_with_output())
-                    .await
-                    .map_err(|_| SshError::Timeout(format!("Connection timeout to {}", host)))?
-                    .map_err(|e| {
-                        SshError::Execution(format!("Failed to execute ssh command: {}", e))
-                    })?;
+            let hr =
+                Self::dispatch_exec(host, port, user, sudo, self.config.command_timeout(), command)
+                    .await?;
 
             tracing::debug!(
                 "SSH result: host={}, exit_code={}, stdout_len={}, stderr_len={}",
                 host,
-                output.status.code().unwrap_or(-1),
-                output.stdout.len(),
-                output.stderr.len()
+                hr.exit_code,
+                hr.stdout.len(),
+                hr.stderr.len()
             );
 
             Ok(CommandOutput {
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-
-                exit_code: output.status.code().unwrap_or(-1),
+                stdout: hr.stdout,
+                stderr: hr.stderr,
+                exit_code: hr.exit_code,
             })
         }
     }
 
-    /// Check if a command needs sudo privileges
-    #[allow(dead_code)]
-    fn needs_sudo(command: &str) -> bool {
-        // Commands that typically need root/sudo privileges
-        const PRIVILEGED_COMMANDS: &[&str] = &[
-            "lsblk",
-            "pvs",
-            "vgs",
-            "lvs",
-            "pvcreate",
-            "vgcreate",
-            "lvcreate",
-            "pvremove",
-            "vgremove",
-            "lvremove",
-            "lvextend",
-            "lvreduce",
-            "drbdadm",
-            "drbdsetup",
-            "drbdmeta",
-            "systemctl",
-            "journalctl",
-            "tee",
-            "dd",
-            "mkfs",
-            "mount",
-            "umount",
-            "ip",
-            "iptables",
-            "ufw",
-            "targetcli",
-            "nvme",
-            "mv",    // Moving files in /etc requires sudo
-            "mkdir", // Creating directories in /etc requires sudo
-            "cp",    // Copying files in /etc requires sudo
-            "rm",    // Removing files in /etc requires sudo
-            "chown", // Changing ownership requires sudo
-            "chmod", // Changing permissions requires sudo
-        ];
-
-        // Check if command starts with any privileged command
-        let cmd_lower = command.trim().to_lowercase();
-        PRIVILEGED_COMMANDS.iter().any(|&priv_cmd| {
-            cmd_lower.starts_with(priv_cmd) || cmd_lower.contains(&format!(" {}", priv_cmd))
-        })
+    /// Run one command on a host through `dispatch`, replicating the previous
+    /// raw-ssh behavior: `StrictHostKeyChecking=no` + `UserKnownHostsFile=/dev/null`
+    /// (the cluster manages trust out-of-band and re-images nodes), no
+    /// ~/.ssh/config lookups.
+    #[cfg(not(test))]
+    async fn dispatch_exec(
+        host: &str,
+        port: u16,
+        user: &str,
+        sudo: bool,
+        timeout: std::time::Duration,
+        command: &str,
+    ) -> SshResult<dispatch::HostResult> {
+        let cfg = dispatch::Config {
+            ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
+            config_path: Some(std::path::PathBuf::from("/dev/null")),
+            sudo,
+            host_key_checking: dispatch::HostKeyChecking::AcceptAny,
+            known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
+            connect_timeout: Some(std::time::Duration::from_secs(5)),
+            ..Default::default()
+        };
+        let client = dispatch::Dispatch::new(cfg)
+            .map_err(|e| SshError::Execution(format!("dispatch init failed: {}", e)))?;
+        let dest = format!("ssh://{}@{}:{}", user, host, port);
+        let result = client
+            .exec([dest], command)
+            .timeout(timeout)
+            .run()
+            .await
+            .map_err(|e| SshError::Execution(format!("dispatch exec failed: {}", e)))?;
+        let hr = result
+            .hosts
+            .into_values()
+            .next()
+            .ok_or_else(|| SshError::Execution("dispatch returned no host result".into()))?;
+        if let Some(err) = hr.error {
+            return Err(SshError::Timeout(format!("{}: {}", host, err)));
+        }
+        Ok(hr)
     }
 
     /// Execute a command and parse JSON output

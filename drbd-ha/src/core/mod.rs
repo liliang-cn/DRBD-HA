@@ -2,6 +2,7 @@
 
 pub mod cluster_sync;
 pub mod discovery;
+pub mod dispatch_client;
 pub mod drbd_cmd;
 pub mod lvm_config;
 pub mod lvm_utils;
