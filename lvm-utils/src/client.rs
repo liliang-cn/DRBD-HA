@@ -754,6 +754,12 @@ mod tests {
     async fn test_init_pool() {
         clear_mocks();
 
+        // init_pool first forces the physical volume, then creates the VG.
+        push_mock_output(CommandOutput {
+            stdout: "Physical volume \"/dev/sdb\" successfully created".to_string(),
+            stderr: "".to_string(),
+            exit_code: 0,
+        });
         push_mock_output(CommandOutput {
             stdout: "Volume group \"new_vg\" successfully created".to_string(),
             stderr: "".to_string(),
@@ -766,8 +772,9 @@ mod tests {
         assert!(result.is_ok());
 
         let cmds = get_recorded_commands_list();
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0], "vgcreate new_vg /dev/sdb");
+        assert_eq!(cmds.len(), 2);
+        assert_eq!(cmds[0], "pvcreate -y -ff /dev/sdb");
+        assert_eq!(cmds[1], "vgcreate -y -ff new_vg /dev/sdb");
     }
 
     #[tokio::test]

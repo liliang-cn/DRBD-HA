@@ -170,7 +170,8 @@ async fn test_add_node_without_credentials() {
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["hostname"], "test-node");
     assert_eq!(body["ip"], "192.168.1.100");
-    assert_eq!(body["status"], "unknown"); // No credentials, so status is unknown
+    // The node is probed on add via key-based SSH; an unreachable host reports offline.
+    assert_eq!(body["status"], "offline");
     assert!(body["id"].as_str().is_some());
 }
 

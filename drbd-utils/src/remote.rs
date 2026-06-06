@@ -111,12 +111,13 @@ pub fn resolve_hostname_to_ip(hostname: &str) -> Option<String> {
     // Try to resolve hostname with a dummy port
     let addr = format!("{}:0", hostname);
 
-    // Try to resolve using DNS
+    // Try to resolve using DNS. Return the first IPv4 address among all the
+    // resolved ones — dual-stack hosts like `localhost` often yield ::1 first,
+    // and checking only the first address would miss the IPv4.
     match addr.to_socket_addrs() {
-        Ok(mut addrs) => {
-            if let Some(socket_addr) = addrs.next() {
+        Ok(addrs) => {
+            for socket_addr in addrs {
                 let ip = socket_addr.ip();
-                // Only return IPv4 addresses
                 if ip.is_ipv4() {
                     return Some(ip.to_string());
                 }

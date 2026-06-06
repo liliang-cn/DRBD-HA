@@ -208,7 +208,7 @@ resource {{ resource.name }} {
         node-id {{ node.node_id }};
         address {{ node.ip }}:{{ resource.port }};
         volume 0 {
-            device {{ resource.device }};
+            device {{ resource.device }} minor {{ resource.minor }};
             disk {{ node.disk }};
             meta-disk internal;
         }
@@ -236,10 +236,10 @@ start = [
     "{{ promoter.mount_unit }}",
 {% endif %}
 {% if promoter.vip %}
-    "ocf:heartbeat:IPaddr2 vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }}",
+    "ocf:heartbeat:IPaddr2 {{ promoter.resource }}_vip ip={{ promoter.vip.address }} cidr_netmask={{ promoter.vip.netmask }}",
 {% endif %}
 {% for agent in promoter.ocf_agents %}
-    "{{ agent.name }} {{ agent.instance_name }}{% for key, value in agent.params %} {{ key }}={{ value }}{% endfor %}",
+    "{{ agent.name }} {{ agent.instance_name }}{% for p in agent.params %} {{ p.key }}={{ p.value }}{% endfor %}",
 {% endfor %}
 {% for service in promoter.start %}
     "{{ service }}",
@@ -612,9 +612,16 @@ mod tests {
     fn test_generate_promoter_with_ocf_agents() {
         let gen = ConfigGenerator::new().unwrap();
 
-        let mut agent_params = HashMap::new();
-        agent_params.insert("op".to_string(), "start".to_string());
-        agent_params.insert("interval".to_string(), "30s".to_string());
+        let agent_params = vec![
+            ParamEntry {
+                key: "op".to_string(),
+                value: "start".to_string(),
+            },
+            ParamEntry {
+                key: "interval".to_string(),
+                value: "30s".to_string(),
+            },
+        ];
 
         let config = PromoterPluginConfig {
             resource: "db_ha".to_string(),
@@ -627,12 +634,16 @@ mod tests {
                 OcfAgentConfig {
                     name: "ocf:heartbeat:IPaddr2".to_string(),
                     instance_name: "db_ha_vip".to_string(),
-                    params: {
-                        let mut params = HashMap::new();
-                        params.insert("ip".to_string(), "10.0.0.50".to_string());
-                        params.insert("cidr_netmask".to_string(), "24".to_string());
-                        params
-                    },
+                    params: vec![
+                        ParamEntry {
+                            key: "ip".to_string(),
+                            value: "10.0.0.50".to_string(),
+                        },
+                        ParamEntry {
+                            key: "cidr_netmask".to_string(),
+                            value: "24".to_string(),
+                        },
+                    ],
                 },
                 OcfAgentConfig {
                     name: "ocf:heartbeat:mysql".to_string(),
@@ -803,11 +814,24 @@ mod tests {
 
     #[test]
     fn test_ocf_agent_config_with_params() {
-        let mut params = HashMap::new();
-        params.insert("op".to_string(), "monitor".to_string());
-        params.insert("timeout".to_string(), "20s".to_string());
-        params.insert("interval".to_string(), "5s".to_string());
-        params.insert("depth".to_string(), "0".to_string());
+        let params = vec![
+            ParamEntry {
+                key: "op".to_string(),
+                value: "monitor".to_string(),
+            },
+            ParamEntry {
+                key: "timeout".to_string(),
+                value: "20s".to_string(),
+            },
+            ParamEntry {
+                key: "interval".to_string(),
+                value: "5s".to_string(),
+            },
+            ParamEntry {
+                key: "depth".to_string(),
+                value: "0".to_string(),
+            },
+        ];
 
         let agent = OcfAgentConfig {
             name: "ocf:heartbeat:IPaddr2".to_string(),
@@ -818,8 +842,18 @@ mod tests {
         assert_eq!(agent.name, "ocf:heartbeat:IPaddr2");
         assert_eq!(agent.instance_name, "r0_vip");
         assert_eq!(agent.params.len(), 4);
-        assert_eq!(agent.params.get("op"), Some(&"monitor".to_string()));
-        assert_eq!(agent.params.get("timeout"), Some(&"20s".to_string()));
+        assert_eq!(
+            agent.params.iter().find(|p| p.key == "op").map(|p| &p.value),
+            Some(&"monitor".to_string())
+        );
+        assert_eq!(
+            agent
+                .params
+                .iter()
+                .find(|p| p.key == "timeout")
+                .map(|p| &p.value),
+            Some(&"20s".to_string())
+        );
     }
 
     #[test]
@@ -903,8 +937,10 @@ mod tests {
 
     #[test]
     fn test_promoter_config_all_fields() {
-        let mut params = HashMap::new();
-        params.insert("param1".to_string(), "value1".to_string());
+        let params = vec![ParamEntry {
+            key: "param1".to_string(),
+            value: "value1".to_string(),
+        }];
 
         let config = PromoterPluginConfig {
             resource: "test_resource".to_string(),

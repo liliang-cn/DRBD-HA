@@ -171,7 +171,7 @@ pub async fn create_profile(
         }
     }
 
-    validator::validate_ocf_agents(&req.ocf_agents)?;
+    validator::validate_ocf_agents(&req.ocf_agents).await?;
 
     if let (Some(pool_id), Some(volume_size_gb)) = (&req.lvm_pool_id, &req.lvm_volume_size_gb) {
         state.send_progress(
