@@ -162,6 +162,9 @@ use crate::api::{
             ZpoolCheckResponse, ZpoolInfo,
         )
     ),
+    info(
+        description = "DRBD-HA cluster management REST API.\n\nAn MCP (Model Context Protocol) endpoint for AI agents is also available at `/mcp` (streamable HTTP, JSON-RPC — not part of this OpenAPI spec). It exposes these operations as MCP tools plus operational playbooks as prompts."
+    ),
     tags(
         (name = "cluster", description = "Cluster node management"),
         (name = "dashboard", description = "System overview"),
