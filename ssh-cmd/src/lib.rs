@@ -86,24 +86,24 @@ impl SshManager {
             // ignored — auth comes from the environment (ssh-agent / default
             // keys), same as before.
 
-            // For non-root users, wrap privileged commands with sudo. Kept in
-            // the command string (and dispatch sudo left off) to preserve the
-            // exact previous behavior.
-            let final_command = if user != "root" && Self::needs_sudo(command) {
-                format!("sudo -n {}", command)
-            } else {
-                command.to_string()
-            };
+            // Connect as the configured user. If that user is not root, run
+            // everything through `sudo -n` (the whole command, so pipes and
+            // redirects also run as root). Root connects directly. This needs
+            // passwordless sudo for non-root users.
+            let sudo = user != "root";
 
             tracing::info!(
-                "SSH execute via dispatch: host={}, port={}, user={}, command='{}'",
+                "SSH execute via dispatch: host={}, port={}, user={}, sudo={}, command='{}'",
                 host,
                 port,
                 user,
-                final_command
+                sudo,
+                command
             );
 
-            let hr = Self::dispatch_exec(host, port, user, self.config.command_timeout(), &final_command).await?;
+            let hr =
+                Self::dispatch_exec(host, port, user, sudo, self.config.command_timeout(), command)
+                    .await?;
 
             tracing::debug!(
                 "SSH result: host={}, exit_code={}, stdout_len={}, stderr_len={}",
@@ -130,12 +130,14 @@ impl SshManager {
         host: &str,
         port: u16,
         user: &str,
+        sudo: bool,
         timeout: std::time::Duration,
         command: &str,
     ) -> SshResult<dispatch::HostResult> {
         let cfg = dispatch::Config {
             ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
             config_path: Some(std::path::PathBuf::from("/dev/null")),
+            sudo,
             host_key_checking: dispatch::HostKeyChecking::AcceptAny,
             known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
             connect_timeout: Some(std::time::Duration::from_secs(5)),
@@ -159,53 +161,6 @@ impl SshManager {
             return Err(SshError::Timeout(format!("{}: {}", host, err)));
         }
         Ok(hr)
-    }
-
-    /// Check if a command needs sudo privileges
-    #[allow(dead_code)]
-    fn needs_sudo(command: &str) -> bool {
-        // Commands that typically need root/sudo privileges
-        const PRIVILEGED_COMMANDS: &[&str] = &[
-            "lsblk",
-            "pvs",
-            "vgs",
-            "lvs",
-            "pvcreate",
-            "vgcreate",
-            "lvcreate",
-            "pvremove",
-            "vgremove",
-            "lvremove",
-            "lvextend",
-            "lvreduce",
-            "drbdadm",
-            "drbdsetup",
-            "drbdmeta",
-            "systemctl",
-            "journalctl",
-            "tee",
-            "dd",
-            "mkfs",
-            "mount",
-            "umount",
-            "ip",
-            "iptables",
-            "ufw",
-            "targetcli",
-            "nvme",
-            "mv",    // Moving files in /etc requires sudo
-            "mkdir", // Creating directories in /etc requires sudo
-            "cp",    // Copying files in /etc requires sudo
-            "rm",    // Removing files in /etc requires sudo
-            "chown", // Changing ownership requires sudo
-            "chmod", // Changing permissions requires sudo
-        ];
-
-        // Check if command starts with any privileged command
-        let cmd_lower = command.trim().to_lowercase();
-        PRIVILEGED_COMMANDS.iter().any(|&priv_cmd| {
-            cmd_lower.starts_with(priv_cmd) || cmd_lower.contains(&format!(" {}", priv_cmd))
-        })
     }
 
     /// Execute a command and parse JSON output
