@@ -1,10 +1,11 @@
 //! High Availability profile data models
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// HA Profile Type
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema, Default, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum HaType {
     #[default]
@@ -12,7 +13,7 @@ pub enum HaType {
 }
 
 /// Ordered parameter entry (key-value pair with order preserved)
-#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema, JsonSchema)]
 pub struct ParamEntry {
     pub key: String,
     pub value: String,
@@ -59,7 +60,7 @@ impl ParamEntry {
 }
 
 /// OCF Agent configuration
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct OcfAgentConfig {
     /// Agent name (e.g., "ocf:heartbeat:IPaddr2")
     pub name: String,
@@ -192,7 +193,7 @@ fn default_on_demote_failure() -> String {
 }
 
 /// Virtual IP configuration
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct VipConfig {
     /// IP address
     pub address: String,
@@ -226,7 +227,7 @@ pub enum HaProfileStatus {
 }
 
 /// Request to create an HA profile
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct CreateHaProfileRequest {
     /// Profile name
     pub name: String,
@@ -322,7 +323,7 @@ pub struct CreateHaProfileRequest {
 }
 
 /// Options for migrating existing data to DRBD storage
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct DataMigrationOptions {
     /// Source directory to migrate data from
     /// If different from mount_point, data will be copied from here
@@ -339,7 +340,7 @@ pub struct DataMigrationOptions {
 }
 
 /// Mount strategy for HA profiles
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default, PartialEq, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum MountStrategy {
     /// Use systemd mount units (recommended for most use cases)

@@ -124,9 +124,30 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/events/progress", get(sse::progress_stream))
         .route("/events/all", get(sse::all_events_stream));
 
+    // MCP server (streamable HTTP) so AI agents can operate the cluster.
+    // Mounted alongside /metrics outside token auth; rmcp manages its own sessions.
+    let mcp_service = {
+        use rmcp::transport::streamable_http_server::{
+            session::local::LocalSessionManager, tower::StreamableHttpServerConfig,
+            tower::StreamableHttpService,
+        };
+        let mcp_state = state.clone();
+        // The API binds 0.0.0.0 and is reached by node IP/hostname, so the
+        // default loopback-only Host allowlist (DNS-rebinding protection for
+        // local servers) does not apply here — accept any Host, like the REST API.
+        let mut mcp_config = StreamableHttpServerConfig::default();
+        mcp_config.allowed_hosts = Vec::new();
+        StreamableHttpService::new(
+            move || Ok(crate::mcp::DrbdHaMcp::new(mcp_state.clone())),
+            std::sync::Arc::new(LocalSessionManager::default()),
+            mcp_config,
+        )
+    };
+
     Router::new()
         // Prometheus metrics endpoint (outside auth for easy scraping)
         .route("/metrics", get(metrics::get_metrics))
+        .nest_service("/mcp", mcp_service)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi))
         .nest("/api/v1", api_routes)
         .layer(middleware::from_fn_with_state(

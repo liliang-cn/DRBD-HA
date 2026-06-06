@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "drbd-ha": {
+      "type": "http",
+      "url": "http://192.168.123.214:3373/mcp"
+    }
+  }
+}
