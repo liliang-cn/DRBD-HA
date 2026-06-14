@@ -13,7 +13,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { Eye, EyeOff, Plus, RotateCw, Save } from 'lucide-react';
+import { ClipboardPaste, Eye, EyeOff, Plus, RotateCw, Save } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { haProfilesApi } from '@/api';
@@ -32,9 +32,11 @@ import {
   type WizardFormInstance,
 } from '@/lib/wizard-form';
 import { useThemeStore } from '@/stores/theme';
+import { extractStartArrayItems, parseOcfLine } from '@/utils/toml';
 import { AddAgentModal } from './ocf-agent-editor/AddAgentModal';
 import { AddParameterModal } from './ocf-agent-editor/AddParameterModal';
 import { AgentPreview } from './ocf-agent-editor/AgentPreview';
+import { PasteTomlModal } from './ocf-agent-editor/PasteTomlModal';
 import { SortableAgentItem } from './ocf-agent-editor/SortableAgentItem';
 
 // Helper functions to convert between ParamEntry[] and Record<string, string>
@@ -44,38 +46,6 @@ function paramsToRecord(params: ParamEntry[]): Record<string, string> {
     record[key] = value;
   });
   return record;
-}
-
-function _recordToParams(record: Record<string, string>): ParamEntry[] {
-  return Object.entries(record).map(([key, value]) => ({ key, value }));
-}
-
-// Helper function to generate OCF string from agent data
-function _generateOcfString(
-  agent: ParsedOcfAgent,
-  params?: ParamEntry[],
-): string {
-  const { provider, agent_type, instance_name } = agent;
-  const finalParams = params || agent.params;
-
-  // Build key=value pairs - order is preserved from the array
-  const paramStr = finalParams
-    .map(({ key, value }) => {
-      if (value === undefined || value === null) return '';
-      // Quote values if they contain spaces or special characters
-      if (
-        String(value).includes(' ') ||
-        String(value).includes(',') ||
-        String(value) === ''
-      ) {
-        return `${key}='${value}'`;
-      }
-      return `${key}=${value}`;
-    })
-    .filter(Boolean)
-    .join(' ');
-
-  return `ocf:${provider}:${agent_type} ${instance_name}${paramStr ? ` ${paramStr}` : ''}`;
 }
 
 interface OcfAgentEditorProps {
@@ -94,6 +64,9 @@ interface OcfAgentEditorProps {
   // Preview control
   showPreview?: boolean; // Controlled from outside
   onPreviewChange?: (show: boolean) => void; // Callback when preview toggle changes
+
+  // Dirty tracking (unsaved changes)
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export function OcfAgentEditor({
@@ -102,11 +75,10 @@ export function OcfAgentEditor({
   onCancel,
   mode = 'edit',
   externalForm,
-  resources = [],
-  services = [],
   onAgentsChange,
   showPreview: externalShowPreview,
   onPreviewChange,
+  onDirtyChange,
 }: OcfAgentEditorProps) {
   const { theme: currentTheme } = useThemeStore();
   const [internalForm] = useWizardForm();
@@ -154,6 +126,25 @@ export function OcfAgentEditor({
 
   // 展开的 agent keys
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+
+  // Dirty (unsaved changes) tracking — marked on any mutation, cleared on
+  // load/save. Exposed to the parent via onDirtyChange.
+  const dirtyRef = useRef(false);
+  const markDirty = useCallback(() => {
+    if (!dirtyRef.current) {
+      dirtyRef.current = true;
+      onDirtyChange?.(true);
+    }
+  }, [onDirtyChange]);
+  const clearDirty = useCallback(() => {
+    if (dirtyRef.current) {
+      dirtyRef.current = false;
+      onDirtyChange?.(false);
+    }
+  }, [onDirtyChange]);
+
+  // Paste TOML modal state
+  const [pasteTomlVisible, setPasteTomlVisible] = useState(false);
 
   // Add agent modal state
   const [addModalVisible, setAddModalVisible] = useState(false);
@@ -322,7 +313,7 @@ export function OcfAgentEditor({
 
         // Initialize form with agent data
         const initialValues = {
-          agents: agentsWithIds.map((agentWithMeta) => {
+          agents: agentsWithIds.map((agentWithMeta: OcfAgentWithMetadata) => {
             if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
               return {
                 params: paramsToRecord(
@@ -406,13 +397,14 @@ export function OcfAgentEditor({
       setTimeout(() => {
         form.setFieldsValue(initialValues);
       }, 50);
+      clearDirty();
     } catch (err) {
       toast.error((err as { message: string }).message);
     } finally {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [mode, form, profile]);
+  }, [mode, form, profile, clearDirty]);
 
   const loadAllResourceAgents = useCallback(async () => {
     try {
@@ -599,6 +591,7 @@ export function OcfAgentEditor({
 
       // Reload the parsed agents to reflect changes
       await loadParsedAgents();
+      clearDirty();
 
       onSave?.();
     } catch (err) {
@@ -653,8 +646,83 @@ export function OcfAgentEditor({
         });
 
         form.setFieldValue('agents', newFormAgents);
+        markDirty();
       }
     }
+  };
+
+  // Apply pasted TOML: replace the agent list with entries parsed from the
+  // pasted content's start array. Returns an error string or null on success.
+  const applyPastedToml = (content: string): string | null => {
+    const items = extractStartArrayItems(content);
+    if (!items) {
+      return 'No start = [...] array found in the pasted TOML';
+    }
+    if (items.length === 0) {
+      return 'The start array in the pasted TOML is empty';
+    }
+
+    let instanceIdCounter = nextInstanceId;
+    const agentsWithIds: OcfAgentWithMetadata[] = items.map((line, index) => {
+      const parsed = parseOcfLine(line);
+      if (parsed) {
+        return {
+          position: {
+            section: 'resources',
+            array_index: null,
+            key: 'start',
+            index,
+          },
+          item: {
+            original: line,
+            is_ocf: true,
+            ocf_agent: {
+              original: line,
+              provider: parsed.provider,
+              agent_type: parsed.agent_type,
+              instance_name: parsed.instance_name,
+              params: parsed.params,
+            },
+          },
+          metadata: null,
+          instanceId: instanceIdCounter++,
+        } as any;
+      }
+      // Plain systemd unit / mount
+      return {
+        position: {
+          section: 'resources',
+          array_index: null,
+          key: 'start',
+          index,
+        },
+        item: { original: line, is_ocf: false, ocf_agent: null },
+        metadata: null,
+        instanceId: instanceIdCounter++,
+      } as any;
+    });
+
+    setParsedAgents(agentsWithIds);
+    setNextInstanceId(instanceIdCounter);
+    setAddedParams(new Map());
+    setExpandedKeys(new Set());
+
+    // Rebuild form data from the imported agents
+    const newFormAgents = agentsWithIds.map((agentWithMeta) => {
+      if (agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent) {
+        return {
+          params: paramsToRecord(agentWithMeta.item.ocf_agent.params || []),
+          original: agentWithMeta.item.original,
+        };
+      }
+      return { original: agentWithMeta.item.original };
+    });
+    form.setFieldValue('agents', newFormAgents);
+
+    markDirty();
+    setPasteTomlVisible(false);
+    toast.success(`Imported ${agentsWithIds.length} entries from pasted TOML`);
+    return null;
   };
 
   // 切换展开状态
@@ -703,9 +771,6 @@ export function OcfAgentEditor({
           // Convert merged Record back to ParamEntry[], preserving order from original
           // For keys that exist in original, keep their order
           // For new keys from changedValue, append them
-          const _originalParamsMap = new Map(
-            agent.item.ocf_agent.params?.map((p) => [p.key, p.value]) || [],
-          );
           const mergedParams: ParamEntry[] = [];
 
           // First, add all original params (with potentially updated values)
@@ -756,9 +821,9 @@ export function OcfAgentEditor({
             newAgent.item.original += ` ${paramStr}`;
           }
 
-          // Also update the ocf_agent.original field
+          // Also update the ocf_agent.original field (non-null: rebuilt above)
           newAgent.item.ocf_agent = {
-            ...newAgent.item.ocf_agent,
+            ...(newAgent.item.ocf_agent as ParsedOcfAgent),
             original: newAgent.item.original,
           };
         }
@@ -778,6 +843,7 @@ export function OcfAgentEditor({
         const newAgents = [...parsedAgents];
         newAgents[idx] = newAgent;
         setParsedAgents(newAgents);
+        markDirty();
       }
     }
 
@@ -808,6 +874,7 @@ export function OcfAgentEditor({
     // The deleted agent's params will be unused, but that's fine
 
     setParsedAgents(newAgents);
+    markDirty();
     toast.success('Agent removed');
   };
 
@@ -867,6 +934,7 @@ export function OcfAgentEditor({
       return newMap;
     });
 
+    markDirty();
     toast.success(`Parameter ${paramName} removed`);
   };
 
@@ -941,6 +1009,7 @@ export function OcfAgentEditor({
       return newMap;
     });
 
+    markDirty();
     toast.success(`Parameter ${selectedParam} added`);
     setAddParamModalVisible(false);
     setSelectedParam('');
@@ -987,6 +1056,7 @@ export function OcfAgentEditor({
         { original: systemdUnit.trim() },
       ]);
 
+      markDirty();
       toast.success(`Added systemd unit: ${systemdUnit.trim()}`);
       closeAddModal();
     } else if (addAgentType === 'ocf') {
@@ -1063,6 +1133,7 @@ export function OcfAgentEditor({
         },
       ]);
 
+      markDirty();
       toast.success(`Added OCF agent: ${selectedProvider}:${selectedAgent}`);
       closeAddModal();
     }
@@ -1205,10 +1276,21 @@ export function OcfAgentEditor({
                 )}
                 <span className="text-sm font-semibold">Editor</span>
               </div>
-              <Button size="sm" onClick={openAddModal}>
-                <Plus className="mr-1 h-4 w-4" />
-                Add Agent
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPasteTomlVisible(true)}
+                  title="Import start array from pasted TOML"
+                >
+                  <ClipboardPaste className="mr-1 h-4 w-4" />
+                  Paste TOML
+                </Button>
+                <Button size="sm" onClick={openAddModal}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add Agent
+                </Button>
+              </div>
             </div>
 
             {/* Card body */}
@@ -1385,6 +1467,13 @@ export function OcfAgentEditor({
         selectedParam={selectedParam}
         onParamChange={setSelectedParam}
         parsedAgents={parsedAgents}
+      />
+
+      {/* Paste TOML Modal */}
+      <PasteTomlModal
+        visible={pasteTomlVisible}
+        onCancel={() => setPasteTomlVisible(false)}
+        onApply={applyPastedToml}
       />
     </div>
   );

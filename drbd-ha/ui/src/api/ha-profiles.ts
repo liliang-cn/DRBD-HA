@@ -66,6 +66,8 @@ export interface OcfAgentWithMetadata {
   position: OcfAgentPosition;
   item: StartArrayItem;
   metadata: ResourceAgent | null;
+  /** Client-side stable ID for tracking across reorders (assigned by the editor) */
+  instanceId?: number;
 }
 
 export interface TomlItem {

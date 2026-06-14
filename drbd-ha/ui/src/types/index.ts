@@ -120,6 +120,23 @@ export interface GeneratedUnits {
 
 export type HaType = 'generic';
 
+// Optional protocol-specific configs. The current backend (HaType = generic)
+// never sends these; kept for forward compatibility with the display code.
+export interface NfsConfig {
+  export_path: string;
+  [key: string]: unknown;
+}
+
+export interface IscsiConfig {
+  iqn: string;
+  [key: string]: unknown;
+}
+
+export interface NvmeOfConfig {
+  nqn: string;
+  [key: string]: unknown;
+}
+
 export interface OcfAgentConfig {
   name: string;
   instance_name: string;
