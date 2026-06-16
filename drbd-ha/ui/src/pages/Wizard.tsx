@@ -30,12 +30,45 @@ import { ACCENT_COLORS } from '@/theme/colors';
 import type {
   BlockDevice,
   CreateHaProfileRequest,
+  CreateResourceRequest,
   Node,
   ServiceFileInfo,
 } from '@/types';
 
 export interface WizardProps {
   mode?: 'service' | 'storage';
+}
+
+// Field shapes read out of the (dynamically typed) wizard forms. Only the
+// fields consumed in this file are typed; the index signature covers the rest.
+interface ResourceFormValues {
+  name: string;
+  port: number;
+  minor: number;
+  storage_type?: string;
+  lvm_vg_name?: string;
+  lvm_lv_size?: string;
+  lvm_thin_pool_name?: string;
+  lvm_thin_pool_size?: string;
+  zfs_pool_name?: string;
+  zfs_volume_size_gb?: number;
+  protocol?: string;
+  verify_alg?: string;
+  max_epoch_size?: number;
+  after_sb_0pri?: string;
+  after_sb_1pri?: string;
+  after_sb_2pri?: string;
+  fs_type?: string;
+  [key: string]: unknown;
+}
+
+interface HaFormValues {
+  name: string;
+  resource_name?: string;
+  ocf_agents?: unknown[];
+  vip_address?: string;
+  migrate_data?: boolean;
+  [key: string]: unknown;
 }
 
 export function Wizard({ mode = 'service' }: WizardProps) {
@@ -460,7 +493,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
     } else if (step === 1) {
       try {
         await resourceForm.validateFields();
-        const values = resourceForm.getFieldsValue();
+        const values = resourceForm.getFieldsValue() as ResourceFormValues;
 
         // Check for LVM/ZFS storage strategy
         // If LVM or ZFS is selected, we defer resource creation to the next step (HA Profile creation)
@@ -498,7 +531,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
             // Parse size string to GB number
             // UI allows "100%FREE" but backend expects u64 GB.
             // Try to parse number from start of string.
-            let sizeGb = parseInt(values.lvm_lv_size, 10);
+            let sizeGb = parseInt(values.lvm_lv_size ?? '', 10);
             if (Number.isNaN(sizeGb)) {
               // Fallback for non-numeric sizes like "100%FREE"
               // Ideally backend should support this, but for now default to a safe value or 10GB
@@ -561,7 +594,9 @@ export function Wizard({ mode = 'service' }: WizardProps) {
         setLoading(true);
         addLog(`Starting DRBD resource creation: ${values.name}`);
 
-        await resourcesApi.create(createRequest);
+        await resourcesApi.create(
+          createRequest as unknown as CreateResourceRequest,
+        );
         toast.success('DRBD resource created');
         addLog(`DRBD resource '${values.name}' created successfully`);
 
@@ -612,7 +647,7 @@ export function Wizard({ mode = 'service' }: WizardProps) {
       // Step 3: HA config step, next is Preview
       try {
         await haForm.validateFields();
-        const haValues = haForm.getFieldsValue(true); // true = include disabled fields
+        const haValues = haForm.getFieldsValue() as HaFormValues;
 
         if (!haValues.resource_name) {
           console.error('ERROR: Resource name is empty!');

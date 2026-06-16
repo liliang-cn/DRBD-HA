@@ -5,14 +5,14 @@ interface PersistOptions {
   form: WizardFormInstance;
   storageKey: string;
   enabled?: boolean;
-  onSave?: (data: any) => void;
-  onRestore?: (data: any) => void;
+  onSave?: (data: unknown) => void;
+  onRestore?: (data: unknown) => void;
 }
 
 interface WizardState {
   step: number;
-  formData: Record<string, any>;
-  additionalData?: Record<string, any>;
+  formData: Record<string, unknown>;
+  additionalData?: Record<string, unknown>;
   timestamp: number;
 }
 
@@ -31,7 +31,7 @@ export function useWizardPersist({
   const isRestoringRef = useRef(false);
 
   // Save state to sessionStorage
-  const saveState = (additionalData?: Record<string, any>) => {
+  const saveState = (additionalData?: Record<string, unknown>) => {
     if (!enabled) return;
 
     try {

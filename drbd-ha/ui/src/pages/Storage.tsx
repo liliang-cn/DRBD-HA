@@ -146,10 +146,11 @@ export function Storage() {
       setModalVisible(false);
       resetForm();
       fetchPools();
-    } catch (error: any) {
-      toast.error(
-        error.response?.data?.message || 'Failed to create storage pool',
-      );
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } }).response?.data
+          ?.message || 'Failed to create storage pool';
+      toast.error(message);
     } finally {
       setCreateLoading(false);
     }

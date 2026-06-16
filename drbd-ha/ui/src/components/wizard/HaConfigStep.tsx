@@ -1,6 +1,9 @@
 import { Eye, EyeOff, Settings } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { OcfAgentEditor } from '@/components/ha/OcfAgentEditor';
+import {
+  OcfAgentEditor,
+  type OcfAgentPayload,
+} from '@/components/ha/OcfAgentEditor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -42,7 +45,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 export function HaConfigStep({ form, resources, services }: HaConfigStepProps) {
   const [configMode, setConfigMode] = useState<ConfigMode>('simple');
   const [showTomlPreview, setShowTomlPreview] = useState(true);
-  const [ocfAgents, setOcfAgents] = useState<any[]>([]);
+  const [ocfAgents, setOcfAgents] = useState<OcfAgentPayload[]>([]);
   const [, forceUpdate] = useState({});
   const rerender = () => forceUpdate({});
 
@@ -137,9 +140,9 @@ export function HaConfigStep({ form, resources, services }: HaConfigStepProps) {
 
   // Generate drbd-reactor TOML preview
   const tomlPreview = useMemo(() => {
-    const resName = resourceName || 'r0';
-    const mntPoint = mountPoint || '/mnt/data';
-    const svc = selectedServices || [];
+    const resName = (resourceName as string) || 'r0';
+    const mntPoint = (mountPoint as string) || '/mnt/data';
+    const svc = (selectedServices as string[]) || [];
     const vipAddr = vipAddress;
     const vipNm = vipNetmask || 24;
     const agents = ocfAgents || [];
@@ -162,8 +165,8 @@ export function HaConfigStep({ form, resources, services }: HaConfigStepProps) {
     // Convert mount point to systemd mount unit name
     const mountUnitName = `${mntPoint
       .slice(1)
-      .replaceAll('-', '--')
-      .replaceAll('/', '-')}.mount`;
+      .replace(/-/g, '--')
+      .replace(/\//g, '-')}.mount`;
 
     // Build start array
     const startEntries: string[] = [];
@@ -183,7 +186,7 @@ export function HaConfigStep({ form, resources, services }: HaConfigStepProps) {
         startEntries.push(`    "${service}",`);
       });
     } else {
-      agents.forEach((agent: any) => {
+      agents.forEach((agent: OcfAgentPayload) => {
         if (!agent) return;
 
         if (agent.name && agent.instance_name) {

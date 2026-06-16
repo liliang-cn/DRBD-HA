@@ -270,6 +270,7 @@ export interface HaProfileStatus {
       peer_disk: string;
       connection?: string;
       replication?: string;
+      sync_percent?: number;
     }>;
   };
   drbd_device?: string;

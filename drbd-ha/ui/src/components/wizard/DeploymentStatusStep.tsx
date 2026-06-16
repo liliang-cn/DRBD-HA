@@ -15,6 +15,7 @@ import { Result } from '@/components/ui/result';
 import { cn } from '@/lib/utils';
 import { useThemeStore } from '@/stores/theme';
 import { ACCENT_COLORS } from '@/theme/colors';
+import type { HaProfileStatus } from '@/types';
 import { formatJsonForDisplay } from '@/utils/json';
 
 // Map legacy Tag colors to tailwind classes.
@@ -104,7 +105,7 @@ export function DeploymentStatusStep({
   onDone,
 }: DeploymentStatusStepProps) {
   const [loading, setLoading] = useState(true);
-  const [statusData, setStatusData] = useState<any>(null);
+  const [statusData, setStatusData] = useState<HaProfileStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shouldPoll, setShouldPoll] = useState(true);
   const { theme: currentTheme } = useThemeStore();
@@ -237,7 +238,7 @@ export function DeploymentStatusStep({
           {statusData.status === 'active' &&
           statusData.service_statuses &&
           statusData.service_statuses.length > 0 &&
-          statusData.service_statuses.every((s: any) => s.active) ? (
+          statusData.service_statuses.every((s) => s.active) ? (
             <PanelCard
               className="shadow-sm border-l-4"
               style={{
@@ -357,7 +358,7 @@ export function DeploymentStatusStep({
                 </div>
                 {statusData.service_statuses &&
                 statusData.service_statuses.length > 0 ? (
-                  statusData.service_statuses.every((s: any) => s.active) ? (
+                  statusData.service_statuses.every((s) => s.active) ? (
                     <Tag color="green" className="text-base px-3 py-1">
                       Yes
                     </Tag>
@@ -450,7 +451,7 @@ export function DeploymentStatusStep({
                     Connection States
                   </div>
                   <div className="space-y-2">
-                    {statusData.drbd.peers.map((peer: any, idx: number) => (
+                    {statusData.drbd.peers.map((peer, idx: number) => (
                       <div
                         key={idx}
                         className={cn(
@@ -556,7 +557,7 @@ export function DeploymentStatusStep({
                 style={{ borderColor, marginBottom: '24px' }}
               >
                 <div className="space-y-3">
-                  {statusData.service_statuses.map((svc: any, idx: number) => (
+                  {statusData.service_statuses.map((svc, idx: number) => (
                     <div
                       key={idx}
                       className={cn(
@@ -626,7 +627,7 @@ export function DeploymentStatusStep({
                 style={{ borderColor, marginBottom: '24px' }}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {statusData.configured_nodes.map((node: any, idx: number) => (
+                  {statusData.configured_nodes.map((node, idx: number) => (
                     <div
                       key={idx}
                       className={cn(

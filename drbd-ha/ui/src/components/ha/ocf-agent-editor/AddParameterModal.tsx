@@ -39,9 +39,8 @@ export function AddParameterModal({
   // currentAgentIndex is an instanceId; resolve the matching agent.
   const agent =
     currentAgentIndex !== null
-      ? (parsedAgents.find(
-          (a) => (a as any).instanceId === currentAgentIndex,
-        ) ?? parsedAgents[currentAgentIndex])
+      ? (parsedAgents.find((a) => a.instanceId === currentAgentIndex) ??
+        parsedAgents[currentAgentIndex])
       : null;
 
   const options =

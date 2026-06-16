@@ -43,6 +43,29 @@ import { AgentPreview } from './ocf-agent-editor/AgentPreview';
 import { PasteTomlModal } from './ocf-agent-editor/PasteTomlModal';
 import { SortableAgentItem } from './ocf-agent-editor/SortableAgentItem';
 
+// Shape of an entry in the wizard form's `ocf_agents` field (create mode).
+interface WizardOcfAgent {
+  type?: 'ocf' | 'mount' | 'service';
+  provider?: string;
+  agent_type?: string;
+  instance_name?: string;
+  params?: Record<string, string>;
+  value?: string;
+}
+
+// Shape of an entry in the form's `agents` field (per-agent edit state).
+interface FormAgentEntry {
+  params?: Record<string, string>;
+  original?: string;
+}
+
+// Shape emitted to the parent wizard via onAgentsChange (create mode).
+export interface OcfAgentPayload {
+  name: string;
+  instance_name?: string;
+  params?: Record<string, string>;
+}
+
 // Helper functions to convert between ParamEntry[] and Record<string, string>
 function paramsToRecord(params: ParamEntry[]): Record<string, string> {
   const record: Record<string, string> = {};
@@ -63,7 +86,7 @@ interface OcfAgentEditorProps {
   externalForm?: WizardFormInstance; // External form for create mode
   resources?: { name: string }[]; // Available resources for create mode
   services?: string[]; // Available services for create mode
-  onAgentsChange?: (agents: any[]) => void; // Callback when agents change
+  onAgentsChange?: (agents: OcfAgentPayload[]) => void; // Callback when agents change
 
   // Preview control
   showPreview?: boolean; // Controlled from outside
@@ -224,11 +247,12 @@ export function OcfAgentEditor({
   const loadParsedAgents = useCallback(async () => {
     // In create mode, load from form
     if (mode === 'create') {
-      const ocfAgents = form.getFieldValue('ocf_agents') || [];
+      const ocfAgents =
+        form.getFieldValue<WizardOcfAgent[]>('ocf_agents') || [];
       if (ocfAgents.length > 0) {
         // Convert form data to parsed agents format
         let instanceIdCounter = 0;
-        const agentsWithIds = ocfAgents.map((agentData: any) => {
+        const agentsWithIds = ocfAgents.map((agentData: WizardOcfAgent) => {
           // Check if it's OCF agent or plain systemd unit
           if (agentData.type === 'ocf') {
             // OCF agent
@@ -310,7 +334,10 @@ export function OcfAgentEditor({
               instanceId: instanceIdCounter++,
             };
           }
-        });
+          // Create-mode form data stores params as a Record (vs ParsedOcfAgent's
+          // ParamEntry[]); the shape is reconciled when metadata loads, so coerce
+          // here rather than restructure the wizard's data flow.
+        }) as unknown as OcfAgentWithMetadata[];
 
         setParsedAgents(agentsWithIds);
         setNextInstanceId(instanceIdCounter);
@@ -452,7 +479,7 @@ export function OcfAgentEditor({
       console.error('Failed to load all resource agents:', err);
       toast.warning('Failed to load agent metadata');
       // Set to empty object to prevent infinite loading state
-      setAllAgents({ providers: {} } as any);
+      setAllAgents({ providers: {} });
     }
   }, []);
 
@@ -462,15 +489,15 @@ export function OcfAgentEditor({
       // Convert parsedAgents back to ocf_agents format (backend expects)
       const ocfAgents = parsedAgents
         .filter(
-          (agentWithMeta: any) =>
+          (agentWithMeta) =>
             agentWithMeta.item.is_ocf && agentWithMeta.item.ocf_agent,
         )
-        .map((agentWithMeta: any) => {
+        .map((agentWithMeta) => {
           const ocfAgent = agentWithMeta.item.ocf_agent;
           return {
-            name: `ocf:${ocfAgent.provider}:${ocfAgent.agent_type}`,
-            instance_name: ocfAgent.instance_name,
-            params: ocfAgent.params || {},
+            name: `ocf:${ocfAgent?.provider}:${ocfAgent?.agent_type}`,
+            instance_name: ocfAgent?.instance_name,
+            params: ocfAgent?.params || {},
           };
         });
 
@@ -533,12 +560,12 @@ export function OcfAgentEditor({
       }
 
       // Check if agents array exists (optional now, since we use parsedAgents as source of truth)
-      const formAgents = values.agents || [];
+      const formAgents = (values.agents as FormAgentEntry[] | undefined) || [];
 
       // Generate the updated start array strings using parsedAgents as source of truth
       // This ensures all agents are included even if form doesn't have complete data
       const startArrayItems = parsedAgents.map(
-        (agentWithMeta: any, index: number) => {
+        (agentWithMeta, index: number) => {
           const item = agentWithMeta.item;
           // Get form data for this agent if available
           const agentData = formAgents[index] || {};
@@ -690,7 +717,7 @@ export function OcfAgentEditor({
           },
           metadata: null,
           instanceId: instanceIdCounter++,
-        } as any;
+        } as OcfAgentWithMetadata;
       }
       // Plain systemd unit / mount
       return {
@@ -703,7 +730,7 @@ export function OcfAgentEditor({
         item: { original: line, is_ocf: false, ocf_agent: null },
         metadata: null,
         instanceId: instanceIdCounter++,
-      } as any;
+      } as OcfAgentWithMetadata;
     });
 
     setParsedAgents(agentsWithIds);
@@ -748,7 +775,7 @@ export function OcfAgentEditor({
   const handleFieldChange = (idx: number, field: 'params' | 'original') => {
     if (idx >= 0) {
       const agent = parsedAgents[idx];
-      const changedValue = form.getFieldValue(['agents', idx]);
+      const changedValue = form.getFieldValue<FormAgentEntry>(['agents', idx]);
 
       if (agent && changedValue) {
         const newAgent = { ...agent };
@@ -865,10 +892,12 @@ export function OcfAgentEditor({
     // No need to rebuild the array, just filter
 
     // Update form
-    const currentValues = form.getFieldsValue();
-    const newAgentsData = (currentValues.agents || []).filter(
-      (_: any, i: number) => i !== index,
-    );
+    const currentValues = form.getFieldsValue() as {
+      agents?: FormAgentEntry[];
+    };
+    const newAgentsData = (
+      (currentValues.agents as FormAgentEntry[] | undefined) || []
+    ).filter((_, i: number) => i !== index);
     form.setFieldValue('agents', newAgentsData);
 
     // No need to update addedParams - it uses stable keys (position.index)
@@ -884,7 +913,7 @@ export function OcfAgentEditor({
   const handleRemoveParam = (stableKey: number, paramName: string) => {
     // Find agent by instanceId
     const arrayIndex = parsedAgents.findIndex(
-      (a: any) => a.instanceId === stableKey,
+      (a) => a.instanceId === stableKey,
     );
     if (arrayIndex === -1) return;
 
@@ -913,7 +942,9 @@ export function OcfAgentEditor({
     setParsedAgents(newAgents);
 
     // Update form
-    const currentValues = form.getFieldsValue();
+    const currentValues = form.getFieldsValue() as {
+      agents?: FormAgentEntry[];
+    };
     if (currentValues.agents?.[arrayIndex]?.params) {
       const newFormParams = { ...currentValues.agents[arrayIndex].params };
       delete newFormParams[paramName];
@@ -957,7 +988,7 @@ export function OcfAgentEditor({
     const stableKey = currentAgentIndex;
     // Find agent by instanceId
     const arrayIndex = parsedAgents.findIndex(
-      (a: any) => a.instanceId === stableKey,
+      (a) => a.instanceId === stableKey,
     );
     if (arrayIndex === -1) return;
 
@@ -994,7 +1025,9 @@ export function OcfAgentEditor({
     setParsedAgents(newAgents);
 
     // Update form
-    const currentValues = form.getFieldsValue();
+    const currentValues = form.getFieldsValue() as {
+      agents?: FormAgentEntry[];
+    };
     const params = currentValues.agents?.[arrayIndex]?.params || {};
     form.setFieldValue(['agents', arrayIndex, 'params'], {
       ...params,
@@ -1041,7 +1074,7 @@ export function OcfAgentEditor({
         },
         metadata: null,
         instanceId, // Unique instance ID for tracking
-      } as any;
+      } as OcfAgentWithMetadata;
 
       const newAgents = [...parsedAgents, newAgent];
       setParsedAgents(newAgents);
@@ -1050,7 +1083,9 @@ export function OcfAgentEditor({
       setNextInstanceId(nextInstanceId + 1);
 
       // Update form
-      const currentValues = form.getFieldsValue();
+      const currentValues = form.getFieldsValue() as {
+        agents?: FormAgentEntry[];
+      };
       const agents = currentValues.agents || [];
       form.setFieldValue('agents', [
         ...agents,
@@ -1115,7 +1150,7 @@ export function OcfAgentEditor({
         },
         metadata: agentMetadata,
         instanceId, // Unique instance ID for tracking
-      } as any;
+      } as OcfAgentWithMetadata;
 
       const newAgents = [...parsedAgents, newAgent];
       setParsedAgents(newAgents);
@@ -1124,7 +1159,9 @@ export function OcfAgentEditor({
       setNextInstanceId(nextInstanceId + 1);
 
       // Update form
-      const currentValues = form.getFieldsValue();
+      const currentValues = form.getFieldsValue() as {
+        agents?: FormAgentEntry[];
+      };
       const agents = currentValues.agents || [];
       form.setFieldValue('agents', [
         ...agents,

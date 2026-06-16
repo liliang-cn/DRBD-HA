@@ -11,6 +11,7 @@ import {
 import type {
   OcfAgentWithMetadata,
   ParamEntry,
+  Parameter,
   ResourceAgent,
 } from '@/api/ha-profiles';
 import { Badge } from '@/components/ui/badge';
@@ -74,7 +75,7 @@ export function SortableAgentItem({
 }: SortableItemProps) {
   // Get instanceId for stable key lookup
   // Fallback to array index if instanceId not set
-  const stableKey = (agentWithMeta as any).instanceId ?? index;
+  const stableKey = agentWithMeta.instanceId ?? index;
   const {
     attributes,
     listeners,
@@ -96,7 +97,7 @@ export function SortableAgentItem({
 
   const { item } = agentWithMeta;
   // Use instanceId for stable panel key across reorders
-  const instanceId = (agentWithMeta as any).instanceId ?? index;
+  const instanceId = agentWithMeta.instanceId ?? index;
   const panelKey = `agent-${instanceId}`;
   const isExpanded = expandedKeys.has(panelKey);
 
@@ -107,7 +108,7 @@ export function SortableAgentItem({
   // Render form field for plain systemd unit
   const renderPlainUnitField = () => {
     const fieldName = ['agents', index, 'original'];
-    const value = form.getFieldValue(fieldName) ?? item.original ?? '';
+    const value = form.getFieldValue<string>(fieldName) ?? item.original ?? '';
 
     return (
       <div className="mt-2 flex flex-col gap-1.5">
@@ -127,12 +128,12 @@ export function SortableAgentItem({
   };
 
   // Render form field based on parameter type (for OCF agents)
-  const renderFormField = (param: any) => {
+  const renderFormField = (param: Parameter) => {
     if (!ocfAgent) return null;
 
     const fieldName = ['agents', index, 'params', param.name];
     const fallback = getParamValue(ocfAgent.params, param.name);
-    const watched = form.getFieldValue(fieldName);
+    const watched = form.getFieldValue<string>(fieldName);
     const currentValue = watched ?? fallback;
 
     const label = (
@@ -181,8 +182,7 @@ export function SortableAgentItem({
         const checked =
           currentValue === 'true' ||
           currentValue === '1' ||
-          currentValue === 'yes' ||
-          currentValue === true;
+          currentValue === 'yes';
         return (
           <div className="flex flex-col gap-1.5">
             <Label asChild>

@@ -23,7 +23,12 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { useNodesStore } from '@/stores/nodes';
 import { useResourcesStore } from '@/stores/resources';
-import type { BlockDevice, CreateResourceRequest, DrbdResource } from '@/types';
+import type {
+  BlockDevice,
+  CreateResourceRequest,
+  DrbdResource,
+  ResourceAction,
+} from '@/types';
 
 const roleVariant: Record<
   string,
@@ -117,7 +122,7 @@ export function Resources() {
   const handleAction = async (name: string, action: string, force = false) => {
     try {
       const result = await resourcesApi.action(name, {
-        action: action as any,
+        action: action as ResourceAction['action'],
         force,
       });
       if (result.success) {

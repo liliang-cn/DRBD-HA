@@ -633,7 +633,7 @@ export function HaProfiles() {
                       Services
                     </div>
                     <div className="flex flex-wrap gap-1 justify-end">
-                      {status?.service_statuses.map((s: any, idx: number) => (
+                      {status?.service_statuses.map((s, idx: number) => (
                         <Badge
                           key={idx}
                           variant={s.active ? 'default' : 'destructive'}
@@ -753,7 +753,7 @@ export function HaProfiles() {
                   >
                     {
                       status.drbd.peers.filter(
-                        (p: any) => p.connection === 'Connected',
+                        (p) => p.connection === 'Connected',
                       ).length
                     }
                     /{status.drbd.peers.length}
@@ -775,7 +775,7 @@ export function HaProfiles() {
                   Peer Connections
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {status.drbd.peers.map((peer: any, idx: number) => (
+                  {status.drbd.peers.map((peer, idx: number) => (
                     <div
                       key={idx}
                       className={`p-4 rounded-xl ${
@@ -891,7 +891,7 @@ export function HaProfiles() {
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {status.configured_nodes.map((node: any, idx: number) => {
+              {status.configured_nodes.map((node, idx: number) => {
                 const isActive =
                   node.peer_role === 'Primary' ||
                   node.hostname === status.active_node;
