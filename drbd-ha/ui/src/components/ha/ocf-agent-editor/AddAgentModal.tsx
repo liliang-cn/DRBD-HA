@@ -1,5 +1,6 @@
 import { Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import type { ResourceAgentsByProvider } from '@/api/ha-profiles';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { ResourceAgentsByProvider } from '@/api/ha-profiles';
 
 interface AddAgentModalProps {
   visible: boolean;
@@ -152,12 +152,15 @@ export function AddAgentModal({
               <div className="max-h-[260px] overflow-y-auto rounded-md border border-border">
                 {filteredAgents.length === 0 ? (
                   <div className="p-4 text-center text-sm text-muted-foreground">
-                    {allAgents ? 'No agents match the search' : 'Loading agents...'}
+                    {allAgents
+                      ? 'No agents match the search'
+                      : 'Loading agents...'}
                   </div>
                 ) : (
                   filteredAgents.map((a) => {
                     const isSelected =
-                      a.provider === selectedProvider && a.name === selectedAgent;
+                      a.provider === selectedProvider &&
+                      a.name === selectedAgent;
                     return (
                       <button
                         type="button"

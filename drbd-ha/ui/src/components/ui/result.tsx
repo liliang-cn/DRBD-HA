@@ -1,27 +1,22 @@
-import * as React from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Info,
-  XCircle,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
+import * as React from 'react';
 
-import { cn } from "@/lib/utils";
+import { cn } from '@/lib/utils';
 
-type ResultStatus = "success" | "error" | "info" | "warning";
+type ResultStatus = 'success' | 'error' | 'info' | 'warning';
 
 const statusConfig: Record<
   ResultStatus,
   { icon: React.ComponentType<{ className?: string }>; className: string }
 > = {
-  success: { icon: CheckCircle2, className: "text-green-500" },
-  error: { icon: XCircle, className: "text-destructive" },
-  info: { icon: Info, className: "text-blue-500" },
-  warning: { icon: AlertTriangle, className: "text-yellow-500" },
+  success: { icon: CheckCircle2, className: 'text-green-500' },
+  error: { icon: XCircle, className: 'text-destructive' },
+  info: { icon: Info, className: 'text-blue-500' },
+  warning: { icon: AlertTriangle, className: 'text-yellow-500' },
 };
 
 export interface ResultProps
-  extends Omit<React.HTMLAttributes<HTMLDivElement>, "title"> {
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, 'title'> {
   status?: ResultStatus;
   title?: React.ReactNode;
   subTitle?: React.ReactNode;
@@ -32,7 +27,7 @@ export interface ResultProps
 const Result = React.forwardRef<HTMLDivElement, ResultProps>(
   (
     {
-      status = "info",
+      status = 'info',
       title,
       subTitle,
       extra,
@@ -50,12 +45,14 @@ const Result = React.forwardRef<HTMLDivElement, ResultProps>(
       <div
         ref={ref}
         className={cn(
-          "flex flex-col items-center justify-center gap-4 px-6 py-12 text-center",
+          'flex flex-col items-center justify-center gap-4 px-6 py-12 text-center',
           className,
         )}
         {...props}
       >
-        <div>{icon ?? <Icon className={cn("h-16 w-16", config.className)} />}</div>
+        <div>
+          {icon ?? <Icon className={cn('h-16 w-16', config.className)} />}
+        </div>
         {title && (
           <div className="text-xl font-semibold text-foreground">{title}</div>
         )}
@@ -72,6 +69,6 @@ const Result = React.forwardRef<HTMLDivElement, ResultProps>(
     );
   },
 );
-Result.displayName = "Result";
+Result.displayName = 'Result';
 
 export { Result };

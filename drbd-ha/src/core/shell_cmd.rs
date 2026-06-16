@@ -8,31 +8,20 @@ pub struct CommandProxyConfig {
     pub user: String,
 }
 
-const REMOTE_EXEC_HOST_ENV: &str = "DRBD_HA_REMOTE_EXEC_HOST";
-const REMOTE_EXEC_PORT_ENV: &str = "DRBD_HA_REMOTE_EXEC_PORT";
-const REMOTE_EXEC_USER_ENV: &str = "DRBD_HA_REMOTE_EXEC_USER";
-
 pub fn configure_command_proxy(config: Option<CommandProxyConfig>) {
-    if let Some(proxy) = config {
-        std::env::set_var(REMOTE_EXEC_HOST_ENV, proxy.host);
-        std::env::set_var(REMOTE_EXEC_PORT_ENV, proxy.port.to_string());
-        std::env::set_var(REMOTE_EXEC_USER_ENV, proxy.user);
-    } else {
-        std::env::remove_var(REMOTE_EXEC_HOST_ENV);
-        std::env::remove_var(REMOTE_EXEC_PORT_ENV);
-        std::env::remove_var(REMOTE_EXEC_USER_ENV);
-    }
+    dispatch_config::set_command_proxy(config.map(|c| dispatch_config::CommandProxy {
+        host: c.host,
+        port: c.port,
+        user: c.user,
+    }));
 }
 
 pub fn current_command_proxy() -> Option<CommandProxyConfig> {
-    let host = std::env::var(REMOTE_EXEC_HOST_ENV).ok()?;
-    let port = std::env::var(REMOTE_EXEC_PORT_ENV)
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(22);
-    let user = std::env::var(REMOTE_EXEC_USER_ENV).unwrap_or_else(|_| "root".to_string());
-
-    Some(CommandProxyConfig { host, port, user })
+    dispatch_config::command_proxy().map(|c| CommandProxyConfig {
+        host: c.host,
+        port: c.port,
+        user: c.user,
+    })
 }
 
 fn shell_escape_single_quotes(value: &str) -> String {
@@ -52,25 +41,14 @@ async fn run_shell_command_via_proxy(
         format!("sudo -n sh -lc '{}'", escaped_cmd)
     };
 
-    let cfg = dispatch::Config {
-        ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
-        config_path: Some(std::path::PathBuf::from("/dev/null")),
-        // sudo is already baked into remote_cmd above; don't double-wrap.
-        host_key_checking: dispatch::HostKeyChecking::AcceptAny,
-        known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
-        connect_timeout: Some(std::time::Duration::from_secs(5)),
-        ..Default::default()
-    };
+    // sudo is already baked into remote_cmd above; don't double-wrap.
+    let cfg = dispatch_config::default_dispatch_config();
     let client = dispatch::Dispatch::new(cfg)
         .map_err(|e| AppError::Internal(format!("dispatch init failed: {}", e)))?;
     let dest = format!("ssh://{}@{}:{}", proxy.user, proxy.host, proxy.port);
-    let result = client
-        .exec([dest], remote_cmd)
-        .run()
-        .await
-        .map_err(|e| {
-            AppError::Internal(format!("Failed to execute proxied shell command: {}", e))
-        })?;
+    let result = client.exec([dest], remote_cmd).run().await.map_err(|e| {
+        AppError::Internal(format!("Failed to execute proxied shell command: {}", e))
+    })?;
     let hr = result
         .hosts
         .into_values()

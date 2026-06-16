@@ -9,6 +9,7 @@ A modern, Rust-based High Availability management system for DRBD, LVM, and Syst
 *   **DRBD Resources**: Create, initialize, and manage DRBD resources automatically.
 *   **High Availability**: Define HA profiles for systemd services that automatically failover using `drbd-reactor`.
 *   **Configuration Discovery**: Automatically discover and import existing `drbd-reactor` configurations from `/etc/drbd-reactor.d/`.
+*   **AI Agent Integration (MCP)**: A built-in [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp` exposes cluster operations as tools, with bundled operational playbooks as prompts. See [AI Agent Integration](#ai-agent-integration-mcp).
 *   **Observability**: Real-time dashboard, dual-channel logging (console + file), and Swagger API documentation.
 
 ## Requirements
@@ -256,14 +257,44 @@ sudo ./scripts/uninstall.sh --purge-all
 *   **API Docs**: Open `http://<server-ip>:3373/swagger-ui/` for interactive API documentation.
 *   **Logs**: Check `/var/log/drbd-ha/drbd-ha.log` or `journalctl -u drbd-ha -f`.
 
+## AI Agent Integration (MCP)
+
+The backend embeds a [Model Context Protocol](https://modelcontextprotocol.io) server
+(streamable HTTP) at `/mcp`, so an AI agent can operate the cluster through the same
+operations the REST API exposes.
+
+*   **Tools** — node inventory & disks, storage pools, DRBD resources (status / actions /
+    logs), HA profile lifecycle (create / activate / deactivate / enable / evict / delete /
+    TOML), `drbd-reactor` status / reload / logs, OCF agents, and systemd services.
+*   **Prompts** — the operational playbooks under `skills/drbd-ha-ops/` (operating guide +
+    safety rules, create-HA-service, failover & recovery, troubleshooting) are served to any
+    connected agent so it follows the same conventions a human operator would.
+*   **Read vs. mutate** — read-only tools (`list_*`, `get_*`, `*_status`, `*_logs`,
+    `health`, `dashboard_summary`) are always safe; mutating tools change cluster state and
+    should be verified with the status tools afterwards.
+
+Connect with Claude Code (or any MCP client):
+
+```bash
+claude mcp add --transport http drbd-ha http://<server-ip>:3373/mcp
+```
+
+The repo also ships the same playbooks as a Claude Code skill in
+`.claude/skills/drbd-ha-ops/`, and an `.mcp.json` pointing at a node's `/mcp` endpoint.
+
 ## Architecture
 
 *   **Language**: Rust (Axum framework)
-*   **Frontend**: React + Ant Design (Embedded in binary)
+*   **Frontend**: React + shadcn/ui + Radix + Tailwind (embedded in the binary via `rust_embed`)
 *   **Configuration Storage**: TOML files (nodes.toml) and DRBD configuration files.
 *   **Execution Model**:
     *   **Local**: Direct system calls (LVM, DRBD, Systemd).
-    *   **Remote**: SSH execution.
+    *   **Remote**: SSH execution. All remote commands go through the
+        [`dispatch-rs`](https://crates.io/crates/dispatch-rs) crate (a thin wrapper over the
+        system `ssh`), giving every executor one consistent connection policy
+        (see the `dispatch-config` workspace crate). Non-root nodes are driven via
+        passwordless `sudo`.
+*   **AI Integration**: An MCP server at `/mcp` (see [AI Agent Integration](#ai-agent-integration-mcp)).
 
 ## License
 

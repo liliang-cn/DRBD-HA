@@ -117,9 +117,9 @@ export function Nodes() {
         <div>
           <div className="font-medium">Remote access requirements</div>
           <div className="text-muted-foreground">
-            Nodes must allow passwordless SSH. If SSH User is not root, that user
-            must also support passwordless sudo (`sudo -n`). Node Check only
-            reports online when these requirements pass.
+            Nodes must allow passwordless SSH. If SSH User is not root, that
+            user must also support passwordless sudo (`sudo -n`). Node Check
+            only reports online when these requirements pass.
           </div>
         </div>
       </div>
@@ -244,9 +244,7 @@ export function Nodes() {
                 id="node-ip"
                 placeholder="192.168.1.102"
                 value={form.ip ?? ''}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, ip: e.target.value }))
-                }
+                onChange={(e) => setForm((f) => ({ ...f, ip: e.target.value }))}
               />
             </div>
             <div className="space-y-2">

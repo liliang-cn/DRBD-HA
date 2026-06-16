@@ -807,6 +807,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dispatch-config"
+version = "0.1.0"
+dependencies = [
+ "dispatch-rs",
+]
+
+[[package]]
 name = "dispatch-rs"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -847,6 +854,7 @@ dependencies = [
  "base64",
  "chrono",
  "config-gen",
+ "dispatch-config",
  "dispatch-rs",
  "drbd-migration",
  "drbd-reactor-utils",
@@ -910,6 +918,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config-gen",
+ "dispatch-config",
  "dispatch-rs",
  "gethostname",
  "serde",
@@ -924,6 +933,7 @@ name = "drbd-utils"
 version = "0.1.0"
 dependencies = [
  "config-gen",
+ "dispatch-config",
  "dispatch-rs",
  "regex",
  "serde",
@@ -1677,6 +1687,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 name = "lvm-utils"
 version = "0.1.0"
 dependencies = [
+ "dispatch-config",
  "dispatch-rs",
  "regex",
  "serde",
@@ -2225,6 +2236,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dispatch-config",
  "dispatch-rs",
  "quick-xml",
  "serde",
@@ -2760,6 +2772,7 @@ dependencies = [
 name = "shell-cmd"
 version = "0.1.0"
 dependencies = [
+ "dispatch-config",
  "dispatch-rs",
  "serial_test",
  "thiserror 2.0.18",
@@ -2857,6 +2870,7 @@ name = "ssh-cmd"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "dispatch-config",
  "dispatch-rs",
  "serde",
  "serde_json",
@@ -4022,6 +4036,7 @@ dependencies = [
 name = "zfs-utils"
 version = "0.1.0"
 dependencies = [
+ "dispatch-config",
  "dispatch-rs",
  "regex",
  "serde",

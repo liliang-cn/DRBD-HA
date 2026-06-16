@@ -1,12 +1,13 @@
 import {
-  CheckCircle2,
   AlertCircle,
+  CheckCircle2,
   FileText,
   Loader2,
   RefreshCw,
   Zap,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { haProfilesApi } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -14,7 +15,6 @@ import { Result } from '@/components/ui/result';
 import { cn } from '@/lib/utils';
 import { useThemeStore } from '@/stores/theme';
 import { ACCENT_COLORS } from '@/theme/colors';
-import { toast } from 'sonner';
 import { formatJsonForDisplay } from '@/utils/json';
 
 // Map legacy Tag colors to tailwind classes.
@@ -82,7 +82,10 @@ function PanelCard({
 }) {
   return (
     <div
-      className={cn('rounded-xl border bg-card text-card-foreground', className)}
+      className={cn(
+        'rounded-xl border bg-card text-card-foreground',
+        className,
+      )}
       style={style}
     >
       {title && (
@@ -213,10 +216,8 @@ export function DeploymentStatusStep({
     );
   }
 
-  const cellBg =
-    currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50';
-  const subText =
-    currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500';
+  const cellBg = currentTheme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-50';
+  const subText = currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500';
   const borderColor = currentTheme === 'dark' ? '#334155' : '#e2e8f0';
 
   return (
@@ -625,34 +626,30 @@ export function DeploymentStatusStep({
                 style={{ borderColor, marginBottom: '24px' }}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {statusData.configured_nodes.map(
-                    (node: any, idx: number) => (
-                      <div
-                        key={idx}
-                        className={cn(
-                          'flex items-center justify-between p-4 rounded-xl',
-                          cellBg,
-                        )}
-                      >
-                        <div className="flex-1">
-                          <div className="font-medium text-base mb-1">
-                            {node.hostname}
-                          </div>
-                          <div className={cn('text-sm', subText)}>
-                            {node.ip}
-                          </div>
+                  {statusData.configured_nodes.map((node: any, idx: number) => (
+                    <div
+                      key={idx}
+                      className={cn(
+                        'flex items-center justify-between p-4 rounded-xl',
+                        cellBg,
+                      )}
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium text-base mb-1">
+                          {node.hostname}
                         </div>
-                        {node.peer_role && (
-                          <Tag
-                            color={roleColor[node.peer_role] || 'default'}
-                            className="text-base px-3 py-1"
-                          >
-                            {node.peer_role}
-                          </Tag>
-                        )}
+                        <div className={cn('text-sm', subText)}>{node.ip}</div>
                       </div>
-                    ),
-                  )}
+                      {node.peer_role && (
+                        <Tag
+                          color={roleColor[node.peer_role] || 'default'}
+                          className="text-base px-3 py-1"
+                        >
+                          {node.peer_role}
+                        </Tag>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </PanelCard>
             )}

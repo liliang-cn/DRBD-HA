@@ -236,9 +236,7 @@ export function Resources() {
                       </Badge>
                     </td>
                     <td className="px-4 py-2">
-                      <Badge
-                        variant={diskStateVariant[diskState] || 'outline'}
-                      >
+                      <Badge variant={diskStateVariant[diskState] || 'outline'}>
                         {diskState}
                       </Badge>
                     </td>
@@ -277,9 +275,7 @@ export function Resources() {
                             <SelectItem value="primary-force">
                               Primary (Force)
                             </SelectItem>
-                            <SelectItem value="secondary">
-                              Secondary
-                            </SelectItem>
+                            <SelectItem value="secondary">Secondary</SelectItem>
                             <SelectSeparator />
                             <SelectItem value="init">Initialize</SelectItem>
                           </SelectContent>

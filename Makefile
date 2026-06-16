@@ -33,8 +33,8 @@ check:
 	@echo "Running Rust checks..."
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo fmt --all --check
-	@echo "Running UI linting..."
-	cd drbd-ha/ui && npm run lint 2>/dev/null || true
+	@echo "Running UI lint + typecheck..."
+	cd drbd-ha/ui && npm run lint && npm run typecheck
 
 # Run tests for the workspace
 test:

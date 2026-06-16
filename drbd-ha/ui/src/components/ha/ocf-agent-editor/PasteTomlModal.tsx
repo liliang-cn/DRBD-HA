@@ -16,7 +16,11 @@ interface PasteTomlModalProps {
   onApply: (content: string) => string | null;
 }
 
-export function PasteTomlModal({ visible, onCancel, onApply }: PasteTomlModalProps) {
+export function PasteTomlModal({
+  visible,
+  onCancel,
+  onApply,
+}: PasteTomlModalProps) {
   const [content, setContent] = useState('');
   const [error, setError] = useState<string | null>(null);
 

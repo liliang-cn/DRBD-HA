@@ -1,20 +1,19 @@
+import gsap from 'gsap';
 import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  Loader2,
   LineChart,
+  Loader2,
   Zap,
 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
+import { haProfilesApi, nodesApi, resourcesApi, servicesApi } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Stepper } from '@/components/ui/stepper';
-import { useWizardForm } from '@/lib/wizard-form';
-import gsap from 'gsap';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { haProfilesApi, nodesApi, resourcesApi, servicesApi } from '@/api';
 import {
   DeploymentStatusStep,
   HaConfigStep,
@@ -22,6 +21,7 @@ import {
   PreviewConfigStep,
   StorageConfigStep,
 } from '@/components/wizard';
+import { useWizardForm } from '@/lib/wizard-form';
 import { useNodesStore } from '@/stores/nodes';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useResourcesStore } from '@/stores/resources';
@@ -760,7 +760,6 @@ export function Wizard({ mode = 'service' }: WizardProps) {
   const handleDone = () => {
     navigate('/');
   };
-
 
   const renderStepContent = () => {
     switch (step) {

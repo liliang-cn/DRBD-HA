@@ -8,6 +8,11 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
+import type {
+  OcfAgentWithMetadata,
+  ParamEntry,
+  ResourceAgent,
+} from '@/api/ha-profiles';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -18,11 +23,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import type {
-  OcfAgentWithMetadata,
-  ParamEntry,
-  ResourceAgent,
-} from '@/api/ha-profiles';
 import type { WizardFormInstance } from '@/lib/wizard-form';
 import { useWizardWatch } from '@/lib/wizard-form';
 

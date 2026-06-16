@@ -284,8 +284,9 @@ pub async fn import_profiles(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ImportProfilesRequest>,
 ) -> AppResult<Json<ImportProfilesResponse>> {
-    let discovered =
-        ReactorDiscovery::scan_profiles().await.map_err(|e| AppError::Internal(e.to_string()))?;
+    let discovered = ReactorDiscovery::scan_profiles()
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
     let existing_profiles = super::utils::get_all_ha_profile_names(&state).await?;
 
     let mut imported = Vec::new();

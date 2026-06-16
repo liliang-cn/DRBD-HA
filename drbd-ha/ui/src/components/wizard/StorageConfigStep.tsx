@@ -1,11 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -15,8 +10,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useWizardWatch, type WizardFormInstance } from '@/lib/wizard-form';
 import { cn } from '@/lib/utils';
+import { useWizardWatch, type WizardFormInstance } from '@/lib/wizard-form';
 import type { BlockDevice, Node } from '@/types';
 
 interface StorageConfigStepProps {
@@ -75,7 +70,8 @@ export function StorageConfigStep({
       lvm_allocation_policy:
         form.getFieldValue('lvm_allocation_policy') ?? 'thin',
       lvm_lv_size: form.getFieldValue('lvm_lv_size') ?? '100%FREE',
-      lvm_thin_pool_name: form.getFieldValue('lvm_thin_pool_name') ?? 'thinpool',
+      lvm_thin_pool_name:
+        form.getFieldValue('lvm_thin_pool_name') ?? 'thinpool',
       lvm_thin_pool_size: form.getFieldValue('lvm_thin_pool_size') ?? '1G',
       zfs_thin_volume: form.getFieldValue('zfs_thin_volume') ?? true,
       zfs_volume_size_gb: form.getFieldValue('zfs_volume_size_gb') ?? 10,
@@ -403,9 +399,9 @@ export function StorageConfigStep({
                 />
               </div>
               <div className="text-sm text-muted-foreground mb-4">
-                ℹ️ <strong>Thin provisioning enabled</strong>: ZFS sparse
-                volumes allocate space on-demand. The volume size is virtual;
-                actual disk usage will grow as data is written.
+                ℹ️ <strong>Thin provisioning enabled</strong>: ZFS sparse volumes
+                allocate space on-demand. The volume size is virtual; actual
+                disk usage will grow as data is written.
               </div>
             </>
           )}
@@ -433,10 +429,10 @@ export function StorageConfigStep({
                 <div className="rounded border border-blue-500/30 bg-blue-500/10 p-3">
                   <p className="text-xs text-muted-foreground">
                     ℹ️ These options control DRBD behavior during network
-                    partitions and split-brain scenarios. For two-node
-                    clusters, <strong>preferred-nodes</strong> in HA Config is
-                    typically sufficient. These policies provide additional
-                    automatic recovery mechanisms.
+                    partitions and split-brain scenarios. For two-node clusters,{' '}
+                    <strong>preferred-nodes</strong> in HA Config is typically
+                    sufficient. These policies provide additional automatic
+                    recovery mechanisms.
                   </p>
                 </div>
 
@@ -497,10 +493,10 @@ export function StorageConfigStep({
 
                 <div className="rounded border border-yellow-500/30 bg-yellow-500/10 p-3 mb-4">
                   <p className="text-xs text-muted-foreground">
-                    ⚠️ <strong>Split-brain</strong> occurs when both nodes
-                    become Primary due to network partition. These policies
-                    define automatic recovery. For manual recovery, use the
-                    "Recover Split-Brain" action.
+                    ⚠️ <strong>Split-brain</strong> occurs when both nodes become
+                    Primary due to network partition. These policies define
+                    automatic recovery. For manual recovery, use the "Recover
+                    Split-Brain" action.
                   </p>
                 </div>
 

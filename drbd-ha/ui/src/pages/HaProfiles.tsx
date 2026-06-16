@@ -665,10 +665,7 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.sky}30, ${ACCENT_COLORS.blue}30)`,
                 }}
               >
-                <Zap
-                  className="text-xl"
-                  style={{ color: ACCENT_COLORS.sky }}
-                />
+                <Zap className="text-xl" style={{ color: ACCENT_COLORS.sky }} />
               </div>
               <div>
                 <div
@@ -1456,10 +1453,7 @@ export function HaProfiles() {
                   background: `linear-gradient(135deg, ${ACCENT_COLORS.sky}30, ${ACCENT_COLORS.blue}30)`,
                 }}
               >
-                <Zap
-                  className="text-xl"
-                  style={{ color: ACCENT_COLORS.sky }}
-                />
+                <Zap className="text-xl" style={{ color: ACCENT_COLORS.sky }} />
               </div>
               <div
                 className={`text-lg font-semibold ${
@@ -1903,7 +1897,9 @@ export function HaProfiles() {
                                           size="icon"
                                           variant="ghost"
                                           className="h-8 w-8 text-destructive hover:!bg-red-50"
-                                          onClick={() => openDeleteModal(record)}
+                                          onClick={() =>
+                                            openDeleteModal(record)
+                                          }
                                         >
                                           <Trash2 className="h-4 w-4" />
                                         </Button>
@@ -1971,7 +1967,9 @@ export function HaProfiles() {
                 </label>
                 <p
                   className={`text-sm mt-2 ml-6 ${
-                    currentTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                    currentTheme === 'dark'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
                   }`}
                 >
                   This will remove the DRBD configuration files from all nodes.
@@ -2022,7 +2020,9 @@ export function HaProfiles() {
               <div className="space-y-2">
                 <div
                   className={`text-sm font-medium mb-2 ${
-                    currentTheme === 'dark' ? 'text-slate-300' : 'text-slate-700'
+                    currentTheme === 'dark'
+                      ? 'text-slate-300'
+                      : 'text-slate-700'
                   }`}
                 >
                   Deletion Progress:

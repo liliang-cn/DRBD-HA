@@ -284,7 +284,11 @@ export function Storage() {
           <DialogHeader>
             <DialogTitle>Create Storage Pool</DialogTitle>
           </DialogHeader>
-          <form id="create-pool-form" onSubmit={handleCreate} className="space-y-4">
+          <form
+            id="create-pool-form"
+            onSubmit={handleCreate}
+            className="space-y-4"
+          >
             <div className="space-y-2">
               <Label htmlFor="pool-name">Pool Name</Label>
               <Input

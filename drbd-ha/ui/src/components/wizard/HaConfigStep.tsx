@@ -2,12 +2,7 @@ import { Eye, EyeOff, Settings } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { OcfAgentEditor } from '@/components/ha/OcfAgentEditor';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -44,11 +39,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   return <Label>{children}</Label>;
 }
 
-export function HaConfigStep({
-  form,
-  resources,
-  services,
-}: HaConfigStepProps) {
+export function HaConfigStep({ form, resources, services }: HaConfigStepProps) {
   const [configMode, setConfigMode] = useState<ConfigMode>('simple');
   const [showTomlPreview, setShowTomlPreview] = useState(true);
   const [ocfAgents, setOcfAgents] = useState<any[]>([]);
@@ -132,7 +123,10 @@ export function HaConfigStep({
   const stopOnDemote = useWizardWatch('stop_on_demote', form);
   const dependenciesAs = useWizardWatch('dependencies_as', form);
   const targetAs = useWizardWatch('target_as', form);
-  const sleepBeforePromote = useWizardWatch('sleep_before_promote_factor', form);
+  const sleepBeforePromote = useWizardWatch(
+    'sleep_before_promote_factor',
+    form,
+  );
   const migrateData = useWizardWatch('migrate_data', form);
 
   const get = (name: string) => form.getFieldValue(name);
@@ -545,8 +539,7 @@ stop-services-on-exit = ${stopOnExit}${advancedSection}${mountStrategyComment}
                     </h4>
                     <p className="block mb-4 text-xs text-muted-foreground">
                       Enter preferred nodes for running this service (comma or
-                      space separated). The first node has the highest
-                      priority.
+                      space separated). The first node has the highest priority.
                     </p>
 
                     <div className="space-y-1.5">
@@ -554,9 +547,7 @@ stop-services-on-exit = ${stopOnExit}${advancedSection}${mountStrategyComment}
                       <Input
                         placeholder="Enter hostnames separated by commas or spaces"
                         value={preferredNodesValue}
-                        onChange={(e) =>
-                          set('preferred_nodes', e.target.value)
-                        }
+                        onChange={(e) => set('preferred_nodes', e.target.value)}
                       />
                       <p className="text-xs text-muted-foreground">
                         Example: orange1, orange2
@@ -798,9 +789,7 @@ stop-services-on-exit = ${stopOnExit}${advancedSection}${mountStrategyComment}
                       <input
                         type="checkbox"
                         checked={(get('format_device') as boolean) ?? true}
-                        onChange={(e) =>
-                          set('format_device', e.target.checked)
-                        }
+                        onChange={(e) => set('format_device', e.target.checked)}
                       />
                       Format device before migration
                     </label>

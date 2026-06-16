@@ -843,7 +843,11 @@ mod tests {
         assert_eq!(agent.instance_name, "r0_vip");
         assert_eq!(agent.params.len(), 4);
         assert_eq!(
-            agent.params.iter().find(|p| p.key == "op").map(|p| &p.value),
+            agent
+                .params
+                .iter()
+                .find(|p| p.key == "op")
+                .map(|p| &p.value),
             Some(&"monitor".to_string())
         );
         assert_eq!(

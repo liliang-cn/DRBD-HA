@@ -12,6 +12,7 @@ base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
 thiserror = "2"
 dispatch-rs = "0.3"
+dispatch-config = { path = "../dispatch-config" }
 
 [dev-dependencies]
 serial_test = "3"

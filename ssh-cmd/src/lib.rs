@@ -101,9 +101,15 @@ impl SshManager {
                 command
             );
 
-            let hr =
-                Self::dispatch_exec(host, port, user, sudo, self.config.command_timeout(), command)
-                    .await?;
+            let hr = Self::dispatch_exec(
+                host,
+                port,
+                user,
+                sudo,
+                self.config.command_timeout(),
+                command,
+            )
+            .await?;
 
             tracing::debug!(
                 "SSH result: host={}, exit_code={}, stdout_len={}, stderr_len={}",
@@ -135,13 +141,8 @@ impl SshManager {
         command: &str,
     ) -> SshResult<dispatch::HostResult> {
         let cfg = dispatch::Config {
-            ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
-            config_path: Some(std::path::PathBuf::from("/dev/null")),
             sudo,
-            host_key_checking: dispatch::HostKeyChecking::AcceptAny,
-            known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
-            connect_timeout: Some(std::time::Duration::from_secs(5)),
-            ..Default::default()
+            ..dispatch_config::default_dispatch_config()
         };
         let client = dispatch::Dispatch::new(cfg)
             .map_err(|e| SshError::Execution(format!("dispatch init failed: {}", e)))?;

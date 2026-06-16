@@ -10,13 +10,7 @@ use std::path::Path;
 use tokio::process::Command;
 
 fn controller_proxy_from_env() -> Option<(String, u16, String)> {
-    let host = std::env::var("DRBD_HA_REMOTE_EXEC_HOST").ok()?;
-    let port = std::env::var("DRBD_HA_REMOTE_EXEC_PORT")
-        .ok()
-        .and_then(|value| value.parse::<u16>().ok())
-        .unwrap_or(22);
-    let user = std::env::var("DRBD_HA_REMOTE_EXEC_USER").unwrap_or_else(|_| "root".to_string());
-    Some((host, port, user))
+    dispatch_config::command_proxy().map(|p| (p.host, p.port, p.user))
 }
 
 fn shell_escape_single_quotes(value: &str) -> String {
@@ -33,14 +27,7 @@ async fn run_proxy_command(command: &str) -> Result<String> {
         format!("sudo -n sh -lc '{}'", shell_escape_single_quotes(command))
     };
 
-    let cfg = dispatch::Config {
-        ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
-        config_path: Some(std::path::PathBuf::from("/dev/null")),
-        host_key_checking: dispatch::HostKeyChecking::AcceptAny,
-        known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
-        connect_timeout: Some(std::time::Duration::from_secs(5)),
-        ..Default::default()
-    };
+    let cfg = dispatch_config::default_dispatch_config();
     let client = dispatch::Dispatch::new(cfg)?;
     let dest = format!("ssh://{}@{}:{}", user, host, port);
     let result = client.exec([dest], remote_cmd).run().await?;

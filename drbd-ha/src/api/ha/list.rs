@@ -49,7 +49,7 @@ impl drbd_utils::RemoteExecutor for SshExecutor {
                 .map(|output| drbd_utils::CommandOutput {
                     stdout: output.stdout,
                     stderr: output.stderr,
-                    exit_code: output.exit_code as i32,
+                    exit_code: output.exit_code,
                 })
                 .map_err(|e| drbd_utils::DrbdError::Command(format!("SSH execution failed: {}", e)))
         }
@@ -1109,7 +1109,7 @@ pub async fn fetch_profile_details(
                     node_infos.push(super::types::NodeConfigInfo {
                         hostname: hostname.clone(),
                         ip: ip.clone(),
-                        peer_role: drbd_role.map(|r| role_to_display(r)),
+                        peer_role: drbd_role.map(&role_to_display),
                         disabled: None,
                     });
                 }
@@ -1121,7 +1121,7 @@ pub async fn fetch_profile_details(
                 node_infos.push(super::types::NodeConfigInfo {
                     hostname: local_hostname.clone(),
                     ip: local_ip,
-                    peer_role: drbd_role.map(|r| role_to_display(r)),
+                    peer_role: drbd_role.map(role_to_display),
                     disabled: None,
                 });
             }

@@ -372,7 +372,7 @@ fn parse_toml_with_agents(content: &str) -> TomlWithAgents {
                 // Use only the last part as the section name (e.g., "promoter.resources.iscsi2" -> "iscsi2")
                 let name = full_name
                     .split('.')
-                    .last()
+                    .next_back()
                     .unwrap_or(&full_name)
                     .to_string();
                 current_section = Some((name, true, Vec::new()));
@@ -382,7 +382,7 @@ fn parse_toml_with_agents(content: &str) -> TomlWithAgents {
                 // Use only the last part as the section name (e.g., "promoter.metadata" -> "metadata")
                 let name = full_name
                     .split('.')
-                    .last()
+                    .next_back()
                     .unwrap_or(&full_name)
                     .to_string();
                 current_section = Some((name, false, Vec::new()));
@@ -417,7 +417,7 @@ fn parse_toml_with_agents(content: &str) -> TomlWithAgents {
 
                     for ch in inner_content.chars() {
                         if (ch == '"' || ch == '\'')
-                            && (current.is_empty() || current.chars().last() != Some('\\'))
+                            && (current.is_empty() || !current.ends_with('\\'))
                         {
                             if !in_quotes {
                                 in_quotes = true;
@@ -486,11 +486,8 @@ fn parse_toml_with_agents(content: &str) -> TomlWithAgents {
 
                         if !content_trimmed.is_empty() && content_trimmed != "[" {
                             // Remove trailing comma if present
-                            let content_clean = if content_trimmed.ends_with(',') {
-                                &content_trimmed[..content_trimmed.len() - 1]
-                            } else {
-                                content_trimmed
-                            };
+                            let content_clean =
+                                content_trimmed.strip_suffix(',').unwrap_or(content_trimmed);
 
                             // Remove quotes
                             let element_str = if (content_clean.starts_with('"')
@@ -1329,14 +1326,14 @@ on-drbd-demote-failure = "reboot"
         let item0 = &result.ocf_agents[0];
         assert_eq!(item0.position.key, "start");
         assert_eq!(item0.position.index, 0);
-        assert_eq!(item0.item.is_ocf, false);
+        assert!(!item0.item.is_ocf);
         assert_eq!(item0.item.original, "var-lib-linstor.mount");
 
         // Second item: OCF IPaddr2
         let item1 = &result.ocf_agents[1];
         assert_eq!(item1.position.key, "start");
         assert_eq!(item1.position.index, 1);
-        assert_eq!(item1.item.is_ocf, true);
+        assert!(item1.item.is_ocf);
         assert!(item1.item.ocf_agent.is_some());
         let ocf1 = item1.item.ocf_agent.as_ref().unwrap();
         assert_eq!(ocf1.provider, "heartbeat");
@@ -1355,14 +1352,14 @@ on-drbd-demote-failure = "reboot"
         let item2 = &result.ocf_agents[2];
         assert_eq!(item2.position.key, "start");
         assert_eq!(item2.position.index, 2);
-        assert_eq!(item2.item.is_ocf, false);
+        assert!(!item2.item.is_ocf);
         assert_eq!(item2.item.original, "linstor-controller.service");
 
         // Fourth item: frpc.service (not OCF)
         let item3 = &result.ocf_agents[3];
         assert_eq!(item3.position.key, "start");
         assert_eq!(item3.position.index, 3);
-        assert_eq!(item3.item.is_ocf, false);
+        assert!(!item3.item.is_ocf);
         assert_eq!(item3.item.original, "frpc.service");
     }
 }

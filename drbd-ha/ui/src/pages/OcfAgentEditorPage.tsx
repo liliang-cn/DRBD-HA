@@ -1,5 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { OcfAgentEditor } from '@/components/ha/OcfAgentEditor';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -10,8 +12,6 @@ import {
 } from '@/components/ui/dialog';
 import { Result } from '@/components/ui/result';
 import { Spinner } from '@/components/ui/spinner';
-import { useNavigate, useParams } from 'react-router-dom';
-import { OcfAgentEditor } from '@/components/ha/OcfAgentEditor';
 import { useHaProfilesStore } from '@/stores/ha-profiles';
 
 export function OcfAgentEditorPage() {
@@ -95,11 +95,7 @@ export function OcfAgentEditorPage() {
           status="error"
           title="Profile Not Found"
           subTitle={`The profile ${profileId} does not exist.`}
-          extra={
-            <Button onClick={() => navigate('/')}>
-              Go Back
-            </Button>
-          }
+          extra={<Button onClick={() => navigate('/')}>Go Back</Button>}
         />
       </div>
     );

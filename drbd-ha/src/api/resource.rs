@@ -1174,8 +1174,11 @@ pub async fn init_resource(
                         node.hostname,
                         result.stderr
                     );
-                    peer_warnings
-                        .push(format!("{} (create-md: {})", node.hostname, result.stderr.trim()));
+                    peer_warnings.push(format!(
+                        "{} (create-md: {})",
+                        node.hostname,
+                        result.stderr.trim()
+                    ));
                 }
             }
             Err(e) => {
@@ -1288,8 +1291,7 @@ pub async fn init_resource(
                         node.hostname,
                         result.stderr
                     );
-                    peer_warnings
-                        .push(format!("{} (up: {})", node.hostname, result.stderr.trim()));
+                    peer_warnings.push(format!("{} (up: {})", node.hostname, result.stderr.trim()));
                 }
             }
             Err(e) => {

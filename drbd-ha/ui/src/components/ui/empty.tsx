@@ -1,7 +1,7 @@
-import * as React from "react";
-import { Inbox } from "lucide-react";
+import { Inbox } from 'lucide-react';
+import * as React from 'react';
 
-import { cn } from "@/lib/utils";
+import { cn } from '@/lib/utils';
 
 export interface EmptyProps extends React.HTMLAttributes<HTMLDivElement> {
   description?: React.ReactNode;
@@ -9,11 +9,11 @@ export interface EmptyProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 const Empty = React.forwardRef<HTMLDivElement, EmptyProps>(
-  ({ description = "No data", icon, className, children, ...props }, ref) => (
+  ({ description = 'No data', icon, className, children, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(
-        "flex flex-col items-center justify-center gap-3 px-4 py-10 text-center",
+        'flex flex-col items-center justify-center gap-3 px-4 py-10 text-center',
         className,
       )}
       {...props}
@@ -28,6 +28,6 @@ const Empty = React.forwardRef<HTMLDivElement, EmptyProps>(
     </div>
   ),
 );
-Empty.displayName = "Empty";
+Empty.displayName = 'Empty';
 
 export { Empty };

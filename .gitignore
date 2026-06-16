@@ -1,3 +1,13 @@
 /target
 CLAUDE.md
+
+# UI build output and deps. Keep the dist/ dir present (rust_embed needs the
+# folder to exist to compile) but ignore the generated assets.
+drbd-ha/ui/dist/*
+!drbd-ha/ui/dist/.gitkeep
+drbd-ha/ui/node_modules/
+
+# Test / tooling artifacts
+.playwright-mcp/
 generated-agents/.playwright-mcp/
+/*.png

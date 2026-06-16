@@ -1,14 +1,10 @@
 import { Info, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { nodesApi } from '@/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -24,7 +20,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useNodesStore } from '@/stores/nodes';
-import { toast } from 'sonner';
 import type { AddNodeRequest, Node } from '@/types';
 import type { WizardSharedState } from './types';
 
@@ -222,10 +217,7 @@ export function NodesVerificationStep({
               'No nodes available',
               <div>
                 <p>Please add at least 2 nodes to configure HA.</p>
-                <Button
-                  className="mt-2"
-                  onClick={() => setModalOpen(true)}
-                >
+                <Button className="mt-2" onClick={() => setModalOpen(true)}>
                   <Plus className="mr-2 h-4 w-4" />
                   Add Node
                 </Button>
@@ -255,10 +247,7 @@ export function NodesVerificationStep({
                         </Badge>
                       );
                       return (
-                        <tr
-                          key={record.id}
-                          className="border-t border-border"
-                        >
+                        <tr key={record.id} className="border-t border-border">
                           <td className="px-4 py-2">
                             <input
                               type="checkbox"
@@ -398,9 +387,7 @@ export function NodesVerificationStep({
                 min={1}
                 max={65535}
                 value={form.ssh_port}
-                onChange={(e) =>
-                  setField('ssh_port', Number(e.target.value))
-                }
+                onChange={(e) => setField('ssh_port', Number(e.target.value))}
               />
             </div>
             <div className="space-y-1.5">
@@ -464,9 +451,7 @@ export function NodesVerificationStep({
                 min={1}
                 max={65535}
                 value={form.ssh_port}
-                onChange={(e) =>
-                  setField('ssh_port', Number(e.target.value))
-                }
+                onChange={(e) => setField('ssh_port', Number(e.target.value))}
               />
             </div>
             <div className="space-y-1.5">

@@ -3,10 +3,6 @@ use ssh_cmd::CommandOutput;
 use std::process::Stdio;
 use tokio::process::Command;
 
-const REMOTE_EXEC_HOST_ENV: &str = "DRBD_HA_REMOTE_EXEC_HOST";
-const REMOTE_EXEC_PORT_ENV: &str = "DRBD_HA_REMOTE_EXEC_PORT";
-const REMOTE_EXEC_USER_ENV: &str = "DRBD_HA_REMOTE_EXEC_USER";
-
 #[derive(Debug, Clone)]
 struct ProxyTarget {
     host: String,
@@ -15,14 +11,11 @@ struct ProxyTarget {
 }
 
 fn proxy_target_from_env() -> Option<ProxyTarget> {
-    let host = std::env::var(REMOTE_EXEC_HOST_ENV).ok()?;
-    let port = std::env::var(REMOTE_EXEC_PORT_ENV)
-        .ok()
-        .and_then(|value| value.parse::<u16>().ok())
-        .unwrap_or(22);
-    let user = std::env::var(REMOTE_EXEC_USER_ENV).unwrap_or_else(|_| "root".to_string());
-
-    Some(ProxyTarget { host, port, user })
+    dispatch_config::command_proxy().map(|p| ProxyTarget {
+        host: p.host,
+        port: p.port,
+        user: p.user,
+    })
 }
 
 fn shell_escape_single_quotes(value: &str) -> String {
@@ -97,14 +90,7 @@ pub async fn run_local_command(command: &str, description: &str) -> ZfsResult<Co
         } else {
             format!("sudo -n sh -lc '{}'", escaped_cmd)
         };
-        let cfg = dispatch::Config {
-            ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
-            config_path: Some(std::path::PathBuf::from("/dev/null")),
-            host_key_checking: dispatch::HostKeyChecking::AcceptAny,
-            known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
-            connect_timeout: Some(std::time::Duration::from_secs(5)),
-            ..Default::default()
-        };
+        let cfg = dispatch_config::default_dispatch_config();
         let client = dispatch::Dispatch::new(cfg)
             .map_err(|e| ZfsError::Execution(format!("dispatch init failed: {}", e)))?;
         let dest = format!("ssh://{}@{}:{}", proxy.user, proxy.host, proxy.port);
@@ -113,11 +99,10 @@ pub async fn run_local_command(command: &str, description: &str) -> ZfsResult<Co
             .run()
             .await
             .map_err(|e| ZfsError::Execution(format!("dispatch exec failed: {}", e)))?;
-        let hr = result
-            .hosts
-            .into_values()
-            .next()
-            .ok_or_else(|| ZfsError::Execution("dispatch returned no host result".to_string()))?;
+        let hr =
+            result.hosts.into_values().next().ok_or_else(|| {
+                ZfsError::Execution("dispatch returned no host result".to_string())
+            })?;
         Ok(CommandOutput {
             stdout: hr.stdout,
             stderr: hr.stderr,

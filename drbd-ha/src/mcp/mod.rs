@@ -280,8 +280,8 @@ impl DrbdHaMcp {
         &self,
         Parameters(p): Parameters<ResourceActionParams>,
     ) -> Result<CallToolResult, McpError> {
-        let action = serde_json::from_value(serde_json::Value::String(p.action.clone()))
-            .map_err(|_| {
+        let action =
+            serde_json::from_value(serde_json::Value::String(p.action.clone())).map_err(|_| {
                 McpError::invalid_params(format!("unknown action '{}'", p.action), None)
             })?;
         let req = ResourceActionRequest {
@@ -350,7 +350,9 @@ impl DrbdHaMcp {
         ok_json(v)
     }
 
-    #[tool(description = "Activate an HA profile (deploy config to all nodes and start management)")]
+    #[tool(
+        description = "Activate an HA profile (deploy config to all nodes and start management)"
+    )]
     async fn activate_ha_profile(
         &self,
         Parameters(p): Parameters<ProfileIdParam>,
@@ -550,5 +552,75 @@ impl ServerHandler for DrbdHaMcp {
              mutating tools (create/activate/deactivate/evict/delete/resource_action/\
              reactor_reload) change cluster state — verify with status tools afterwards.",
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn evict_params_minimal_defaults_are_safe() {
+        let p: EvictParams = serde_json::from_value(serde_json::json!({
+            "id_or_name": "hamysql"
+        }))
+        .unwrap();
+        assert_eq!(p.id_or_name, "hamysql");
+        assert_eq!(p.node, None);
+        assert_eq!(p.delay, None); // handler applies the 20s default
+        assert!(!p.keep_masked);
+        assert!(!p.force);
+    }
+
+    #[test]
+    fn evict_params_full_roundtrip() {
+        let p: EvictParams = serde_json::from_value(serde_json::json!({
+            "id_or_name": "hamysql",
+            "node": "orange3",
+            "delay": 30,
+            "keep_masked": true,
+            "force": true
+        }))
+        .unwrap();
+        assert_eq!(p.node.as_deref(), Some("orange3"));
+        assert_eq!(p.delay, Some(30));
+        assert!(p.keep_masked);
+        assert!(p.force);
+    }
+
+    #[test]
+    fn destructive_flags_default_to_non_destructive() {
+        // A delete request that names only the profile must NOT also wipe the
+        // DRBD resource or config file unless explicitly asked.
+        let d: DeleteProfileParams = serde_json::from_value(serde_json::json!({
+            "id_or_name": "hamysql"
+        }))
+        .unwrap();
+        assert!(!d.delete_resource);
+        assert!(!d.delete_config_file);
+
+        let a: ResourceActionParams = serde_json::from_value(serde_json::json!({
+            "name": "hamysql",
+            "action": "down"
+        }))
+        .unwrap();
+        assert!(!a.force);
+    }
+
+    #[test]
+    fn required_field_is_enforced() {
+        // Missing the required id_or_name must fail to deserialize.
+        let r: Result<ProfileIdParam, _> = serde_json::from_value(serde_json::json!({}));
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn params_expose_json_schema() {
+        // The MCP layer relies on these deriving a JSON Schema for tool specs.
+        let schema = schemars::schema_for!(EvictParams);
+        let json = serde_json::to_value(&schema).unwrap();
+        let props = json.get("properties").expect("schema has properties");
+        assert!(props.get("id_or_name").is_some());
+        assert!(props.get("keep_masked").is_some());
     }
 }

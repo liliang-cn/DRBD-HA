@@ -4,13 +4,7 @@ use std::fs;
 use std::path::Path;
 
 fn controller_proxy_from_env() -> Option<(String, u16, String)> {
-    let host = std::env::var("DRBD_HA_REMOTE_EXEC_HOST").ok()?;
-    let port = std::env::var("DRBD_HA_REMOTE_EXEC_PORT")
-        .ok()
-        .and_then(|value| value.parse::<u16>().ok())
-        .unwrap_or(22);
-    let user = std::env::var("DRBD_HA_REMOTE_EXEC_USER").unwrap_or_else(|_| "root".to_string());
-    Some((host, port, user))
+    dispatch_config::command_proxy().map(|p| (p.host, p.port, p.user))
 }
 
 fn shell_escape_single_quotes(value: &str) -> String {
@@ -179,18 +173,20 @@ pub fn parse_res_file_for_minors(content: &str) -> HashSet<u32> {
 /// Get all used minor numbers from existing .res files in /etc/drbd.d/
 /// Returns a HashSet of used minor numbers
 /// Run a proxied command via dispatch, returning stdout (Err(()) on any failure).
-async fn proxy_ssh_stdout(host: &str, port: u16, user: &str, remote_cmd: String) -> Result<String, ()> {
-    let cfg = dispatch::Config {
-        ssh_config_path: Some(std::path::PathBuf::from("/dev/null")),
-        config_path: Some(std::path::PathBuf::from("/dev/null")),
-        host_key_checking: dispatch::HostKeyChecking::AcceptAny,
-        known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
-        connect_timeout: Some(std::time::Duration::from_secs(5)),
-        ..Default::default()
-    };
+async fn proxy_ssh_stdout(
+    host: &str,
+    port: u16,
+    user: &str,
+    remote_cmd: String,
+) -> Result<String, ()> {
+    let cfg = dispatch_config::default_dispatch_config();
     let client = dispatch::Dispatch::new(cfg).map_err(|_| ())?;
     let dest = format!("ssh://{}@{}:{}", user, host, port);
-    let result = client.exec([dest], remote_cmd).run().await.map_err(|_| ())?;
+    let result = client
+        .exec([dest], remote_cmd)
+        .run()
+        .await
+        .map_err(|_| ())?;
     let hr = result.hosts.into_values().next().ok_or(())?;
     if hr.success {
         Ok(hr.stdout)
@@ -430,6 +426,57 @@ pub fn parse_drbdadm_status(output: &str, resource_name: &str) -> Option<DrbdRes
     })
 }
 
+/// Convert ResourceStatus (from drbdadm status --json) to DrbdResourceStatus
+///
+/// This function converts the JSON-parsed ResourceStatus into the simpler
+/// DrbdResourceStatus format used by the HA profile API.
+pub fn convert_resource_status(resource: &ResourceStatus) -> DrbdResourceStatus {
+    let peers = resource
+        .connections
+        .iter()
+        .map(|conn| {
+            let peer_device = conn.peer_devices.first();
+            DrbdPeerStatus {
+                name: conn.name.clone(),
+                role: conn.peer_role.clone().unwrap_or_else(|| {
+                    // Try to infer from replication state
+                    if peer_device
+                        .map(|p| p.replication_state.contains("Target"))
+                        .unwrap_or(false)
+                    {
+                        "Secondary".to_string()
+                    } else {
+                        "Unknown".to_string()
+                    }
+                }),
+                peer_disk: peer_device
+                    .map(|p| p.peer_disk_state.clone())
+                    .unwrap_or_else(|| "Unknown".to_string()),
+                connection: Some(conn.connection_state.clone()),
+                replication: peer_device.map(|p| p.replication_state.clone()),
+                sync_percent: peer_device.and_then(|p| p.percent_in_sync),
+            }
+        })
+        .collect();
+
+    DrbdResourceStatus {
+        resource: resource.name.clone(),
+        role: resource.role.clone(),
+        disk: resource
+            .devices
+            .first()
+            .map(|d| d.disk_state.clone())
+            .unwrap_or_else(|| "Unknown".to_string()),
+        open: resource
+            .devices
+            .first()
+            .map(|d| d.size.is_some())
+            .unwrap_or(false),
+        minor: resource.devices.first().map(|d| d.minor),
+        peers,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,56 +587,5 @@ mod tests {
             drbd_status.peers[0].replication,
             Some("Established".to_string())
         );
-    }
-}
-
-/// Convert ResourceStatus (from drbdadm status --json) to DrbdResourceStatus
-///
-/// This function converts the JSON-parsed ResourceStatus into the simpler
-/// DrbdResourceStatus format used by the HA profile API.
-pub fn convert_resource_status(resource: &ResourceStatus) -> DrbdResourceStatus {
-    let peers = resource
-        .connections
-        .iter()
-        .map(|conn| {
-            let peer_device = conn.peer_devices.first();
-            DrbdPeerStatus {
-                name: conn.name.clone(),
-                role: conn.peer_role.clone().unwrap_or_else(|| {
-                    // Try to infer from replication state
-                    if peer_device
-                        .map(|p| p.replication_state.contains("Target"))
-                        .unwrap_or(false)
-                    {
-                        "Secondary".to_string()
-                    } else {
-                        "Unknown".to_string()
-                    }
-                }),
-                peer_disk: peer_device
-                    .map(|p| p.peer_disk_state.clone())
-                    .unwrap_or_else(|| "Unknown".to_string()),
-                connection: Some(conn.connection_state.clone()),
-                replication: peer_device.map(|p| p.replication_state.clone()),
-                sync_percent: peer_device.and_then(|p| p.percent_in_sync),
-            }
-        })
-        .collect();
-
-    DrbdResourceStatus {
-        resource: resource.name.clone(),
-        role: resource.role.clone(),
-        disk: resource
-            .devices
-            .first()
-            .map(|d| d.disk_state.clone())
-            .unwrap_or_else(|| "Unknown".to_string()),
-        open: resource
-            .devices
-            .first()
-            .map(|d| d.size.is_some())
-            .unwrap_or(false),
-        minor: resource.devices.first().map(|d| d.minor),
-        peers,
     }
 }

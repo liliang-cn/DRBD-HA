@@ -18,13 +18,11 @@ fn target(node: &Node) -> String {
 
 /// A `dispatch` client tuned for one node: non-root users go through `sudo -n`.
 fn client_for(node: &Node) -> AppResult<Dispatch> {
+    // Shared connection policy (host trust managed out-of-band, nodes re-imaged);
+    // non-root users go through `sudo -n`.
     let cfg = Config {
         sudo: node.ssh_user != "root",
-        // The cluster manages host trust out-of-band and re-images nodes, so
-        // match the previous `StrictHostKeyChecking=no` + `/dev/null` behavior.
-        host_key_checking: dispatch::HostKeyChecking::AcceptAny,
-        known_hosts_file: Some(std::path::PathBuf::from("/dev/null")),
-        ..Default::default()
+        ..dispatch_config::default_dispatch_config()
     };
     Dispatch::new(cfg).map_err(|e| AppError::Ssh(e.to_string()))
 }

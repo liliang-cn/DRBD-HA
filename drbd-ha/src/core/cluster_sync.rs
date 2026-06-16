@@ -61,16 +61,9 @@ impl ClusterSync {
             remote_nodes.len()
         );
 
-        let mut synced_nodes = Vec::new();
-        let mut errors = Vec::new();
-
-        for node in nodes {
-            // Skip local node
-            if node.is_local {
-                tracing::debug!("Skipping local node {}", node.hostname);
-                continue;
-            }
-
+        // Sync every remote node concurrently — each node is independent, so
+        // wall-clock is one node's sync rather than the sum over all nodes.
+        let node_results = futures::future::join_all(remote_nodes.iter().map(|node| async move {
             tracing::info!(
                 "Syncing HA config to node {} ({}:{})",
                 node.hostname,
@@ -78,20 +71,20 @@ impl ClusterSync {
                 node.ssh_port
             );
 
-            // Get credential (dummy)
-            let credential = match self.get_credential(&node).await? {
-                Some(c) => c,
-                None => {
+            // Ok(true) = synced, Ok(false) = skipped (no credential), Err = failed
+            let credential = match self.get_credential(node).await {
+                Ok(Some(c)) => c,
+                Ok(None) => {
                     tracing::warn!("No credential available for node {}", node.hostname);
-                    continue;
+                    return (node.hostname.clone(), Ok(false));
                 }
+                Err(e) => return (node.hostname.clone(), Err(e.to_string())),
             };
 
-            // Sync files to this node
-            match self.sync_to_node(&node, &credential, config).await {
+            let outcome = match self.sync_to_node(node, &credential, config).await {
                 Ok(_) => {
                     tracing::info!("✓ Successfully synced HA config to node {}", node.hostname);
-                    synced_nodes.push(node.hostname.clone());
+                    Ok(true)
                 }
                 Err(e) => {
                     tracing::error!(
@@ -99,8 +92,20 @@ impl ClusterSync {
                         node.hostname,
                         e
                     );
-                    errors.push(format!("{}: {}", node.hostname, e));
+                    Err(e.to_string())
                 }
+            };
+            (node.hostname.clone(), outcome)
+        }))
+        .await;
+
+        let mut synced_nodes = Vec::new();
+        let mut errors = Vec::new();
+        for (hostname, outcome) in node_results {
+            match outcome {
+                Ok(true) => synced_nodes.push(hostname),
+                Ok(false) => {}
+                Err(err) => errors.push(format!("{}: {}", hostname, err)),
             }
         }
 

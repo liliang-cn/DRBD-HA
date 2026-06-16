@@ -13,7 +13,14 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { ClipboardPaste, Eye, EyeOff, Plus, RotateCw, Save } from 'lucide-react';
+import {
+  ClipboardPaste,
+  Eye,
+  EyeOff,
+  Plus,
+  RotateCw,
+  Save,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { haProfilesApi } from '@/api';
@@ -27,10 +34,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
-import {
-  useWizardForm,
-  type WizardFormInstance,
-} from '@/lib/wizard-form';
+import { useWizardForm, type WizardFormInstance } from '@/lib/wizard-form';
 import { useThemeStore } from '@/stores/theme';
 import { extractStartArrayItems, parseOcfLine } from '@/utils/toml';
 import { AddAgentModal } from './ocf-agent-editor/AddAgentModal';
@@ -741,10 +745,7 @@ export function OcfAgentEditor({
   // Sync a single field change to parsedAgents immediately.
   // Replaces the old Form `onValuesChange`: the controlled field already wrote
   // to the form via setFieldValue, here we mirror the change into parsedAgents.
-  const handleFieldChange = (
-    idx: number,
-    field: 'params' | 'original',
-  ) => {
+  const handleFieldChange = (idx: number, field: 'params' | 'original') => {
     if (idx >= 0) {
       const agent = parsedAgents[idx];
       const changedValue = form.getFieldValue(['agents', idx]);

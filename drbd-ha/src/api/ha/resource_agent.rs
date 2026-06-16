@@ -115,7 +115,9 @@ pub async fn list_resource_agents() -> AppResult<Json<Vec<AgentSummary>>> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/usr/lib/ocf"));
 
-    let agents = list_agents(&ocf_root).await.map_err(|e| AppError::Internal(e.to_string()))?;
+    let agents = list_agents(&ocf_root)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
 
     let summary = agents
         .into_iter()
@@ -166,11 +168,79 @@ pub async fn get_resource_agent_metadata(
 pub use crate::api::ha::toml_parse::{Action, Parameter, ResourceAgent};
 
 /// All resource agents grouped by provider
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct ResourceAgentsByProvider {
     /// Map of provider name to list of agents with metadata
     /// e.g., { "heartbeat": [agent1, agent2], "linbit": [agent3] }
     pub providers: HashMap<String, Vec<ResourceAgent>>,
+}
+
+/// Process-wide cache of the OCF agent catalog. Scanning `/usr/lib/ocf` and
+/// running each agent's `meta-data` action is expensive (seconds for ~100
+/// agents) and the installed agents do not change at runtime, so we build it
+/// once on first request and serve the clone thereafter.
+static AGENT_CATALOG: tokio::sync::OnceCell<ResourceAgentsByProvider> =
+    tokio::sync::OnceCell::const_new();
+
+/// Scan the OCF root and build the full agent catalog (the expensive path).
+async fn build_agent_catalog() -> AppResult<ResourceAgentsByProvider> {
+    let ocf_root = std::env::var("OCF_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/usr/lib/ocf"));
+
+    let mut providers_map: HashMap<String, Vec<ResourceAgent>> = HashMap::new();
+
+    let discovered_agents = list_agents(&ocf_root)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    // Each agent's metadata is an independent `meta-data` invocation; running
+    // them with bounded concurrency turns a multi-minute serial scan into a few
+    // seconds without flooding the (possibly proxied) controller with hundreds
+    // of simultaneous processes.
+    use futures::stream::StreamExt;
+    const METADATA_CONCURRENCY: usize = 16;
+
+    let fetched: Vec<(String, ResourceAgent)> = futures::stream::iter(discovered_agents)
+        .map(|(provider_name, agent_name)| {
+            let ocf_root = ocf_root.clone();
+            async move {
+                let agent_path = ocf_root
+                    .join("resource.d")
+                    .join(&provider_name)
+                    .join(&agent_name);
+                match get_agent_metadata(&agent_path).await {
+                    Ok((ra_metadata, _)) => {
+                        Some((provider_name, ResourceAgent::from(&ra_metadata)))
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to get metadata for {}/{}: {}",
+                            provider_name,
+                            agent_name,
+                            e
+                        );
+                        None
+                    }
+                }
+            }
+        })
+        .buffer_unordered(METADATA_CONCURRENCY)
+        .filter_map(|r| async move { r })
+        .collect()
+        .await;
+
+    for (provider_name, agent) in fetched {
+        providers_map.entry(provider_name).or_default().push(agent);
+    }
+
+    for provider_agents in providers_map.values_mut() {
+        provider_agents.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+
+    Ok(ResourceAgentsByProvider {
+        providers: providers_map,
+    })
 }
 
 /// Get all resource agents with full metadata, grouped by provider
@@ -184,44 +254,8 @@ pub struct ResourceAgentsByProvider {
     )
 )]
 pub async fn list_all_resource_agents() -> AppResult<Json<ResourceAgentsByProvider>> {
-    let ocf_root = std::env::var("OCF_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/usr/lib/ocf"));
-
-    let mut providers_map: HashMap<String, Vec<ResourceAgent>> = HashMap::new();
-
-    let discovered_agents =
-        list_agents(&ocf_root).await.map_err(|e| AppError::Internal(e.to_string()))?;
-
-    for (provider_name, agent_name) in discovered_agents {
-        let agent_path = ocf_root
-            .join("resource.d")
-            .join(&provider_name)
-            .join(&agent_name);
-        let (ra_metadata, _) = match get_agent_metadata(&agent_path).await {
-            Ok(meta) => meta,
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to get metadata for {}/{}: {}",
-                    provider_name,
-                    agent_name,
-                    e
-                );
-                continue;
-            }
-        };
-
-        let agent: ResourceAgent = ResourceAgent::from(&ra_metadata);
-        providers_map.entry(provider_name).or_default().push(agent);
-    }
-
-    for provider_agents in providers_map.values_mut() {
-        provider_agents.sort_by(|a, b| a.name.cmp(&b.name));
-    }
-
-    Ok(Json(ResourceAgentsByProvider {
-        providers: providers_map,
-    }))
+    let catalog = AGENT_CATALOG.get_or_try_init(build_agent_catalog).await?;
+    Ok(Json(catalog.clone()))
 }
 
 #[cfg(test)]

@@ -1,10 +1,9 @@
-import * as React from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from 'lucide-react';
+import * as React from 'react';
 
-import { cn } from "@/lib/utils";
+import { cn } from '@/lib/utils';
 
-export interface SpinnerProps
-  extends React.HTMLAttributes<SVGSVGElement> {
+export interface SpinnerProps extends React.HTMLAttributes<SVGSVGElement> {
   size?: number;
 }
 
@@ -14,11 +13,11 @@ const Spinner = React.forwardRef<SVGSVGElement, SpinnerProps>(
       ref={ref}
       width={size}
       height={size}
-      className={cn("animate-spin text-muted-foreground", className)}
+      className={cn('animate-spin text-muted-foreground', className)}
       {...props}
     />
   ),
 );
-Spinner.displayName = "Spinner";
+Spinner.displayName = 'Spinner';
 
 export { Spinner };

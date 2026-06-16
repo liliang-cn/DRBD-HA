@@ -311,75 +311,79 @@ pub async fn create_profile(
             .iter()
             .filter(|node| !state.is_controller_node(node))
             .collect();
-        for node in &remote_nodes {
-            let credential = crate::core::SshCredential::Password("ignored".to_string());
-            let state_for_write = state.clone();
-
-            state_for_write
-                .ssh_manager
-                .write_file(
-                    &node.ip,
-                    node.ssh_port,
-                    &node.ssh_user,
-                    &credential,
-                    &config_path,
-                    &config_content,
-                )
-                .await?;
-
-            let verification_config = drbd_utils::VerificationConfig {
-                max_attempts: 3,
-                retry_delay_secs: 2,
-                continue_on_failure: true,
-            };
-
-            let node_ip = node.ip.clone();
-            let node_port = node.ssh_port;
-            let node_user = node.ssh_user.clone();
-            let state_for_exec = state.clone();
-            let ssh_executor = move |cmd: String| async move {
-                match state_for_exec
+        // Write the DRBD config to every remote node concurrently, then verify.
+        let write_results = futures::future::join_all(remote_nodes.iter().map(|node| {
+            let state = state.clone();
+            let config_path = config_path.clone();
+            let config_content = config_content.clone();
+            let resource_name = req.resource_name.clone();
+            async move {
+                let credential = crate::core::SshCredential::Password("ignored".to_string());
+                state
                     .ssh_manager
-                    .execute(&node_ip, node_port, &node_user, &credential, &cmd)
-                    .await
-                {
-                    Ok(output) => Ok(output.stdout),
-                    Err(e) => Err(shell_cmd::error::ShellError::Execution(e.to_string())),
-                }
-            };
+                    .write_file(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        &config_path,
+                        &config_content,
+                    )
+                    .await?;
 
-            match drbd_utils::DrbdVerifier::verify_remote_drbd_status(
-                &req.resource_name,
-                ssh_executor,
-                verification_config,
-            )
-            .await
-            {
-                Ok(result) => {
-                    if result.success {
-                        tracing::info!(
-                            "✓ DRBD config verified on remote node {}: {} (attempts: {})",
-                            node.hostname,
-                            req.resource_name,
-                            result.attempts
-                        );
-                    } else {
-                        tracing::warn!(
-                            "⚠ DRBD verification failed on remote node {} after {} attempts: {}",
-                            node.hostname,
-                            result.attempts,
-                            result.details.status_info
-                        );
+                let verification_config = drbd_utils::VerificationConfig {
+                    max_attempts: 3,
+                    retry_delay_secs: 2,
+                    continue_on_failure: true,
+                };
+
+                let node_ip = node.ip.clone();
+                let node_port = node.ssh_port;
+                let node_user = node.ssh_user.clone();
+                let state_for_exec = state.clone();
+                let ssh_executor = move |cmd: String| async move {
+                    match state_for_exec
+                        .ssh_manager
+                        .execute(&node_ip, node_port, &node_user, &credential, &cmd)
+                        .await
+                    {
+                        Ok(output) => Ok(output.stdout),
+                        Err(e) => Err(shell_cmd::error::ShellError::Execution(e.to_string())),
                     }
-                }
-                Err(e) => {
-                    tracing::warn!(
+                };
+
+                match drbd_utils::DrbdVerifier::verify_remote_drbd_status(
+                    &resource_name,
+                    ssh_executor,
+                    verification_config,
+                )
+                .await
+                {
+                    Ok(result) if result.success => tracing::info!(
+                        "✓ DRBD config verified on remote node {}: {} (attempts: {})",
+                        node.hostname,
+                        resource_name,
+                        result.attempts
+                    ),
+                    Ok(result) => tracing::warn!(
+                        "⚠ DRBD verification failed on remote node {} after {} attempts: {}",
+                        node.hostname,
+                        result.attempts,
+                        result.details.status_info
+                    ),
+                    Err(e) => tracing::warn!(
                         "⚠ Failed to verify DRBD status on remote node {}: {}",
                         node.hostname,
                         e
-                    );
+                    ),
                 }
+                Ok::<(), AppError>(())
             }
+        }))
+        .await;
+        // Propagate the first write failure (verification is log-only above).
+        for r in write_results {
+            r?;
         }
 
         let create_md_cmd = DrbdCmd::create_md_cmd(&req.resource_name)?;
@@ -388,28 +392,39 @@ pub async fn create_profile(
         run_shell_command(&create_md_cmd, "Create local metadata").await?;
         run_shell_command(&up_cmd, "Up local resource").await?;
 
-        for node in &remote_nodes {
-            let credential = crate::core::SshCredential::Password("ignored".to_string());
-            state
-                .ssh_manager
-                .execute(
-                    &node.ip,
-                    node.ssh_port,
-                    &node.ssh_user,
-                    &credential,
-                    &create_md_cmd,
-                )
-                .await?;
-            state
-                .ssh_manager
-                .execute(
-                    &node.ip,
-                    node.ssh_port,
-                    &node.ssh_user,
-                    &credential,
-                    &up_cmd,
-                )
-                .await?;
+        // create-md + up on every remote node concurrently.
+        let md_results = futures::future::join_all(remote_nodes.iter().map(|node| {
+            let state = state.clone();
+            let create_md_cmd = create_md_cmd.clone();
+            let up_cmd = up_cmd.clone();
+            async move {
+                let credential = crate::core::SshCredential::Password("ignored".to_string());
+                state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        &create_md_cmd,
+                    )
+                    .await?;
+                state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        &up_cmd,
+                    )
+                    .await?;
+                Ok::<(), AppError>(())
+            }
+        }))
+        .await;
+        for r in md_results {
+            r?;
         }
     } else if let (Some(pool_id), Some(volume_size_gb)) =
         (&req.zfs_pool_id, &req.zfs_volume_size_gb)
@@ -570,75 +585,78 @@ pub async fn create_profile(
             .iter()
             .filter(|node| !state.is_controller_node(node))
             .collect();
-        for node in &remote_nodes {
-            let credential = crate::core::SshCredential::Password("ignored".to_string());
-            let state_for_write = state.clone();
-
-            state_for_write
-                .ssh_manager
-                .write_file(
-                    &node.ip,
-                    node.ssh_port,
-                    &node.ssh_user,
-                    &credential,
-                    &config_path,
-                    &config_content,
-                )
-                .await?;
-
-            let verification_config = drbd_utils::VerificationConfig {
-                max_attempts: 3,
-                retry_delay_secs: 2,
-                continue_on_failure: true,
-            };
-
-            let node_ip = node.ip.clone();
-            let node_port = node.ssh_port;
-            let node_user = node.ssh_user.clone();
-            let state_for_exec = state.clone();
-            let ssh_executor = move |cmd: String| async move {
-                match state_for_exec
+        // Write the DRBD config to every remote node concurrently, then verify.
+        let write_results = futures::future::join_all(remote_nodes.iter().map(|node| {
+            let state = state.clone();
+            let config_path = config_path.clone();
+            let config_content = config_content.clone();
+            let resource_name = req.resource_name.clone();
+            async move {
+                let credential = crate::core::SshCredential::Password("ignored".to_string());
+                state
                     .ssh_manager
-                    .execute(&node_ip, node_port, &node_user, &credential, &cmd)
-                    .await
-                {
-                    Ok(output) => Ok(output.stdout),
-                    Err(e) => Err(shell_cmd::error::ShellError::Execution(e.to_string())),
-                }
-            };
+                    .write_file(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        &config_path,
+                        &config_content,
+                    )
+                    .await?;
 
-            match drbd_utils::DrbdVerifier::verify_remote_drbd_status(
-                &req.resource_name,
-                ssh_executor,
-                verification_config,
-            )
-            .await
-            {
-                Ok(result) => {
-                    if result.success {
-                        tracing::info!(
-                            "✓ DRBD config verified on remote node {}: {} (attempts: {})",
-                            node.hostname,
-                            req.resource_name,
-                            result.attempts
-                        );
-                    } else {
-                        tracing::warn!(
-                            "⚠ DRBD verification failed on remote node {} after {} attempts: {}",
-                            node.hostname,
-                            result.attempts,
-                            result.details.status_info
-                        );
+                let verification_config = drbd_utils::VerificationConfig {
+                    max_attempts: 3,
+                    retry_delay_secs: 2,
+                    continue_on_failure: true,
+                };
+
+                let node_ip = node.ip.clone();
+                let node_port = node.ssh_port;
+                let node_user = node.ssh_user.clone();
+                let state_for_exec = state.clone();
+                let ssh_executor = move |cmd: String| async move {
+                    match state_for_exec
+                        .ssh_manager
+                        .execute(&node_ip, node_port, &node_user, &credential, &cmd)
+                        .await
+                    {
+                        Ok(output) => Ok(output.stdout),
+                        Err(e) => Err(shell_cmd::error::ShellError::Execution(e.to_string())),
                     }
-                }
-                Err(e) => {
-                    tracing::warn!(
+                };
+
+                match drbd_utils::DrbdVerifier::verify_remote_drbd_status(
+                    &resource_name,
+                    ssh_executor,
+                    verification_config,
+                )
+                .await
+                {
+                    Ok(result) if result.success => tracing::info!(
+                        "✓ DRBD config verified on remote node {}: {} (attempts: {})",
+                        node.hostname,
+                        resource_name,
+                        result.attempts
+                    ),
+                    Ok(result) => tracing::warn!(
+                        "⚠ DRBD verification failed on remote node {} after {} attempts: {}",
+                        node.hostname,
+                        result.attempts,
+                        result.details.status_info
+                    ),
+                    Err(e) => tracing::warn!(
                         "⚠ Failed to verify DRBD status on remote node {}: {}",
                         node.hostname,
                         e
-                    );
+                    ),
                 }
+                Ok::<(), AppError>(())
             }
+        }))
+        .await;
+        for r in write_results {
+            r?;
         }
 
         let create_md_cmd = DrbdCmd::create_md_cmd(&req.resource_name)?;
@@ -647,28 +665,39 @@ pub async fn create_profile(
         run_shell_command(&create_md_cmd, "Create local metadata").await?;
         run_shell_command(&up_cmd, "Up local resource").await?;
 
-        for node in &remote_nodes {
-            let credential = crate::core::SshCredential::Password("ignored".to_string());
-            state
-                .ssh_manager
-                .execute(
-                    &node.ip,
-                    node.ssh_port,
-                    &node.ssh_user,
-                    &credential,
-                    &create_md_cmd,
-                )
-                .await?;
-            state
-                .ssh_manager
-                .execute(
-                    &node.ip,
-                    node.ssh_port,
-                    &node.ssh_user,
-                    &credential,
-                    &up_cmd,
-                )
-                .await?;
+        // create-md + up on every remote node concurrently.
+        let md_results = futures::future::join_all(remote_nodes.iter().map(|node| {
+            let state = state.clone();
+            let create_md_cmd = create_md_cmd.clone();
+            let up_cmd = up_cmd.clone();
+            async move {
+                let credential = crate::core::SshCredential::Password("ignored".to_string());
+                state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        &create_md_cmd,
+                    )
+                    .await?;
+                state
+                    .ssh_manager
+                    .execute(
+                        &node.ip,
+                        node.ssh_port,
+                        &node.ssh_user,
+                        &credential,
+                        &up_cmd,
+                    )
+                    .await?;
+                Ok::<(), AppError>(())
+            }
+        }))
+        .await;
+        for r in md_results {
+            r?;
         }
     }
 

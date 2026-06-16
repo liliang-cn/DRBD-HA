@@ -436,7 +436,7 @@ pub async fn enable_profile(
         }
     }
 
-    let success = enabled_nodes.len() > 0;
+    let success = !enabled_nodes.is_empty();
     let message = if failed_nodes.is_empty() {
         format!(
             "Profile '{}' enabled on all {} nodes",

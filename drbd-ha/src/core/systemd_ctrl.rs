@@ -13,7 +13,7 @@ enum SystemdControllerBackend {
 }
 
 fn systemd_proxy_enabled() -> bool {
-    std::env::var("DRBD_HA_REMOTE_EXEC_HOST").is_ok()
+    dispatch_config::command_proxy().is_some()
 }
 
 fn parse_service_status(unit: &str, output: &str) -> ServiceStatus {

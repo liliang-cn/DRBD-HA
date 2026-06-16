@@ -47,7 +47,7 @@ impl DrbdReactorClient {
         }
 
         // Add profile name
-        cmd.push_str(" ");
+        cmd.push(' ');
         cmd.push_str(profile_name);
 
         cmd

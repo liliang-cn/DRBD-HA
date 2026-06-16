@@ -191,7 +191,10 @@ fn push_json_service(entry: &Value, services: &mut Vec<ReactorServiceStatus>) {
 /// `enabled` boolean. Older releases omit the field and only ever list enabled
 /// plugins, so a missing field is treated as `enabled: true`.
 fn is_enabled(entry: &Value) -> bool {
-    entry.get("enabled").and_then(Value::as_bool).unwrap_or(true)
+    entry
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
 }
 
 fn profile_name_from_path(path: &str) -> Option<String> {

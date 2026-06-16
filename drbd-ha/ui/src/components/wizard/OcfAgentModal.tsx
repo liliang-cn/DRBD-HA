@@ -1,5 +1,6 @@
-import { LayoutGrid, Info } from 'lucide-react';
+import { Info, LayoutGrid } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import {
   type AgentSummary,
   type ResourceAgent,
@@ -30,7 +31,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
 import type { OcfAgentConfig } from '@/types';
 
 interface OcfAgentModalProps {

@@ -1,3 +1,4 @@
+import type { OcfAgentWithMetadata } from '@/api/ha-profiles';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { OcfAgentWithMetadata } from '@/api/ha-profiles';
 
 interface AddParameterModalProps {
   visible: boolean;
@@ -39,9 +39,9 @@ export function AddParameterModal({
   // currentAgentIndex is an instanceId; resolve the matching agent.
   const agent =
     currentAgentIndex !== null
-      ? parsedAgents.find(
+      ? (parsedAgents.find(
           (a) => (a as any).instanceId === currentAgentIndex,
-        ) ?? parsedAgents[currentAgentIndex]
+        ) ?? parsedAgents[currentAgentIndex])
       : null;
 
   const options =

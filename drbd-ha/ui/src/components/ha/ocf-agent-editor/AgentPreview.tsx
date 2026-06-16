@@ -1,15 +1,10 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Spinner } from '@/components/ui/spinner';
 import type {
   OcfAgentWithMetadata,
   ParamEntry,
   ParsedOcfAgent,
 } from '@/api/ha-profiles';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
 
 // Helper function to generate OCF string from agent data
 function generateOcfString(
@@ -83,9 +78,7 @@ export function AgentPreview({
         flexDirection: 'column',
       }}
     >
-      <Card
-        className="flex h-full flex-col border-0 shadow-none"
-      >
+      <Card className="flex h-full flex-col border-0 shadow-none">
         <CardHeader className="px-4 py-3">
           <CardTitle className="text-sm font-semibold">
             Live Preview (TOML)

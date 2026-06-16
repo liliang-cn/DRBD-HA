@@ -92,3 +92,50 @@ impl SystemdCmd {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unit_commands_include_unit_name() {
+        assert_eq!(
+            SystemdCmd::start_cmd("mysql.service"),
+            "systemctl start mysql.service"
+        );
+        assert_eq!(
+            SystemdCmd::stop_cmd("mysql.service"),
+            "systemctl stop mysql.service"
+        );
+        assert_eq!(
+            SystemdCmd::enable_now_cmd("mysql.service"),
+            "systemctl enable --now mysql.service"
+        );
+        assert_eq!(
+            SystemdCmd::disable_now_cmd("mysql.service"),
+            "systemctl disable --now mysql.service"
+        );
+        assert_eq!(
+            SystemdCmd::is_enabled_cmd("mysql.service"),
+            "systemctl is-enabled mysql.service"
+        );
+    }
+
+    #[test]
+    fn reset_failed_handles_optional_unit() {
+        assert_eq!(SystemdCmd::reset_failed_cmd(None), "systemctl reset-failed");
+        assert_eq!(
+            SystemdCmd::reset_failed_cmd(Some("r0.service")),
+            "systemctl reset-failed r0.service"
+        );
+    }
+
+    #[test]
+    fn global_commands_have_no_unit() {
+        assert_eq!(SystemdCmd::daemon_reload_cmd(), "systemctl daemon-reload");
+        assert_eq!(
+            SystemdCmd::list_services_cmd(),
+            "systemctl list-units --type=service --all"
+        );
+    }
+}
