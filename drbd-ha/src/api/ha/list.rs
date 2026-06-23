@@ -592,9 +592,27 @@ pub async fn fetch_profile_details(
         ssh_manager: state.ssh_manager.clone(),
         credential,
     };
-    let ssh_port = 22;
-    let ssh_user = "root";
-    let remote_query = drbd_utils::RemoteDrbdQuery::new(ssh_executor, ssh_port, ssh_user);
+    // Resolve SSH credentials for the active node from the node store, falling
+    // back to the configured defaults. Don't assume root@22 — nodes may use a
+    // non-root user (e.g. liliang + sudo) and a custom port.
+    let (ssh_user, ssh_port) = active_node_from_drbd
+        .as_deref()
+        .and_then(|host| {
+            state
+                .node_store
+                .get_all()
+                .ok()?
+                .into_iter()
+                .find(|n| n.hostname == host || n.ip == host)
+        })
+        .map(|n| (n.ssh_user, n.ssh_port))
+        .unwrap_or_else(|| {
+            (
+                state.config.ssh.default_user.clone(),
+                state.config.ssh.default_port,
+            )
+        });
+    let remote_query = drbd_utils::RemoteDrbdQuery::new(ssh_executor, ssh_port, &ssh_user);
 
     // Get local hostname
     let local_hostname = state.controller_hostname();

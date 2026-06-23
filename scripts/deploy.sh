@@ -59,11 +59,15 @@ scp target/release/drbd-ha "$REMOTE_HOST:/tmp/drbd-ha"
 ssh "$REMOTE_HOST" "sudo mv /tmp/drbd-ha /opt/drbd-ha/drbd-ha && sudo chmod +x /opt/drbd-ha/drbd-ha"
 echo "  → Binary updated"
 
-# Copy config if not exists
+# Copy config if not exists.
+# deploy.sh installs drbd-ha ONTO the target host, so the controller runs on a
+# cluster node — use embedded mode so it reads local DRBD/drbd-reactor state
+# directly instead of proxying over SSH (external mode would leave the UI empty
+# until reconfigured, e.g. after a node re-image).
 if ! ssh "$REMOTE_HOST" "test -f /etc/drbd-ha/config.toml"; then
     scp drbd-ha/config/default.toml "$REMOTE_HOST:/tmp/config.toml"
-    ssh "$REMOTE_HOST" "sudo mv /tmp/config.toml /etc/drbd-ha/config.toml"
-    echo "  → Config file created"
+    ssh "$REMOTE_HOST" "sudo sed -i 's/^mode = \"external\"/mode = \"embedded\"/' /tmp/config.toml && sudo mv /tmp/config.toml /etc/drbd-ha/config.toml"
+    echo "  → Config file created (controller mode: embedded)"
 else
     echo "  → Config file already exists, skipping"
 fi
