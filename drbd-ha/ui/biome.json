@@ -13,7 +13,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/*.css"]
+    "includes": ["**", "!**/*.css", "!**/*.svg"]
   },
   "formatter": {
     "indentStyle": "space"
