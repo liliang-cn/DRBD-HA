@@ -260,7 +260,7 @@ pub async fn fetch_profile_details(
     // Load profile from toml file (try both .toml and .toml.disabled)
     let config_path = ConfigPaths::promoter_path(&id_or_name);
     let reactor_dir = ConfigPaths::REACTOR_CONF_DIR;
-    let disabled_path = format!("{}/{}.toml.disabled", reactor_dir, &id_or_name);
+    let disabled_path = format!("{}/{}.toml.disabled", reactor_dir, id_or_name);
 
     let (content, is_disabled) = if let Ok(content) = state.read_controller_file(&config_path).await
     {
