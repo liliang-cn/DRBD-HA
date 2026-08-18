@@ -11,3 +11,6 @@ drbd-ha/ui/node_modules/
 .playwright-mcp/
 generated-agents/.playwright-mcp/
 /*.png
+
+# macOS
+.DS_Store
