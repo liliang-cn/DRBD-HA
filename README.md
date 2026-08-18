@@ -1,186 +1,172 @@
 # DRBD HA
 
-A modern, Rust-based High Availability management system for DRBD, LVM, and Systemd services.
+[![CI](https://github.com/liliang-cn/DRBD-HA/actions/workflows/ci.yml/badge.svg)](https://github.com/liliang-cn/DRBD-HA/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.87%2B-orange.svg)](https://www.rust-lang.org)
+
+A Rust-based management system for building highly available services on
+[DRBD](https://linbit.com/drbd/) — replicated block storage with automatic failover
+driven by [`drbd-reactor`](https://github.com/LINBIT/drbd-reactor).
+
+Point it at two or three Linux nodes and it handles the whole stack: carve out LVM/ZFS
+volumes, create and sync the DRBD resource, lay down the filesystem, and generate the
+`drbd-reactor` promoter config that moves your mount, VIP and services to whichever node
+holds Primary.
+
+**Why this exists.** Setting up DRBD + drbd-reactor by hand means hand-writing `.res`
+files with matching node-ids across every node, getting the promoter's ordered `start`
+array right, and remembering that `auto-promote` must be off and managed services must be
+`systemctl disable`d. Each of those is silent when wrong — you find out during an outage.
+This tool generates all of it consistently and shows you the resulting state.
+
+> **Status:** works and is in use, but treat it as beta. Test failover in a lab before
+> putting production data behind it. See [Verifying failover](#verifying-failover).
 
 ## Features
 
-*   **Cluster Management**: Manage multiple nodes via SSH from either an embedded controller node or an external controller host.
-*   **Storage Management**: Create LVM Volume Groups and Logical Volumes (with thin pool support) and ZFS volumes across the cluster.
-*   **DRBD Resources**: Create, initialize, and manage DRBD resources automatically.
-*   **High Availability**: Define HA profiles for systemd services that automatically failover using `drbd-reactor`.
-*   **Configuration Discovery**: Automatically discover and import existing `drbd-reactor` configurations from `/etc/drbd-reactor.d/`.
-*   **AI Agent Integration (MCP)**: A built-in [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp` exposes cluster operations as tools, with bundled operational playbooks as prompts. See [AI Agent Integration](#ai-agent-integration-mcp).
-*   **Observability**: Real-time dashboard, dual-channel logging (console + file), and Swagger API documentation.
+- **Cluster management** — drive 2–3 nodes over SSH, from a node in the cluster
+  (`embedded`) or from a workstation outside it (`external`)
+- **Storage** — LVM volume groups and logical volumes (incl. thin pools), and ZFS volumes
+- **DRBD resources** — create, initialise and manage resources, with config generated
+  identically on every node
+- **High availability** — HA profiles for systemd services with automatic failover via
+  `drbd-reactor`, optional virtual IP
+- **Import existing setups** — discovers and adopts configs already in
+  `/etc/drbd-reactor.d/`
+- **AI agent integration** — a built-in [MCP](https://modelcontextprotocol.io) server at
+  `/mcp` exposes cluster operations as tools, with operational playbooks as prompts
+- **Observability** — live dashboard, console + file logging, Swagger API docs,
+  Prometheus metrics
 
 ## Requirements
 
-*   **Operating System**:
-    *   `embedded` mode: Linux only (tested on Ubuntu/Debian, RHEL/CentOS)
-    *   `external` mode: Linux, macOS, or Windows, as long as the host can reach managed nodes over SSH
-*   **Permissions**:
-    *   `embedded` mode: `drbd-ha` must run as `root` on the controller host
-    *   `external` mode: the management host does not need local DRBD/LVM/systemd privileges; only SSH client access to managed nodes is required
-*   **Remote Access**: Managed nodes must allow passwordless SSH for the SSH account you actually use. If that user is not `root`, it must also allow passwordless sudo (`sudo -n`).
-*   **Dependencies**:
-    *   Managed nodes: `lvm2`, `drbd-utils` & `drbd-dkms`, `drbd-reactor`, `systemd`
-    *   Controller host: `ssh` client
-*   **Default SSH User**: If you do not set one explicitly, `drbd-ha` uses `DRBD_HA_SSH_USER`, then the current login user, and finally falls back to `root`.
+**Managed nodes** (the machines holding the data) — Linux with `lvm2`,
+`drbd-utils` + `drbd-dkms`, `drbd-reactor` and `systemd`.
 
-## Controller Modes
+**Controller** (where `drbd-ha` runs) — depends on the mode:
 
-`drbd-ha` supports two deployment modes:
+| | `external` (default) | `embedded` |
+|---|---|---|
+| OS | Linux, macOS or Windows | Linux only |
+| Privileges | none locally — SSH access is enough | must run as `root` |
+| Role | pure management host, outside the cluster | is itself a cluster node |
 
-- `external`: the default mode. `drbd-ha` runs on a separate management host outside the cluster and talks to managed nodes purely over SSH.
-- `embedded`: opt-in mode. `drbd-ha` runs on one of the managed cluster nodes and treats that node as the controller execution target.
+**SSH access.** Managed nodes need passwordless SSH for the account you use. If that
+account is not `root`, it also needs passwordless sudo (`sudo -n`). The built-in node
+check only reports a node online when both work.
 
-Example external controller configuration:
+The SSH user defaults to `DRBD_HA_SSH_USER`, then your login user, then `root`.
+
+## Quick start
+
+```bash
+# Build (compiles the Rust backend and embeds the React UI)
+make release
+
+# Deploy to a node
+./scripts/deploy.sh root@node1
+
+# Open the UI
+open http://node1:3373
+```
+
+Then, in the UI: add your nodes → create a storage pool → create an HA profile.
+
+## Controller modes
+
+**`external`** (default) — `drbd-ha` runs outside the cluster and talks to nodes purely
+over SSH. The controller needs no local DRBD/LVM/systemd state, so a laptop works.
+`drbd-ha` picks a managed node automatically when it needs cluster-side operations.
 
 ```toml
 [controller]
 mode = "external"
-# optional advanced override; usually you do not need this
-# proxy_host = "gui01"
-# optional; defaults to [ssh].default_port / [ssh].default_user
+
+# Optional: pin controller-side operations to one node instead of auto-selecting
+# proxy_host = "node1"
 # proxy_port = 22
 # proxy_user = "cluster-admin"
 
 [ssh]
-# optional global default for all nodes
+# Optional global default for all nodes
 # default_user = "cluster-admin"
 ```
 
-In `external` mode:
+**`embedded`** — `drbd-ha` runs *on* a cluster node and treats that node as the execution
+target, reading local DRBD/reactor state directly.
 
-- The machine running `drbd-ha` does not need DRBD/LVM/systemd cluster state locally.
-- The machine running `drbd-ha` can be a regular Linux/macOS/Windows host as long as it can reach the managed nodes over SSH.
-- You only need to configure managed nodes in the UI/API and make SSH work. `drbd-ha` will automatically choose a managed node when it needs cluster-side config or system operations.
-- `proxy_host` remains available only as an advanced override if you want to pin those controller-side operations to a specific node.
-- Local controller config/state defaults to platform-appropriate user paths when `/etc/drbd-ha` is not present.
-- Startup automatically detects the controller platform. On non-Linux hosts, `drbd-ha` automatically forces `mode = "external"` for SSH-only management.
-- `/api/v1/health` reports both the detected `platform` and the active `controller_mode`.
-
-## Installation & Deployment
-
-### Quick Deployment (Recommended)
-
-The easiest way to deploy drbd-ha is using the automated deployment script that builds locally and deploys to remote servers:
-
-```bash
-# Deploy to remote server (builds locally, installs remotely)
-./scripts/deploy.sh root@orange1
-
-# Deploy pre-built binaries (skip build)
-./scripts/deploy.sh root@orange1 --skip-build
-
-# Debug build
-./scripts/deploy.sh root@orange1 --dev
-
-# Deploy to multiple servers
-for host in orange1 orange2 orange3; do
-    ./scripts/deploy.sh root@$host
-done
+```toml
+[controller]
+mode = "embedded"
 ```
 
-The deployment script will:
-1. **Build locally** (unless `--skip-build` is used)
-   - Compiles Rust backend
-   - Builds React UI
-   - Embeds UI into binary
-2. **Transfer files via SCP** to remote server
-   - Binary → `/tmp/drbd-ha-deploy/drbd-ha`
-   - Config → `/tmp/drbd-ha-deploy/config.toml`
-   - Install script → `/tmp/drbd-ha-deploy/install.sh`
-3. **Execute install script** on remote server via SSH
-   - Creates directories (`/opt/drbd-ha`, `/etc/drbd-ha`, `/var/lib/drbd-ha`, `/var/log/drbd-ha`)
-   - Installs binary to `/opt/drbd-ha/drbd-ha`
-   - Creates systemd service
-   - Starts the service
+Startup detects the platform: on non-Linux hosts `external` is forced automatically.
+`/api/v1/health` reports both the detected `platform` and the active `controller_mode`.
 
-**Requirements:**
-- **Local Machine**: Makefile, ssh/scp commands, SSH access to remote server
-- **Remote Server**: Root/sudo privileges, Linux with systemd, lvm2, drbd-utils, drbd-reactor
+## Installation
 
-### Updating Existing Deployment
-
-To update an already-deployed server without full reinstallation:
+### Automated (recommended)
 
 ```bash
-# Build and update
-./scripts/update.sh root@orange1
+# Single host: build locally, install remotely
+./scripts/deploy.sh root@node1
 
-# Update with existing binary (skip build)
-./scripts/update.sh root@orange1 --skip-build
+# Reuse the existing binary, and restart the service after copying
+./scripts/deploy.sh root@node1 --skip-build --restart
 
-# Debug build
-./scripts/update.sh root@orange1 --dev
+# Several hosts in parallel
+./scripts/deploy-all.sh root@node1 root@node2 root@node3 --restart
 ```
 
-The update script will:
-1. **Build locally** (unless `--skip-build` is used)
-2. **Stop the service** on remote server
-3. **Upload new binary** via SCP
-4. **Replace the old binary**
-5. **Start the service**
+The script builds the Rust backend and React UI locally, embeds the UI into the binary,
+copies everything over via SCP, then installs it: directories under `/opt/drbd-ha`,
+`/etc/drbd-ha`, `/var/lib/drbd-ha`, `/var/log/drbd-ha`, a systemd unit, and start.
 
-This preserves all configuration, data, and logs while updating the binary.
+Re-running `deploy.sh` on an existing install replaces the binary and leaves
+`/etc/drbd-ha` and `/var/lib/drbd-ha` untouched, so it doubles as the update path.
 
-### Manual Installation
-
-If you prefer manual installation, follow these steps:
-
-#### 1. Build from Source
+To remove it:
 
 ```bash
-# Build UI and Backend
-make build
-
-# Or build release binaries
-make release
-
-# The binary will be at: target/release/drbd-ha
+sudo systemctl disable --now drbd-ha
+sudo rm -rf /opt/drbd-ha /etc/systemd/system/drbd-ha.service
+sudo systemctl daemon-reload
+# config, state and logs, if you also want them gone:
+sudo rm -rf /etc/drbd-ha /var/lib/drbd-ha /var/log/drbd-ha
 ```
 
-#### 2. Setup SSH Access (IMPORTANT)
+Removing `drbd-ha` does **not** tear down the clusters it configured — the DRBD resources
+and `drbd-reactor` configs on the nodes keep running on their own.
 
-Use SSH keys for the account configured on each managed node. You can set a global `[ssh].default_user`, or leave the field empty per node and let `drbd-ha` use that default.
+### Manual
 
-Supported remote access modes:
+<details>
+<summary>Build, configure SSH, and install as a systemd service</summary>
 
-- SSH directly as `root`
-- SSH as a non-root user that has passwordless sudo (`sudo -n`)
-
-On the machine where drbd-ha will run:
+**1. Build**
 
 ```bash
-# Generate SSH key (if not exists)
-ssh-keygen -t rsa -b 4096
-
-# Option A: root SSH on each cluster node
-ssh-copy-id root@orange2
-ssh-copy-id root@orange3
-
-# Test root SSH access
-ssh -o BatchMode=yes root@orange2 echo ok
-
-# Option B: non-root user with passwordless sudo
-# First, ensure the user can sudo without a password on the managed nodes:
-#   sudo visudo
-#   <user> ALL=(ALL) NOPASSWD:ALL
-ssh-copy-id ubuntu@orange2
-ssh-copy-id ubuntu@orange3
-
-# Test SSH and passwordless sudo
-ssh -o BatchMode=yes ubuntu@orange2 echo ok
-ssh -o BatchMode=yes ubuntu@orange2 "sudo -n true"
+make build      # or: make release
+# binary at target/release/drbd-ha
 ```
 
-**How node checks work:** The built-in node health check only reports a remote node as online when passwordless SSH works and, for non-root SSH users, `sudo -n` also succeeds.
+**2. Set up SSH access**
 
-**External mode note:** when `[controller].mode = "external"`, the management host only needs SSH connectivity to the cluster nodes. If you optionally pin `proxy_host`, that node must also satisfy the same passwordless SSH and sudo requirements.
+Either SSH directly as `root`, or as a non-root user with passwordless sudo:
 
-#### 3. Deploy as System Service
+```bash
+ssh-keygen -t ed25519
 
-**Step 1: Install Binary & Config**
+# Option A: root
+ssh-copy-id root@node2
+ssh -o BatchMode=yes root@node2 echo ok
+
+# Option B: non-root + NOPASSWD sudo (visudo: <user> ALL=(ALL) NOPASSWD:ALL)
+ssh-copy-id admin@node2
+ssh -o BatchMode=yes admin@node2 "sudo -n true"
+```
+
+**3. Install**
 
 ```bash
 sudo mkdir -p /opt/drbd-ha /etc/drbd-ha /var/lib/drbd-ha /var/log/drbd-ha
@@ -188,9 +174,7 @@ sudo cp target/release/drbd-ha /opt/drbd-ha/
 sudo cp config/default.toml /etc/drbd-ha/config.toml
 ```
 
-**Step 2: Configure Logging (Optional)**
-
-Edit `/etc/drbd-ha/config.toml` to enable file logging:
+Optionally enable file logging in `/etc/drbd-ha/config.toml`:
 
 ```toml
 [log]
@@ -198,104 +182,121 @@ level = "info"
 file = "/var/log/drbd-ha/drbd-ha.log"
 ```
 
-If you want the controller host itself to behave as a managed cluster node, explicitly enable embedded mode:
-
-```toml
-[controller]
-mode = "embedded"
-```
-
-**Step 3: Create Systemd Service**
-
-Create `/etc/systemd/system/drbd-ha.service`:
+**4. Create `/etc/systemd/system/drbd-ha.service`**
 
 ```ini
 [Unit]
 Description=DRBD HA Manager Service
-Documentation=https://github.com/LINBIT/drbd-ha
 After=network.target drbd-reactor.service
 Wants=drbd-reactor.service
 
 [Service]
 Type=simple
 User=root
-Group=root
 WorkingDirectory=/opt/drbd-ha
 ExecStart=/opt/drbd-ha/drbd-ha --config /etc/drbd-ha/config.toml
 Restart=always
 RestartSec=3
-StandardOutput=journal
-StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-**Step 4: Start Service**
-
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now drbd-ha
-sudo systemctl status drbd-ha
 ```
 
-### Uninstallation
-
-To remove the service:
-
-```bash
-# Remove service but keep configuration/data
-sudo ./scripts/uninstall.sh
-
-# Remove everything including configuration/data
-sudo ./scripts/uninstall.sh --purge-all
-```
+</details>
 
 ## Usage
 
-*   **Web UI**: Open `http://<server-ip>:3373` in your browser.
-*   **API Docs**: Open `http://<server-ip>:3373/swagger-ui/` for interactive API documentation.
-*   **Logs**: Check `/var/log/drbd-ha/drbd-ha.log` or `journalctl -u drbd-ha -f`.
+- **Web UI** — `http://<host>:3373`
+- **API docs** — `http://<host>:3373/swagger-ui/`
+- **Logs** — `/var/log/drbd-ha/drbd-ha.log` or `journalctl -u drbd-ha -f`
 
-## AI Agent Integration (MCP)
+## Verifying failover
 
-The backend embeds a [Model Context Protocol](https://modelcontextprotocol.io) server
-(streamable HTTP) at `/mcp`, so an AI agent can operate the cluster through the same
-operations the REST API exposes.
+An untested failover is not high availability. Before trusting this with real data:
 
-*   **Tools** — node inventory & disks, storage pools, DRBD resources (status / actions /
-    logs), HA profile lifecycle (create / activate / deactivate / enable / evict / delete /
-    TOML), `drbd-reactor` status / reload / logs, OCF agents, and systemd services.
-*   **Prompts** — the operational playbooks under `skills/drbd-ha-ops/` (operating guide +
-    safety rules, create-HA-service, failover & recovery, troubleshooting) are served to any
-    connected agent so it follows the same conventions a human operator would.
-*   **Read vs. mutate** — read-only tools (`list_*`, `get_*`, `*_status`, `*_logs`,
-    `health`, `dashboard_summary`) are always safe; mutating tools change cluster state and
-    should be verified with the status tools afterwards.
+1. **Controlled move** — evict the service from its current node; confirm it starts
+   elsewhere **and stops on the original node**.
+2. **Hard failure** — power off the Primary (not a clean shutdown); confirm the stack
+   comes up elsewhere.
+3. **Recovery** — bring the dead node back; it must rejoin as Secondary, resync, and
+   *not* start the service.
+4. **Reboot a Secondary** — it must not start the service at boot. This catches a service
+   that was left enabled, which otherwise corrupts data later by running against stale
+   storage.
 
-Connect with Claude Code (or any MCP client):
+## AI agent integration (MCP)
+
+The backend embeds an MCP server (streamable HTTP) at `/mcp`, so an agent can operate the
+cluster through the same operations the REST API exposes.
 
 ```bash
-claude mcp add --transport http drbd-ha http://<server-ip>:3373/mcp
+claude mcp add --transport http drbd-ha http://<host>:3373/mcp
 ```
 
-The repo also ships the same playbooks as a Claude Code skill in
-`.claude/skills/drbd-ha-ops/`, and an `.mcp.json` pointing at a node's `/mcp` endpoint.
+- **Tools** — nodes and disks, storage pools, DRBD resources (status / actions / logs),
+  HA profile lifecycle, `drbd-reactor` status / reload / logs, OCF agents, systemd services
+- **Prompts** — the playbooks in `skills/drbd-ha-ops/` are served to any connected agent
+- **Read vs. mutate** — read-only tools (`list_*`, `get_*`, `*_status`, `*_logs`, `health`,
+  `dashboard_summary`) are always safe; mutating tools change cluster state and should be
+  verified with the status tools afterwards
+
+### Bundled skills
+
+| Skill | Use it for |
+|---|---|
+| [`drbd-ha-ops`](skills/drbd-ha-ops/) | Operating a cluster **through this tool's MCP server** |
+| [`drbd-reactor-ha`](skills/drbd-reactor-ha/) | Building HA on **plain DRBD + drbd-reactor** — no management product needed |
+
+Both work with Claude Code (copy into `.claude/skills/`) and, being plain Markdown, with
+other agent harnesses.
 
 ## Architecture
 
-*   **Language**: Rust (Axum framework)
-*   **Frontend**: React + shadcn/ui + Radix + Tailwind (embedded in the binary via `rust_embed`)
-*   **Configuration Storage**: TOML files (nodes.toml) and DRBD configuration files.
-*   **Execution Model**:
-    *   **Local**: Direct system calls (LVM, DRBD, Systemd).
-    *   **Remote**: SSH execution. All remote commands go through the
-        [`dispatch-rs`](https://crates.io/crates/dispatch-rs) crate (a thin wrapper over the
-        system `ssh`), giving every executor one consistent connection policy
-        (see the `dispatch-config` workspace crate). Non-root nodes are driven via
-        passwordless `sudo`.
-*   **AI Integration**: An MCP server at `/mcp` (see [AI Agent Integration](#ai-agent-integration-mcp)).
+- **Backend** — Rust, [Axum](https://github.com/tokio-rs/axum)
+- **Frontend** — React + shadcn/ui + Radix + Tailwind, embedded in the binary via
+  `rust-embed`
+- **Storage of record** — TOML (`nodes.toml`) and the DRBD/drbd-reactor config files
+  themselves; there is no database to drift out of sync with the cluster
+- **Execution** — local operations run directly; every remote command goes through
+  [`dispatch-rs`](https://crates.io/crates/dispatch-rs) (a thin wrapper over system `ssh`)
+  so all executors share one connection and sudo policy
+
+The workspace is split into focused crates — `drbd-utils`, `lvm-utils`, `zfs-utils`,
+`systemd-utils`, `drbd-reactor-utils`, `ra-params` (OCF agent metadata), `config-gen`
+(the single source of truth for generated config), `ssh-cmd`/`shell-cmd`/`dispatch-config`.
+
+## Development
+
+```bash
+make build          # backend + UI
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all
+
+cd drbd-ha/ui
+npm ci
+npm run dev         # UI dev server
+npm run lint        # biome
+npm run typecheck   # tsc
+```
+
+CI runs rustfmt, clippy (`-D warnings`), the Rust test suite, and biome + tsc + build for
+the UI.
+
+> `drbd-ha/ui/dist/` must exist for the backend to compile — `rust-embed` resolves it at
+> compile time. A `.gitkeep` keeps the directory present in a fresh checkout; run
+> `npm run build` to populate it with real assets.
+
+## Contributing
+
+Issues and pull requests are welcome. Please make sure `cargo fmt`, `cargo clippy` and the
+test suite pass before opening a PR — CI enforces all three.
 
 ## License
 
-Apache-2.0
+[Apache-2.0](LICENSE)
